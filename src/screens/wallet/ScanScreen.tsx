@@ -1,8 +1,30 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Alert, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, useCodeScanner } from 'react-native-vision-camera';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { modern } from '../../components/wallet/ModernWalletUI';
+
+function parseScannedValue(value: string) {
+  if (value.startsWith('wc:')) {
+    return { type: 'walletconnect' as const, value };
+  }
+
+  if (value.startsWith('web+stellar:') || value.startsWith('stellar:')) {
+    const normalized = value.replace(/^web\+stellar:/, 'stellar:');
+    const query = normalized.includes('?') ? normalized.split('?')[1] : '';
+    const params = new URLSearchParams(query);
+    const destination =
+      params.get('destination') ||
+      params.get('to') ||
+      params.get('address') ||
+      '';
+
+    if (destination) {
+      return { type: 'address' as const, value: destination };
+    }
+  }
+
+  return { type: 'address' as const, value };
+}
 
 export function ScanScreen({ navigation }: any) {
   const device = useCameraDevice('back');
@@ -23,8 +45,18 @@ export function ScanScreen({ navigation }: any) {
         const value = codes[0].value;
         if (value) {
           setScanned(true);
-          // Navigate to Send screen, passing the scanned string as initial parameter
-          navigation.replace('Send', { prefilledAddress: value });
+          const parsed = parseScannedValue(value);
+
+          if (parsed.type === 'walletconnect') {
+            Alert.alert(
+              'WalletConnect',
+              'WalletConnect URI đã nhận. Vào Account để cấu hình Reown projectId trước khi pair dApp.',
+            );
+            navigation.goBack();
+            return;
+          }
+
+          navigation.replace('Send', { prefilledAddress: parsed.value });
         }
       }
     }

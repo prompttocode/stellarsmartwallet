@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ScrollView, Text, TextInput, View, StyleSheet } from 'react-native';
+import { ScrollView, Text, TextInput, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { Camera } from 'react-native-vision-camera';
 import ReactNativeBiometrics from 'react-native-biometrics';
 import Toast from 'react-native-toast-message';
 import { InfoLine } from '../../components/WalletPrimitives';
@@ -31,11 +30,13 @@ export function SendScreen({
 }) {
   const [step, setStep] = useState<SendStep>('compose');
   const [lastResult, setLastResult] = useState<SendResult | null>(null);
+  const { setRecipient } = wallet;
+
   useEffect(() => {
     if (route?.params?.prefilledAddress) {
-      wallet.setRecipient(route.params.prefilledAddress);
+      setRecipient(route.params.prefilledAddress);
     }
-  }, [route?.params?.prefilledAddress]);
+  }, [route?.params?.prefilledAddress, setRecipient]);
   const recipientLabel =
     wallet.recipientContact?.wallet.address === wallet.recipient
       ? wallet.recipientContact.label
@@ -61,7 +62,7 @@ export function SendScreen({
           Toast.show({ type: 'error', text1: 'Xác thực thất bại', text2: 'Không thể gửi giao dịch' });
           return;
         }
-      } catch (e) {
+      } catch {
         Toast.show({ type: 'error', text1: 'Lỗi xác thực', text2: 'Vui lòng thử lại' });
         return;
       }

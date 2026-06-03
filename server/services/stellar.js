@@ -20,7 +20,6 @@ const {
   normalizeAssetCode,
 } = require('./assets');
 const {
-  assertNetwork,
   getExplorerUrl,
   getNetworkConfig,
   normalizeNetwork,
@@ -649,17 +648,6 @@ async function quoteDemoSwap({ amount, fromAssetCode, toAssetCode }) {
   };
 }
 
-function assetFromPathRecord(record, prefix) {
-  if (record[`${prefix}_asset_type`] === 'native') {
-    return Asset.native();
-  }
-
-  return new Asset(
-    record[`${prefix}_asset_code`],
-    record[`${prefix}_asset_issuer`],
-  );
-}
-
 function parsePathAsset(assetRecord) {
   if (assetRecord.asset_type === 'native') {
     return Asset.native();
@@ -801,6 +789,84 @@ async function executeMainnetSwap({
   return {
     ...quote,
     payoutAddress: sourceAddress,
+    submitted,
+  };
+}
+
+function parseStellarXdr(xdr, network = 'testnet') {
+  const config = getNetworkConfig(network);
+
+  try {
+    return TransactionBuilder.fromXDR(String(xdr || '').trim(), config.passphrase);
+  } catch {
+    const error = new Error('XDR Stellar không hợp lệ hoặc sai network passphrase');
+    error.status = 400;
+    throw error;
+  }
+}
+
+function summarizeOperation(operation) {
+  return {
+    amount: operation.amount || operation.startingBalance || null,
+    assetCode:
+      operation.asset?.code ||
+      operation.sendAsset?.code ||
+      operation.destAsset?.code ||
+      NATIVE_ASSET_CODE,
+    destination:
+      operation.destination ||
+      operation.destAsset?.issuer ||
+      operation.asset?.issuer ||
+      null,
+    type: operation.type,
+  };
+}
+
+function reviewStellarXdr({ network = 'testnet', sourceAddress, xdr }) {
+  const transaction = parseStellarXdr(xdr, network);
+
+  if (sourceAddress && transaction.source !== sourceAddress) {
+    const error = new Error('XDR không dùng đúng source ví đang chọn');
+    error.status = 403;
+    throw error;
+  }
+
+  return {
+    fee: transaction.fee,
+    memo: transaction.memo?.value || null,
+    network: normalizeNetwork(network),
+    operationCount: transaction.operations?.length || 0,
+    operations: (transaction.operations || []).map(summarizeOperation),
+    sequence: transaction.sequence,
+    source: transaction.source,
+  };
+}
+
+async function signStellarXdr({
+  network = 'testnet',
+  sourceAddress,
+  submit = false,
+  walletId,
+  xdr,
+}) {
+  const transaction = parseStellarXdr(xdr, network);
+  const review = reviewStellarXdr({ network, sourceAddress, xdr });
+  const signatureHex = await signStellarTransaction(walletId, transaction);
+  addPrivySignature(transaction, sourceAddress, signatureHex);
+
+  if (!submit) {
+    return {
+      review,
+      signedXdr: transaction.toEnvelope().toXDR('base64'),
+      submitted: null,
+    };
+  }
+
+  const submitted = await getStellarServer(network).submitTransaction(transaction);
+
+  return {
+    review,
+    signedXdr: transaction.toEnvelope().toXDR('base64'),
     submitted,
   };
 }
@@ -950,6 +1016,8 @@ module.exports = {
   normalizeAssetCode,
   quoteDemoSwap,
   quoteMainnetSwap,
+  reviewStellarXdr,
+  signStellarXdr,
   submitPrivySignedTransaction,
   swapDemoAsset,
 };

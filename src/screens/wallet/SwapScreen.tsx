@@ -129,7 +129,7 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
           Toast.show({ type: 'error', text1: 'Xác thực thất bại' });
           return;
         }
-      } catch (e) {
+      } catch {
         Toast.show({ type: 'error', text1: 'Lỗi xác thực sinh trắc học' });
         return;
       }

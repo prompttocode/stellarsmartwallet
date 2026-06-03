@@ -40,6 +40,8 @@ const {
   loadAccount,
   quoteDemoSwap,
   quoteMainnetSwap,
+  reviewStellarXdr,
+  signStellarXdr,
   submitPrivySignedTransaction,
   swapDemoAsset,
 } = require('../services/stellar');
@@ -1531,6 +1533,76 @@ router.get('/walletconnect/config', (req, res) => {
     projectId: WALLETCONNECT_PROJECT_ID || null,
     relays: ['wss://relay.walletconnect.com'],
   });
+});
+
+router.post('/walletconnect/stellar/review-xdr', async (req, res, next) => {
+  try {
+    const network = normalizeNetwork(req.body?.network);
+    const sourceAddress = String(req.body?.sourceAddress || '').trim();
+
+    if (sourceAddress) {
+      assertStellarAddress(sourceAddress, 'Ví ký');
+    }
+
+    res.json(
+      reviewStellarXdr({
+        network,
+        sourceAddress,
+        xdr: req.body?.xdr,
+      }),
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/walletconnect/stellar/sign-xdr', async (req, res, next) => {
+  const network = normalizeNetwork(req.body?.network);
+
+  try {
+    const sourceWalletId = String(req.body?.sourceWalletId || '').trim();
+    const sourceAddress = String(req.body?.sourceAddress || '').trim();
+    const account = await requireAccountContext(req, {
+      network,
+      requireAuth: true,
+    });
+    assertAccountWallet({
+      account,
+      address: sourceAddress,
+      network,
+      walletId: sourceWalletId,
+    });
+    const result = await signStellarXdr({
+      network,
+      sourceAddress,
+      submit: Boolean(req.body?.submit),
+      walletId: sourceWalletId,
+      xdr: req.body?.xdr,
+    });
+
+    res.json({
+      ...result,
+      transaction: result.submitted
+        ? buildSubmittedTransactionItem({
+            amount: '0',
+            assetCode: 'XLM',
+            direction: 'sent',
+            from: sourceAddress,
+            network,
+            operation: 'payment',
+            submitted: result.submitted,
+            to: sourceAddress,
+          })
+        : null,
+    });
+  } catch (error) {
+    if (error?.response?.data?.extras?.result_codes) {
+      error.message = getHorizonErrorMessage(error, network);
+      error.status = 400;
+    }
+
+    next(error);
+  }
 });
 
 module.exports = router;

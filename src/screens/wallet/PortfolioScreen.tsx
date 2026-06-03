@@ -17,7 +17,6 @@ import {
 import { WalletManagerModal } from '../../components/wallet/WalletManagerModal';
 import { useCurrencyConfig } from '../../contexts/CurrencyContext';
 import type { WalletDemoState } from '../../hooks/useWalletDemo';
-import { shortAddress } from '../../utils/format';
 
 export function PortfolioScreen({
   onGoToReceive,

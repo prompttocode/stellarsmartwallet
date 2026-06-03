@@ -20,6 +20,9 @@ export function TopUpScreen({
 }) {
   const assets = getModernAssets(wallet.balances, wallet.visibleAssets);
   const address = wallet.wallet?.address || '';
+  const canOpenExplorer =
+    Boolean(wallet.explorerAddressUrl) &&
+    (!wallet.isMainnet || wallet.walletActive);
 
   async function shareDepositAddress() {
     if (!address) {
@@ -63,6 +66,15 @@ export function TopUpScreen({
             Dùng address bên dưới để nạp XLM thật và active ví mainnet. Buy
             fiat đang để Coming soon vì chưa cấu hình provider.
           </Text>
+          {!wallet.walletActive ? (
+            <View style={modern.reviewModernBox}>
+              <Text style={modern.reviewModernTitle}>Explorer not available</Text>
+              <Text style={modern.reviewModernText}>
+                Account chưa tồn tại trên ledger Mainnet. Sau khi nhận XLM
+                đầu tiên, Explorer sẽ mở được.
+              </Text>
+            </View>
+          ) : null}
           <View style={modern.infoBlock}>
             <Text selectable style={modern.infoValue}>
               {address || 'Chưa có ví'}
@@ -77,7 +89,7 @@ export function TopUpScreen({
               <Text style={modern.modernButtonText}>Share deposit address</Text>
             </PressScale>
             <PressScale
-              disabled={!wallet.explorerAddressUrl}
+              disabled={!canOpenExplorer}
               onPress={() => wallet.openUrl(wallet.explorerAddressUrl)}
               style={modern.secondaryModernButton}
             >
@@ -139,7 +151,7 @@ export function TopUpScreen({
                 </Text>
               </View>
               <PressScale
-                disabled={wallet.isBusy}
+                disabled={wallet.isBusy || (wallet.isMainnet && !canOpenExplorer)}
                 onPress={() =>
                   wallet.isMainnet
                     ? wallet.openUrl(wallet.explorerAddressUrl)
@@ -152,7 +164,13 @@ export function TopUpScreen({
                 }
               >
                 <Text style={modern.assetButtonText}>
-                  {wallet.isMainnet ? 'Explorer' : canTopUp ? 'Faucet' : 'Add'}
+                  {wallet.isMainnet
+                    ? wallet.walletActive
+                      ? 'Explorer'
+                      : 'Inactive'
+                    : canTopUp
+                    ? 'Faucet'
+                    : 'Add'}
                 </Text>
               </PressScale>
             </View>

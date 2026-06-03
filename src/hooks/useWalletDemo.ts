@@ -316,10 +316,10 @@ export function useWalletDemo() {
     }
   }
 
-  function applySession(
+  const applySession = useCallback((
     session: SessionResponse,
     nextMessage = 'Ví Stellar đã sẵn sàng.',
-  ) {
+  ) => {
     const sessionWallets =
       session.wallets ||
       session.account.wallets ||
@@ -342,7 +342,7 @@ export function useWalletDemo() {
     setMessage(nextMessage);
     rememberDemoSessionEmail(session.account.email);
     rememberDemoSessionNetwork(sessionNetwork);
-  }
+  }, [network]);
 
   async function getAuthHeaders(required = false) {
     const identityToken = await getTokenWithRetry(getIdentityToken);
@@ -415,7 +415,7 @@ export function useWalletDemo() {
       setEmail(session.account.email);
       applySession(session);
     },
-    [getIdentityToken, network],
+    [applySession, getIdentityToken, network],
   );
 
   useEffect(() => {
@@ -576,7 +576,7 @@ export function useWalletDemo() {
     }
 
     await run('Làm mới ví', async () => {
-      const session = await api<SessionResponse>('/api/demo/session', {
+      const session = await api<SessionResponse>('/api/session', {
         method: 'POST',
         body: JSON.stringify({ email: account.email, network }),
       });

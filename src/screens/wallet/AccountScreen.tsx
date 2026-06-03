@@ -49,6 +49,9 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
   const activeWallet =
     wallet.wallets.find(item => item.id === wallet.activeWalletId) ||
     wallet.wallet;
+  const canOpenExplorer =
+    Boolean(wallet.explorerAddressUrl) &&
+    (!wallet.isMainnet || wallet.walletActive);
 
   function closeToolModal() {
     setToolMode(null);
@@ -214,7 +217,7 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
         <SectionHeader title="Settings" />
         <PressScale
           onPress={() => setIsCurrencyModalVisible(true)}
-          style={[modern.infoRow, { alignItems: 'center' }]}
+          style={[modern.infoRow, styles.settingsRow]}
         >
           <Text style={modern.infoLabel}>Display Currency</Text>
           <View style={styles.inlineValue}>
@@ -228,7 +231,7 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
               wallet.network === 'mainnet' ? 'testnet' : 'mainnet',
             )
           }
-          style={[modern.infoRow, { alignItems: 'center' }]}
+          style={[modern.infoRow, styles.settingsRow]}
         >
           <Text style={modern.infoLabel}>Switch network</Text>
           <View style={styles.inlineValue}>
@@ -284,7 +287,7 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
         )}
 
         <PressScale
-          disabled={wallet.isBusy}
+          disabled={wallet.isBusy || !canOpenExplorer}
           onPress={() => wallet.openUrl(wallet.explorerAddressUrl)}
           style={modern.secondaryModernButton}
         >
@@ -294,6 +297,11 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
             Mở trên Stellar Expert
           </Text>
         </PressScale>
+        {wallet.isMainnet && !wallet.walletActive ? (
+          <Text style={modern.emptyModernText}>
+            Explorer sẽ mở được sau khi ví nhận XLM mainnet đầu tiên.
+          </Text>
+        ) : null}
       </View>
 
       <View style={modern.sectionCard}>
@@ -535,6 +543,7 @@ const styles = StyleSheet.create({
   },
   secretInput: { minHeight: 86, textAlignVertical: 'top' },
   secretText: { color: '#FFF', fontSize: 14, lineHeight: 20 },
+  settingsRow: { alignItems: 'center' },
   toolButton: {
     alignItems: 'center',
     backgroundColor: '#EEF7F9',

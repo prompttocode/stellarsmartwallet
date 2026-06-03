@@ -21,6 +21,9 @@ export function ReceiveScreen({
 }) {
   const assets = getModernAssets(wallet.balances, wallet.visibleAssets);
   const address = wallet.wallet?.address || '';
+  const canOpenExplorer =
+    Boolean(wallet.explorerAddressUrl) &&
+    (!wallet.isMainnet || wallet.walletActive);
 
   async function shareAddress() {
     if (!address) {
@@ -96,7 +99,7 @@ export function ReceiveScreen({
             <Text style={modern.modernButtonText}>Share address</Text>
           </PressScale>
           <PressScale
-            disabled={!wallet.explorerAddressUrl}
+            disabled={!canOpenExplorer}
             onPress={() => wallet.openUrl(wallet.explorerAddressUrl)}
             style={modern.secondaryModernButton}
           >
