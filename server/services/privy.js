@@ -1,0 +1,148 @@
+/* eslint-env node */
+
+const { PrivyClient } = require('@privy-io/node');
+const {
+  PRIVY_API_URL,
+  PRIVY_APP_ID,
+  PRIVY_APP_SECRET,
+} = require('../config');
+const { parseMaybeJson } = require('../utils/json');
+const { normalizeEmail } = require('../utils/validation');
+
+let privyClient;
+
+function requirePrivyConfig() {
+  if (!PRIVY_APP_ID || !PRIVY_APP_SECRET) {
+    const error = new Error(
+      'Thiếu PRIVY_APP_ID hoặc PRIVY_APP_SECRET trong .env',
+    );
+    error.status = 500;
+    throw error;
+  }
+}
+
+function privyHeaders() {
+  requirePrivyConfig();
+
+  const token = Buffer.from(`${PRIVY_APP_ID}:${PRIVY_APP_SECRET}`).toString(
+    'base64',
+  );
+
+  return {
+    Authorization: `Basic ${token}`,
+    'Content-Type': 'application/json',
+    'privy-app-id': PRIVY_APP_ID,
+  };
+}
+
+function getPrivyClient() {
+  requirePrivyConfig();
+
+  if (!privyClient) {
+    privyClient = new PrivyClient({
+      appId: PRIVY_APP_ID,
+      appSecret: PRIVY_APP_SECRET,
+    });
+  }
+
+  return privyClient;
+}
+
+async function privyRequest(apiPath, options = {}) {
+  const response = await fetch(`${PRIVY_API_URL}${apiPath}`, {
+    ...options,
+    headers: {
+      ...privyHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+  const text = await response.text();
+  const body = text ? parseMaybeJson(text) : null;
+
+  if (!response.ok) {
+    const error = new Error(getPrivyErrorMessage(body, response.status));
+    error.status = response.status;
+    error.details = body;
+    throw error;
+  }
+
+  return body;
+}
+
+async function findPrivyUserByEmail(email) {
+  try {
+    return await privyRequest('/users/email/address', {
+      method: 'POST',
+      body: JSON.stringify({ address: email }),
+    });
+  } catch (error) {
+    if (error.status === 404) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+async function createPrivyUser(email) {
+  return privyRequest('/users', {
+    method: 'POST',
+    body: JSON.stringify({
+      linked_accounts: [{ type: 'email', address: email }],
+      custom_metadata: {
+        demo: 'stellar-testnet',
+      },
+    }),
+  });
+}
+
+async function createSignableStellarWallet(email, displayName) {
+  const safeEmail = email.replace(/[^a-z0-9_-]/gi, '_').slice(0, 32);
+
+  return privyRequest('/wallets', {
+    method: 'POST',
+    body: JSON.stringify({
+      chain_type: 'stellar',
+      display_name: displayName || `Stellar wallet for ${email}`,
+      external_id: `stellar_${safeEmail}_${Date.now()}`,
+    }),
+  });
+}
+
+function getEmailFromPrivyUser(user) {
+  const emailAccount = user?.linked_accounts?.find(
+    account => account.type === 'email' && account.address,
+  );
+
+  return normalizeEmail(emailAccount?.address);
+}
+
+function getPrivyErrorMessage(body, status) {
+  if (body && typeof body === 'object') {
+    return body.message || body.error || `Privy trả lỗi ${status}`;
+  }
+
+  return typeof body === 'string' && body.trim()
+    ? body
+    : `Privy trả lỗi ${status}`;
+}
+
+function normalizeWallet(wallet) {
+  return {
+    id: wallet.id,
+    address: wallet.address,
+    publicKey: wallet.public_key || wallet.address,
+    chainType: wallet.chain_type,
+    displayName: wallet.display_name,
+  };
+}
+
+module.exports = {
+  createPrivyUser,
+  createSignableStellarWallet,
+  findPrivyUserByEmail,
+  getEmailFromPrivyUser,
+  getPrivyClient,
+  normalizeWallet,
+  privyRequest,
+};
