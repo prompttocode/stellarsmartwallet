@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const { DATA_DIR, DB_PATH } = require('./config');
+const { getExplorerUrl, normalizeNetwork } = require('./services/networks');
 const { normalizeEmail } = require('./utils/validation');
 
 function emptyDb() {
@@ -67,24 +68,29 @@ function getAccountByEmail(email) {
   );
 }
 
-function getAccountTransactions(account) {
+function getAccountTransactions(account, network = 'testnet') {
+  const normalizedNetwork = normalizeNetwork(network);
+
   if (!account?.wallet?.address) {
     return [];
   }
 
   return readDb().transactions.filter(
     transaction =>
-      transaction.from === account.wallet.address ||
-      transaction.to === account.wallet.address,
+      (transaction.network || 'testnet') === normalizedNetwork &&
+      (transaction.from === account.wallet.address ||
+        transaction.to === account.wallet.address),
   );
 }
 
 function saveTransaction(transaction) {
   const db = readDb();
+  const network = normalizeNetwork(transaction.network);
   const item = {
     id: transaction.hash,
     createdAt: new Date().toISOString(),
-    explorerUrl: `https://stellar.expert/explorer/testnet/tx/${transaction.hash}`,
+    explorerUrl: getExplorerUrl(network, 'tx', transaction.hash),
+    network,
     ...transaction,
   };
 

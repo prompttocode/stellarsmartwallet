@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import ReactNativeBiometrics from 'react-native-biometrics';
 import {
   useIdentityToken,
   useLoginWithEmail,
@@ -14,15 +15,22 @@ import type {
   BalanceItem,
   Contact,
   DemoAccount,
+  ExportWalletResult,
   FundAssetResult,
   Health,
+  RampProvider,
+  RampProvidersResponse,
   ReceiverResponse,
   SendResult,
   SessionResponse,
+  StellarNetwork,
+  StellarNetworkInfo,
+  SwapQuoteResult,
   SwapResult,
   TransactionItem,
   TrustlineResult,
   Wallet,
+  WalletConnectConfig,
 } from '../types';
 import { getErrorMessage, isEmailLike } from '../utils/format';
 
@@ -31,6 +39,7 @@ type RunOptions = {
 };
 
 const DEMO_SESSION_EMAIL_STORAGE_KEY = 'lobstr-demo-session-email';
+const DEMO_SESSION_NETWORK_STORAGE_KEY = 'lobstr-demo-session-network';
 
 type PrivyLinkedEmailAccount = {
   type?: string;
@@ -115,9 +124,24 @@ async function getRememberedDemoSessionEmail() {
 }
 
 async function forgetDemoSessionEmail() {
-  await AsyncStorage.removeItem(DEMO_SESSION_EMAIL_STORAGE_KEY).catch(
+  await Promise.all([
+    AsyncStorage.removeItem(DEMO_SESSION_EMAIL_STORAGE_KEY),
+    AsyncStorage.removeItem(DEMO_SESSION_NETWORK_STORAGE_KEY),
+  ]).catch(() => null);
+}
+
+function rememberDemoSessionNetwork(network: StellarNetwork) {
+  AsyncStorage.setItem(DEMO_SESSION_NETWORK_STORAGE_KEY, network).catch(
     () => null,
   );
+}
+
+async function getRememberedDemoSessionNetwork() {
+  const storedNetwork = await AsyncStorage.getItem(
+    DEMO_SESSION_NETWORK_STORAGE_KEY,
+  );
+
+  return storedNetwork === 'mainnet' ? 'mainnet' : 'testnet';
 }
 
 export function getBalanceForAsset(balances: BalanceItem[], assetCode: string) {
@@ -148,6 +172,8 @@ export function getTransactionIcon(transaction: TransactionItem) {
 
 export function useWalletDemo() {
   const [health, setHealth] = useState<Health | null>(null);
+  const [network, setNetwork] = useState<StellarNetwork>('testnet');
+  const [networks, setNetworks] = useState<StellarNetworkInfo[]>([]);
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [account, setAccount] = useState<DemoAccount | null>(null);
   const [wallets, setWallets] = useState<Wallet[]>([]);
@@ -167,6 +193,9 @@ export function useWalletDemo() {
   const [message, setMessage] = useState(
     'Nhập email thật để Privy gửi mã đăng nhập.',
   );
+  const [rampProviders, setRampProviders] = useState<RampProvider[]>([]);
+  const [walletConnectConfig, setWalletConnectConfig] =
+    useState<WalletConnectConfig | null>(null);
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [restoreAttemptedForUser, setRestoreAttemptedForUser] = useState<
     string | null
@@ -213,22 +242,39 @@ export function useWalletDemo() {
 
   const checkServer = useCallback(async () => {
     await run('Kiểm tra máy chủ', async () => {
-      const [result, assetResult] = await Promise.all([
+      const [
+        result,
+        networkResult,
+        assetResult,
+        rampResult,
+        walletConnectResult,
+      ] = await Promise.all([
         api<Health>('/api/health'),
-        api<AssetsResponse>('/api/assets'),
+        api<{ networks: StellarNetworkInfo[] }>('/api/networks'),
+        api<AssetsResponse>(`/api/assets?network=${network}`),
+        api<RampProvidersResponse>('/api/ramp/providers'),
+        api<WalletConnectConfig>('/api/walletconnect/config'),
       ]);
 
       setHealth(result);
+      setNetworks(networkResult.networks || result.networks || []);
       setAssets(assetResult.assets || []);
-      setMessage('Sẵn sàng kết nối Privy và Stellar Testnet.');
+      setRampProviders(rampResult.providers || []);
+      setWalletConnectConfig(walletConnectResult);
+      setMessage(
+        network === 'mainnet'
+          ? 'Sẵn sàng Stellar Mainnet. Giao dịch cần biometric.'
+          : 'Sẵn sàng kết nối Privy và Stellar Testnet.',
+      );
     });
-  }, [run]);
+  }, [network, run]);
 
   useEffect(() => {
     checkServer();
   }, [checkServer]);
 
   const wallet = account?.wallet;
+  const isMainnet = network === 'mainnet';
   const userKey = getPrivyUserKey(user);
   const visibleAssets = assets.length > 0 ? assets : balances;
   const selectedBalance = getBalanceForAsset(balances, selectedAssetCode);
@@ -241,8 +287,12 @@ export function useWalletDemo() {
     selectedAssetCode,
   );
   const explorerAddressUrl = wallet
-    ? `https://stellar.expert/explorer/testnet/account/${wallet.address}`
+    ? `https://stellar.expert/explorer/${
+        network === 'mainnet' ? 'public' : 'testnet'
+      }/account/${wallet.address}`
     : null;
+  const walletCanSign = Boolean(wallet?.canSign);
+  const walletActive = Boolean(wallet && balances.some(item => item.exists));
 
   function resetRecipientState() {
     setRecipient('');
@@ -268,7 +318,7 @@ export function useWalletDemo() {
 
   function applySession(
     session: SessionResponse,
-    nextMessage = 'Ví Stellar Testnet đã sẵn sàng.',
+    nextMessage = 'Ví Stellar đã sẵn sàng.',
   ) {
     const sessionWallets =
       session.wallets ||
@@ -280,6 +330,10 @@ export function useWalletDemo() {
       session.account.wallet?.id ||
       null;
 
+    const sessionNetwork =
+      session.network || session.account.wallet?.network || network;
+
+    setNetwork(sessionNetwork);
     setAccount(session.account);
     setWallets(sessionWallets);
     setActiveWalletId(nextActiveWalletId);
@@ -287,10 +341,51 @@ export function useWalletDemo() {
     setTransactions(session.transactions);
     setMessage(nextMessage);
     rememberDemoSessionEmail(session.account.email);
+    rememberDemoSessionNetwork(sessionNetwork);
+  }
+
+  async function getAuthHeaders(required = false) {
+    const identityToken = await getTokenWithRetry(getIdentityToken);
+
+    if (!identityToken && required) {
+      throw new Error(
+        'Cần đăng nhập Privy lại trước khi ký giao dịch mainnet.',
+      );
+    }
+
+    return identityToken
+      ? {
+          Authorization: `Bearer ${identityToken}`,
+        }
+      : undefined;
+  }
+
+  async function requireBiometric(promptMessage: string) {
+    const rnBiometrics = new ReactNativeBiometrics();
+    const { available } = await rnBiometrics.isSensorAvailable();
+
+    if (!available) {
+      return true;
+    }
+
+    const { success } = await rnBiometrics.simplePrompt({
+      cancelButtonText: 'Hủy',
+      promptMessage,
+    });
+
+    if (!success) {
+      throw new Error('Xác thực sinh trắc học thất bại.');
+    }
+
+    return true;
   }
 
   const finishPrivySession = useCallback(
-    async (existingIdentityToken?: string, fallbackEmail?: string) => {
+    async (
+      existingIdentityToken?: string,
+      fallbackEmail?: string,
+      sessionNetwork: StellarNetwork = network,
+    ) => {
       const identityToken =
         existingIdentityToken || (await getTokenWithRetry(getIdentityToken));
       const sessionEmail = String(fallbackEmail || '').trim().toLowerCase();
@@ -302,19 +397,25 @@ export function useWalletDemo() {
       }
 
       const session = identityToken
-        ? await api<SessionResponse>('/api/demo/auth-session', {
+        ? await api<SessionResponse>('/api/session', {
             method: 'POST',
-            body: JSON.stringify({ identityToken }),
+            body: JSON.stringify({
+              identityToken,
+              network: sessionNetwork,
+            }),
           })
-        : await api<SessionResponse>('/api/demo/session', {
+        : await api<SessionResponse>('/api/session', {
             method: 'POST',
-            body: JSON.stringify({ email: sessionEmail }),
+            body: JSON.stringify({
+              email: sessionEmail,
+              network: sessionNetwork,
+            }),
           });
 
       setEmail(session.account.email);
       applySession(session);
     },
-    [getIdentityToken],
+    [getIdentityToken, network],
   );
 
   useEffect(() => {
@@ -329,7 +430,7 @@ export function useWalletDemo() {
       setRestoreAttemptedForUser(userKey);
       run(
         'Khôi phục phiên',
-        () => finishPrivySession(undefined, getEmailFromPrivyUser(user)),
+        () => finishPrivySession(undefined, getEmailFromPrivyUser(user), network),
         { showAlert: false },
       );
     }
@@ -338,6 +439,7 @@ export function useWalletDemo() {
     busy,
     finishPrivySession,
     isReady,
+    network,
     restoreAttemptedForUser,
     run,
     user,
@@ -360,12 +462,13 @@ export function useWalletDemo() {
       'Khôi phục phiên',
       async () => {
         const storedEmail = await getRememberedDemoSessionEmail();
+        const storedNetwork = await getRememberedDemoSessionNetwork();
 
         if (!isEmailLike(storedEmail)) {
           return null;
         }
 
-        await finishPrivySession(undefined, storedEmail);
+        await finishPrivySession(undefined, storedEmail, storedNetwork);
 
         return true;
       },
@@ -398,7 +501,7 @@ export function useWalletDemo() {
           setEmail(targetEmail);
           setCode('');
           setCodeSent(false);
-          await finishPrivySession(identityToken);
+          await finishPrivySession(identityToken, undefined, network);
 
           return true;
         }
@@ -437,7 +540,7 @@ export function useWalletDemo() {
         if (identityToken) {
           setCode('');
           setCodeSent(false);
-          await finishPrivySession(identityToken);
+          await finishPrivySession(identityToken, undefined, network);
 
           return;
         }
@@ -457,7 +560,7 @@ export function useWalletDemo() {
       });
       setCode('');
       setCodeSent(false);
-      await finishPrivySession(undefined, targetEmail);
+      await finishPrivySession(undefined, targetEmail, network);
     });
   }
 
@@ -475,7 +578,7 @@ export function useWalletDemo() {
     await run('Làm mới ví', async () => {
       const session = await api<SessionResponse>('/api/demo/session', {
         method: 'POST',
-        body: JSON.stringify({ email: account.email }),
+        body: JSON.stringify({ email: account.email, network }),
       });
       applySession(session);
       setMessage('Đã làm mới số dư và lịch sử giao dịch.');
@@ -488,13 +591,24 @@ export function useWalletDemo() {
     }
 
     return run('Tạo ví mới', async () => {
-      const session = await api<SessionResponse>('/api/demo/wallets', {
+      const headers = await getAuthHeaders(isMainnet);
+      const session = await api<SessionResponse>('/api/wallets', {
         method: 'POST',
-        body: JSON.stringify({ email: account.email }),
+        headers,
+        body: JSON.stringify({
+          email: account.email,
+          fund: !isMainnet,
+          network,
+        }),
       });
 
       resetRecipientState();
-      applySession(session, 'Đã tạo ví mới và nạp sẵn XLM test.');
+      applySession(
+        session,
+        isMainnet
+          ? 'Đã tạo ví mainnet. Hãy deposit XLM để active.'
+          : 'Đã tạo ví mới và nạp sẵn XLM test.',
+      );
 
       return session;
     });
@@ -513,7 +627,7 @@ export function useWalletDemo() {
     return run('Đổi ví', async () => {
       const session = await api<SessionResponse>('/api/demo/wallets/select', {
         method: 'POST',
-        body: JSON.stringify({ email: account.email, walletId }),
+        body: JSON.stringify({ email: account.email, network, walletId }),
       });
 
       resetRecipientState();
@@ -534,6 +648,7 @@ export function useWalletDemo() {
         body: JSON.stringify({
           displayName,
           email: account.email,
+          network,
           walletId,
         }),
       });
@@ -552,7 +667,7 @@ export function useWalletDemo() {
     return run('Ẩn ví', async () => {
       const session = await api<SessionResponse>('/api/demo/wallets/archive', {
         method: 'POST',
-        body: JSON.stringify({ email: account.email, walletId }),
+        body: JSON.stringify({ email: account.email, network, walletId }),
       });
 
       resetRecipientState();
@@ -568,7 +683,13 @@ export function useWalletDemo() {
     }
 
     await run('Nạp test XLM', async () => {
-      const result = await api<Balance>('/api/stellar/fund', {
+      if (isMainnet) {
+        throw new Error(
+          'Mainnet không có Friendbot. Vào Receive để lấy QR/address rồi deposit XLM thật.',
+        );
+      }
+
+      const result = await api<Balance>(`/api/stellar/${network}/fund`, {
         method: 'POST',
         body: JSON.stringify({ address: wallet.address }),
       });
@@ -585,14 +706,28 @@ export function useWalletDemo() {
     }
 
     await run(`Thêm ${assetCode}`, async () => {
-      const result = await api<TrustlineResult>('/api/stellar/trustline', {
-        method: 'POST',
-        body: JSON.stringify({
-          sourceWalletId: wallet.id,
-          sourceAddress: wallet.address,
-          assetCode,
-        }),
-      });
+      if (isMainnet) {
+        await requireBiometric('Xác thực để thêm trustline mainnet');
+      }
+
+      const headers = await getAuthHeaders(isMainnet);
+      const result = await api<TrustlineResult>(
+        `/api/stellar/${network}/trustline`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            accountId: account?.id,
+            assetCode,
+            assetIssuer:
+              visibleAssets.find(asset => asset.assetCode === assetCode)
+                ?.assetIssuer || null,
+            email: account?.email,
+            sourceAddress: wallet.address,
+            sourceWalletId: wallet.id,
+          }),
+        },
+      );
 
       setBalances(result.balances);
       setTransactions(result.transactions);
@@ -610,14 +745,23 @@ export function useWalletDemo() {
     }
 
     await run(`Nạp ${assetCode}`, async () => {
-      const result = await api<FundAssetResult>('/api/stellar/fund-asset', {
-        method: 'POST',
-        body: JSON.stringify({
-          address: wallet.address,
-          amount: '100',
-          assetCode,
-        }),
-      });
+      if (isMainnet) {
+        throw new Error(
+          'Mainnet không hỗ trợ token demo. Hãy deposit on-chain hoặc dùng send/withdraw.',
+        );
+      }
+
+      const result = await api<FundAssetResult>(
+        `/api/stellar/${network}/fund-asset`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            address: wallet.address,
+            amount: '100',
+            assetCode,
+          }),
+        },
+      );
 
       setBalances(result.balances);
       setTransactions(result.transactions);
@@ -627,6 +771,10 @@ export function useWalletDemo() {
 
   async function createDemoReceiver() {
     return run('Tạo người nhận', async () => {
+      if (isMainnet) {
+        throw new Error('Mainnet không tạo ví nhận demo. Hãy nhập ví thật.');
+      }
+
       const result = await api<ReceiverResponse>('/api/demo/receiver', {
         method: 'POST',
         body: JSON.stringify({ label: 'Người nhận demo' }),
@@ -659,11 +807,15 @@ export function useWalletDemo() {
     }
 
     return run(`Gửi ${selectedAssetCode}`, async () => {
-      const result = await api<SendResult>('/api/stellar/send', {
+      const headers = await getAuthHeaders(isMainnet);
+      const result = await api<SendResult>(`/api/stellar/${network}/send`, {
         method: 'POST',
+        headers,
         body: JSON.stringify({
           accountId: account.id,
           assetCode: selectedAssetCode,
+          assetIssuer: selectedAsset?.assetIssuer || null,
+          email: account.email,
           sourceWalletId: wallet.id,
           sourceAddress: wallet.address,
           destination,
@@ -678,10 +830,49 @@ export function useWalletDemo() {
         setRecipientBalances(result.destinationBalances);
       }
 
-      setMessage(`Đã gửi ${amount} ${selectedAssetCode} lên Stellar Testnet.`);
+      setMessage(`Đã gửi ${amount} ${selectedAssetCode} lên Stellar ${network}.`);
 
       return result;
     });
+  }
+
+  async function quoteSwap({
+    amount: swapAmount,
+    fromAssetCode,
+    toAssetCode,
+  }: {
+    amount: string;
+    fromAssetCode: string;
+    toAssetCode: string;
+  }) {
+    if (!wallet) {
+      return null;
+    }
+
+    return run(
+      `Quote ${fromAssetCode}`,
+      async () => {
+        const fromAsset = visibleAssets.find(
+          asset => asset.assetCode === fromAssetCode,
+        );
+        const toAsset = visibleAssets.find(
+          asset => asset.assetCode === toAssetCode,
+        );
+
+        return api<SwapQuoteResult>(`/api/stellar/${network}/swap/quote`, {
+          method: 'POST',
+          body: JSON.stringify({
+            amount: swapAmount,
+            fromAssetCode,
+            fromAssetIssuer: fromAsset?.assetIssuer || null,
+            sourceAddress: wallet.address,
+            toAssetCode,
+            toAssetIssuer: toAsset?.assetIssuer || null,
+          }),
+        });
+      },
+      { showAlert: false },
+    );
   }
 
   async function swapAsset({
@@ -698,17 +889,31 @@ export function useWalletDemo() {
     }
 
     return run(`Swap ${fromAssetCode}`, async () => {
-      const result = await api<SwapResult>('/api/stellar/swap', {
-        method: 'POST',
-        body: JSON.stringify({
-          accountId: account.id,
-          amount: swapAmount,
-          fromAssetCode,
-          sourceAddress: wallet.address,
-          sourceWalletId: wallet.id,
-          toAssetCode,
-        }),
-      });
+      const headers = await getAuthHeaders(isMainnet);
+      const fromAsset = visibleAssets.find(
+        asset => asset.assetCode === fromAssetCode,
+      );
+      const toAsset = visibleAssets.find(
+        asset => asset.assetCode === toAssetCode,
+      );
+      const result = await api<SwapResult>(
+        `/api/stellar/${network}/swap/execute`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            accountId: account.id,
+            amount: swapAmount,
+            email: account.email,
+            fromAssetCode,
+            fromAssetIssuer: fromAsset?.assetIssuer || null,
+            sourceAddress: wallet.address,
+            sourceWalletId: wallet.id,
+            toAssetCode,
+            toAssetIssuer: toAsset?.assetIssuer || null,
+          }),
+        },
+      );
 
       setBalances(result.balances);
       setTransactions(result.transactions);
@@ -726,6 +931,134 @@ export function useWalletDemo() {
     clearWalletSession('Đã thoát ví demo.');
   }
 
+  async function switchNetwork(nextNetwork: StellarNetwork) {
+    if (nextNetwork === network) {
+      setMessage(
+        nextNetwork === 'mainnet'
+          ? 'Bạn đang ở Stellar Mainnet.'
+          : 'Bạn đang ở Stellar Testnet.',
+      );
+      return null;
+    }
+
+    return run('Đổi mạng', async () => {
+      setNetwork(nextNetwork);
+      rememberDemoSessionNetwork(nextNetwork);
+      setSelectedAssetCode('XLM');
+      resetRecipientState();
+
+      const assetResult = await api<AssetsResponse>(
+        `/api/assets?network=${nextNetwork}`,
+      );
+      setAssets(assetResult.assets || []);
+
+      if (!account) {
+        setBalances([]);
+        setTransactions([]);
+        setMessage(
+          nextNetwork === 'mainnet'
+            ? 'Đã chuyển Mainnet. Đăng nhập để tạo ví mainnet.'
+            : 'Đã chuyển Testnet.',
+        );
+        return null;
+      }
+
+      const session = await api<SessionResponse>('/api/session', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: account.email,
+          network: nextNetwork,
+        }),
+      });
+      applySession(
+        session,
+        nextNetwork === 'mainnet'
+          ? 'Đã chuyển Mainnet. Ví cần deposit XLM thật để active.'
+          : 'Đã chuyển Testnet.',
+      );
+
+      return session;
+    });
+  }
+
+  async function importWallet(secret: string, displayName?: string) {
+    if (!account) {
+      return null;
+    }
+
+    return run('Import ví', async () => {
+      await requireBiometric('Xác thực để import ví Stellar');
+      const headers = await getAuthHeaders(true);
+      const session = await api<SessionResponse>('/api/wallets/import', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          displayName,
+          email: account.email,
+          network,
+          secret,
+        }),
+      });
+
+      applySession(session, 'Đã import ví vào Privy.');
+
+      return session;
+    });
+  }
+
+  async function addWatchOnlyWallet(address: string, displayName?: string) {
+    if (!account) {
+      return null;
+    }
+
+    return run('Thêm watch-only', async () => {
+      const headers = await getAuthHeaders(isMainnet);
+      const session = await api<SessionResponse>('/api/wallets/watch-only', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          address,
+          displayName,
+          email: account.email,
+          network,
+        }),
+      });
+
+      applySession(session, 'Đã thêm ví watch-only.');
+
+      return session;
+    });
+  }
+
+  async function exportWalletSecret(
+    type: 'private_key' | 'seed_phrase',
+    confirmation: string,
+  ) {
+    if (!account || !wallet) {
+      return null;
+    }
+
+    return run('Export secret', async () => {
+      await requireBiometric('Xác thực để export secret ví');
+      const headers = await getAuthHeaders(true);
+      const result = await api<ExportWalletResult>('/api/wallets/export', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          confirmation,
+          email: account.email,
+          network,
+          type,
+          walletId: wallet.id,
+        }),
+      });
+
+      setMessage('Secret chỉ hiển thị một lần. Không chia sẻ cho ai.');
+
+      return result;
+    });
+  }
+
   function openUrl(url?: string | null) {
     if (url) {
       Linking.openURL(url);
@@ -735,6 +1068,7 @@ export function useWalletDemo() {
   return {
     account,
     activeWalletId,
+    addWatchOnlyWallet,
     addTrustline,
     amount,
     archiveWallet,
@@ -747,16 +1081,23 @@ export function useWalletDemo() {
     createWallet,
     email,
     explorerAddressUrl,
+    exportWalletSecret,
     fundDemoAsset,
     fundWallet,
     health,
     isBusy: busy !== null,
+    isMainnet,
     isReady,
+    importWallet,
     loginState,
     logout,
     message,
+    network,
+    networks,
     openUrl,
     privyError,
+    quoteSwap,
+    rampProviders,
     recipient,
     recipientContact,
     recipientSelectedBalance,
@@ -776,10 +1117,14 @@ export function useWalletDemo() {
     setRecipient,
     setSelectedAssetCode,
     swapAsset,
+    switchNetwork,
     transactions,
     verifyCodeAndLogin,
     visibleAssets,
     wallet,
+    walletActive,
+    walletCanSign,
+    walletConnectConfig,
     wallets,
     xlmBalance,
   };

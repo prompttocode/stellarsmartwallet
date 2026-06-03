@@ -5,18 +5,28 @@ const {
   BASE_FEE,
   Horizon,
   Keypair,
-  Networks,
   NotFoundError,
   Operation,
   TransactionBuilder,
 } = require('@stellar/stellar-sdk');
-const { FRIENDBOT_URL, HORIZON_URL } = require('../config');
-const { getIssuer, saveIssuer } = require('../db');
+const { saveIssuer } = require('../db');
+const {
+  DEMO_ASSET_CODES,
+  getDemoIssuer,
+  getIssuerKey,
+  getKnownAssetDefinitions,
+  mergeKnownAndDiscoveredAssets,
+  NATIVE_ASSET_CODE,
+  normalizeAssetCode,
+} = require('./assets');
+const {
+  assertNetwork,
+  getExplorerUrl,
+  getNetworkConfig,
+  normalizeNetwork,
+} = require('./networks');
 const { getPrivyClient } = require('./privy');
 
-const stellar = new Horizon.Server(HORIZON_URL);
-const NATIVE_ASSET_CODE = 'XLM';
-const DEMO_ASSET_CODES = ['USDC', 'USDT'];
 const DEMO_SWAP_RATES = {
   'USDC:XLM': 8.2,
   'USDC:USDT': 0.99,
@@ -25,6 +35,17 @@ const DEMO_SWAP_RATES = {
   'XLM:USDC': 0.12,
   'XLM:USDT': 0.12,
 };
+const servers = new Map();
+
+function getStellarServer(network = 'testnet') {
+  const config = getNetworkConfig(network);
+
+  if (!servers.has(config.network)) {
+    servers.set(config.network, new Horizon.Server(config.horizonUrl));
+  }
+
+  return servers.get(config.network);
+}
 
 function assertStellarAddress(address, field = 'Địa chỉ ví') {
   try {
@@ -36,11 +57,21 @@ function assertStellarAddress(address, field = 'Địa chỉ ví') {
   }
 }
 
-function assertAmount(amount) {
+function assertSecretKey(secret, field = 'Secret key') {
+  try {
+    return Keypair.fromSecret(String(secret || '').trim());
+  } catch {
+    const error = new Error(`${field} không hợp lệ`);
+    error.status = 400;
+    throw error;
+  }
+}
+
+function assertAmount(amount, label = 'Số lượng') {
   const value = String(amount || '').trim();
 
   if (!/^\d+(\.\d{1,7})?$/.test(value) || Number(value) <= 0) {
-    const error = new Error('Số XLM phải lớn hơn 0 và tối đa 7 số lẻ');
+    const error = new Error(`${label} phải lớn hơn 0 và tối đa 7 số lẻ`);
     error.status = 400;
     throw error;
   }
@@ -60,20 +91,18 @@ function formatStellarAmount(amount) {
   return floored.toFixed(7).replace(/\.?0+$/, '');
 }
 
-function normalizeAssetCode(assetCode) {
-  return String(assetCode || NATIVE_ASSET_CODE)
-    .trim()
-    .toUpperCase();
+function isNativeAsset(assetCode) {
+  return normalizeAssetCode(assetCode) === NATIVE_ASSET_CODE;
 }
 
-function assertSupportedAssetCode(assetCode) {
+function assertSupportedAssetCode(assetCode, network = 'testnet') {
   const normalized = normalizeAssetCode(assetCode);
+  const supported = getKnownAssetDefinitions(network).some(
+    asset => asset.assetCode === normalized,
+  );
 
-  if (
-    normalized !== NATIVE_ASSET_CODE &&
-    !DEMO_ASSET_CODES.includes(normalized)
-  ) {
-    const error = new Error('Token chưa được hỗ trợ trong demo');
+  if (!supported) {
+    const error = new Error('Token chưa được hỗ trợ');
     error.status = 400;
     throw error;
   }
@@ -81,13 +110,9 @@ function assertSupportedAssetCode(assetCode) {
   return normalized;
 }
 
-function isNativeAsset(assetCode) {
-  return normalizeAssetCode(assetCode) === NATIVE_ASSET_CODE;
-}
-
 function getDemoSwapRate(fromAssetCode, toAssetCode) {
-  const from = assertSupportedAssetCode(fromAssetCode);
-  const to = assertSupportedAssetCode(toAssetCode);
+  const from = assertSupportedAssetCode(fromAssetCode, 'testnet');
+  const to = assertSupportedAssetCode(toAssetCode, 'testnet');
 
   if (from === to) {
     const error = new Error('Chọn 2 token khác nhau để swap');
@@ -98,9 +123,9 @@ function getDemoSwapRate(fromAssetCode, toAssetCode) {
   return DEMO_SWAP_RATES[`${from}:${to}`] || 1;
 }
 
-async function loadAccount(address) {
+async function loadAccount(address, network = 'testnet') {
   try {
-    return await stellar.loadAccount(address);
+    return await getStellarServer(network).loadAccount(address);
   } catch (error) {
     if (error instanceof NotFoundError) {
       return null;
@@ -119,29 +144,6 @@ function getNativeBalance(account) {
     account.balances.find(balance => balance.asset_type === 'native')
       ?.balance || '0'
   );
-}
-
-function getSupportedAssetDefinitions(issuers = {}) {
-  return [
-    {
-      assetCode: NATIVE_ASSET_CODE,
-      assetIssuer: null,
-      displayName: 'XLM',
-      demo: false,
-      isNative: true,
-    },
-    ...DEMO_ASSET_CODES.map(assetCode => ({
-      assetCode,
-      assetIssuer: issuers[assetCode]?.publicKey || null,
-      displayName: `${assetCode} demo`,
-      demo: true,
-      isNative: false,
-    })),
-  ];
-}
-
-function getIssuedAsset(assetCode, issuerAddress) {
-  return new Asset(assertSupportedAssetCode(assetCode), issuerAddress);
 }
 
 function findIssuedBalance(account, assetCode, issuerAddress) {
@@ -205,13 +207,39 @@ function ensureTrustline(account, assetDefinition, field = 'Ví nhận') {
   }
 }
 
+function getIssuedAsset(assetCodeOrDefinition, issuerAddress) {
+  const assetDefinition =
+    typeof assetCodeOrDefinition === 'object'
+      ? assetCodeOrDefinition
+      : {
+          assetCode: normalizeAssetCode(assetCodeOrDefinition),
+          assetIssuer: issuerAddress,
+        };
+
+  if (!assetDefinition.assetIssuer) {
+    const error = new Error('Token issued thiếu issuer');
+    error.status = 400;
+    throw error;
+  }
+
+  return new Asset(assetDefinition.assetCode, assetDefinition.assetIssuer);
+}
+
+function getAssetForOperation(assetDefinition) {
+  return assetDefinition.isNative
+    ? Asset.native()
+    : getIssuedAsset(assetDefinition);
+}
+
 function buildPaymentTransaction({
   amount,
   asset,
   destination,
   destinationAccount,
+  network = 'testnet',
   sourceAccount,
 }) {
+  const config = getNetworkConfig(network);
   const operation =
     !asset || asset.isNative()
       ? destinationAccount
@@ -232,7 +260,7 @@ function buildPaymentTransaction({
 
   const transaction = new TransactionBuilder(sourceAccount, {
     fee: BASE_FEE,
-    networkPassphrase: Networks.TESTNET,
+    networkPassphrase: config.passphrase,
   })
     .addOperation(operation)
     .setTimeout(60)
@@ -249,10 +277,16 @@ function buildPaymentTransaction({
   };
 }
 
-function buildTrustlineTransaction({ asset, sourceAccount }) {
+function buildTrustlineTransaction({
+  asset,
+  network = 'testnet',
+  sourceAccount,
+}) {
+  const config = getNetworkConfig(network);
+
   return new TransactionBuilder(sourceAccount, {
     fee: BASE_FEE,
-    networkPassphrase: Networks.TESTNET,
+    networkPassphrase: config.passphrase,
   })
     .addOperation(Operation.changeTrust({ asset }))
     .setTimeout(60)
@@ -289,6 +323,7 @@ function addPrivySignature(transaction, sourceAddress, signatureHex) {
 }
 
 async function submitPrivySignedTransaction({
+  network = 'testnet',
   sourceAddress,
   transaction,
   walletId,
@@ -296,11 +331,21 @@ async function submitPrivySignedTransaction({
   const signatureHex = await signStellarTransaction(walletId, transaction);
   addPrivySignature(transaction, sourceAddress, signatureHex);
 
-  return stellar.submitTransaction(transaction);
+  return getStellarServer(network).submitTransaction(transaction);
 }
 
-async function friendbotFund(address) {
-  const response = await fetch(`${FRIENDBOT_URL}?addr=${address}`);
+async function friendbotFund(address, network = 'testnet') {
+  const config = getNetworkConfig(network);
+
+  if (!config.supportsFriendbot || !config.friendbotUrl) {
+    const error = new Error(
+      'Mainnet không có Friendbot. Hãy deposit XLM thật để active ví.',
+    );
+    error.status = 400;
+    throw error;
+  }
+
+  const response = await fetch(`${config.friendbotUrl}?addr=${address}`);
   const text = await response.text();
 
   if (!response.ok) {
@@ -312,17 +357,24 @@ async function friendbotFund(address) {
   return text;
 }
 
-async function ensureDemoAssetIssuer(assetCode) {
-  const normalized = assertSupportedAssetCode(assetCode);
+async function ensureDemoAssetIssuer(assetCode, network = 'testnet') {
+  const normalizedNetwork = normalizeNetwork(network);
+  const normalized = assertSupportedAssetCode(assetCode, normalizedNetwork);
+
+  if (normalizedNetwork !== 'testnet') {
+    const error = new Error('Demo issuer chỉ dùng cho Testnet');
+    error.status = 400;
+    throw error;
+  }
 
   if (isNativeAsset(normalized)) {
     return null;
   }
 
-  const existing = getIssuer(normalized);
+  const existing = getDemoIssuer(normalized);
 
   if (existing?.publicKey && existing?.secret) {
-    const account = await loadAccount(existing.publicKey);
+    const account = await loadAccount(existing.publicKey, normalizedNetwork);
 
     if (account) {
       return existing;
@@ -330,61 +382,116 @@ async function ensureDemoAssetIssuer(assetCode) {
   }
 
   const keypair = Keypair.random();
-  await friendbotFund(keypair.publicKey());
+  await friendbotFund(keypair.publicKey(), normalizedNetwork);
 
-  return saveIssuer(normalized, {
+  const issuer = saveIssuer(getIssuerKey(normalizedNetwork, normalized), {
     publicKey: keypair.publicKey(),
     secret: keypair.secret(),
     fundedAt: new Date().toISOString(),
   });
+
+  saveIssuer(normalized, issuer);
+
+  return issuer;
 }
 
-async function ensureDemoAssetIssuers() {
+async function ensureDemoAssetIssuers(network = 'testnet') {
   const issuers = {};
 
+  if (normalizeNetwork(network) !== 'testnet') {
+    return issuers;
+  }
+
   for (const assetCode of DEMO_ASSET_CODES) {
-    issuers[assetCode] = await ensureDemoAssetIssuer(assetCode);
+    issuers[assetCode] = await ensureDemoAssetIssuer(assetCode, network);
   }
 
   return issuers;
 }
 
-async function getSupportedAssets() {
-  const issuers = await ensureDemoAssetIssuers();
+async function getSupportedAssets(network = 'testnet') {
+  const normalizedNetwork = normalizeNetwork(network);
+  const issuers = await ensureDemoAssetIssuers(normalizedNetwork);
 
-  return getSupportedAssetDefinitions(issuers);
+  return getKnownAssetDefinitions(normalizedNetwork, issuers);
 }
 
-async function getSupportedAsset(assetCode) {
-  const normalized = assertSupportedAssetCode(assetCode);
-  const assets = await getSupportedAssets();
-  const asset = assets.find(item => item.assetCode === normalized);
+async function getSupportedAsset({
+  assetCode,
+  assetIssuer,
+  network = 'testnet',
+}) {
+  const normalizedNetwork = normalizeNetwork(network);
+  const normalized = normalizeAssetCode(assetCode);
+  const assets = await getSupportedAssets(normalizedNetwork);
+  const asset = assets.find(
+    item =>
+      item.assetCode === normalized &&
+      (!assetIssuer || item.assetIssuer === assetIssuer),
+  );
 
-  if (!asset) {
-    const error = new Error('Token chưa được hỗ trợ trong demo');
-    error.status = 400;
-    throw error;
+  if (asset) {
+    return asset;
   }
 
-  return asset;
+  if (normalizedNetwork === 'mainnet' && normalized !== NATIVE_ASSET_CODE) {
+    assertStellarAddress(assetIssuer, 'Issuer');
+
+    return {
+      assetCode: normalized,
+      assetIssuer,
+      demo: false,
+      displayName: normalized,
+      homeDomain: assetIssuer,
+      iconKey: normalized.toLowerCase(),
+      isNative: false,
+      network: normalizedNetwork,
+      trustLevel: 'unverified',
+    };
+  }
+
+  const error = new Error('Token chưa được hỗ trợ');
+  error.status = 400;
+  throw error;
 }
 
-async function getAccountBalances(address) {
-  const account = await loadAccount(address);
-  const assets = await getSupportedAssets();
+async function getAccountBalances(address, network = 'testnet') {
+  const normalizedNetwork = normalizeNetwork(network);
+  const account = await loadAccount(address, normalizedNetwork);
+  const assets = mergeKnownAndDiscoveredAssets(
+    await getSupportedAssets(normalizedNetwork),
+    account,
+    normalizedNetwork,
+  );
 
   return {
     address,
     balances: getBalanceItems(account, assets),
     exists: Boolean(account),
+    network: normalizedNetwork,
     xlm: getNativeBalance(account),
   };
 }
 
-async function fundDemoAsset({ amount, assetCode, destination }) {
-  const normalized = assertSupportedAssetCode(assetCode);
+async function fundDemoAsset({
+  amount,
+  assetCode,
+  destination,
+  network = 'testnet',
+}) {
+  const normalizedNetwork = normalizeNetwork(network);
+  const normalized = assertSupportedAssetCode(assetCode, normalizedNetwork);
   const value = assertAmount(amount);
-  const assetDefinition = await getSupportedAsset(normalized);
+  const assetDefinition = await getSupportedAsset({
+    assetCode: normalized,
+    network: normalizedNetwork,
+  });
+
+  if (normalizedNetwork !== 'testnet') {
+    const error = new Error('Mainnet không hỗ trợ nạp token demo');
+    error.status = 400;
+    throw error;
+  }
 
   if (assetDefinition.isNative) {
     const error = new Error('XLM test dùng endpoint nạp XLM riêng');
@@ -392,7 +499,7 @@ async function fundDemoAsset({ amount, assetCode, destination }) {
     throw error;
   }
 
-  const destinationAccount = await loadAccount(destination);
+  const destinationAccount = await loadAccount(destination, normalizedNetwork);
 
   if (!destinationAccount) {
     const error = new Error('Ví nhận chưa có trên Stellar Testnet');
@@ -402,20 +509,21 @@ async function fundDemoAsset({ amount, assetCode, destination }) {
 
   ensureTrustline(destinationAccount, assetDefinition, 'Ví nhận');
 
-  const issuer = await ensureDemoAssetIssuer(normalized);
-  const issuerAccount = await loadAccount(issuer.publicKey);
+  const issuer = await ensureDemoAssetIssuer(normalized, normalizedNetwork);
+  const issuerAccount = await loadAccount(issuer.publicKey, normalizedNetwork);
   const issuedAsset = getIssuedAsset(normalized, issuer.publicKey);
   const { transaction } = buildPaymentTransaction({
     amount: value,
     asset: issuedAsset,
     destination,
     destinationAccount,
+    network: normalizedNetwork,
     sourceAccount: issuerAccount,
   });
 
   transaction.sign(Keypair.fromSecret(issuer.secret));
 
-  return stellar.submitTransaction(transaction);
+  return getStellarServer(normalizedNetwork).submitTransaction(transaction);
 }
 
 async function swapDemoAsset({
@@ -425,8 +533,14 @@ async function swapDemoAsset({
   sourceWalletId,
   toAssetCode,
 }) {
-  const fromDefinition = await getSupportedAsset(fromAssetCode);
-  const toDefinition = await getSupportedAsset(toAssetCode);
+  const fromDefinition = await getSupportedAsset({
+    assetCode: fromAssetCode,
+    network: 'testnet',
+  });
+  const toDefinition = await getSupportedAsset({
+    assetCode: toAssetCode,
+    network: 'testnet',
+  });
   const fromAmount = assertAmount(amount);
   const rate = getDemoSwapRate(
     fromDefinition.assetCode,
@@ -440,7 +554,7 @@ async function swapDemoAsset({
     throw error;
   }
 
-  const sourceAccount = await loadAccount(sourceAddress);
+  const sourceAccount = await loadAccount(sourceAddress, 'testnet');
 
   if (!sourceAccount) {
     const error = new Error(
@@ -461,15 +575,12 @@ async function swapDemoAsset({
   const collectorAddress = fromDefinition.isNative
     ? payoutIssuer.publicKey
     : fromDefinition.assetIssuer;
-  const fromAsset = fromDefinition.isNative
-    ? Asset.native()
-    : getIssuedAsset(fromDefinition.assetCode, fromDefinition.assetIssuer);
-  const toAsset = toDefinition.isNative
-    ? Asset.native()
-    : getIssuedAsset(toDefinition.assetCode, toDefinition.assetIssuer);
+  const fromAsset = getAssetForOperation(fromDefinition);
+  const toAsset = getAssetForOperation(toDefinition);
+  const config = getNetworkConfig('testnet');
   const transaction = new TransactionBuilder(sourceAccount, {
     fee: BASE_FEE,
-    networkPassphrase: Networks.TESTNET,
+    networkPassphrase: config.passphrase,
   })
     .addOperation(
       Operation.payment({
@@ -501,18 +612,203 @@ async function swapDemoAsset({
     fromAmount,
     fromAssetCode: fromDefinition.assetCode,
     fromAssetIssuer: fromDefinition.assetIssuer,
+    payoutAddress: payoutIssuer.publicKey,
     rate,
     submitted,
     toAmount,
     toAssetCode: toDefinition.assetCode,
     toAssetIssuer: toDefinition.assetIssuer,
-    payoutAddress: payoutIssuer.publicKey,
   };
 }
 
-async function fetchAccountOperations(address, limit = 30) {
+async function quoteDemoSwap({ amount, fromAssetCode, toAssetCode }) {
+  const fromDefinition = await getSupportedAsset({
+    assetCode: fromAssetCode,
+    network: 'testnet',
+  });
+  const toDefinition = await getSupportedAsset({
+    assetCode: toAssetCode,
+    network: 'testnet',
+  });
+  const fromAmount = assertAmount(amount);
+  const rate = getDemoSwapRate(
+    fromDefinition.assetCode,
+    toDefinition.assetCode,
+  );
+
+  return {
+    destMin: formatStellarAmount(Number(fromAmount) * rate),
+    fromAmount,
+    fromAssetCode: fromDefinition.assetCode,
+    fromAssetIssuer: fromDefinition.assetIssuer,
+    rate,
+    simulated: true,
+    toAmount: formatStellarAmount(Number(fromAmount) * rate),
+    toAssetCode: toDefinition.assetCode,
+    toAssetIssuer: toDefinition.assetIssuer,
+  };
+}
+
+function assetFromPathRecord(record, prefix) {
+  if (record[`${prefix}_asset_type`] === 'native') {
+    return Asset.native();
+  }
+
+  return new Asset(
+    record[`${prefix}_asset_code`],
+    record[`${prefix}_asset_issuer`],
+  );
+}
+
+function parsePathAsset(assetRecord) {
+  if (assetRecord.asset_type === 'native') {
+    return Asset.native();
+  }
+
+  return new Asset(assetRecord.asset_code, assetRecord.asset_issuer);
+}
+
+async function quoteMainnetSwap({
+  amount,
+  fromAssetCode,
+  fromAssetIssuer,
+  sourceAddress,
+  toAssetCode,
+  toAssetIssuer,
+}) {
+  const network = 'mainnet';
+  const sendAmount = assertAmount(amount);
+  const sourceAccount = await loadAccount(sourceAddress, network);
+
+  if (!sourceAccount) {
+    const error = new Error(
+      'Ví mainnet chưa active. Hãy deposit XLM thật trước khi swap.',
+    );
+    error.status = 400;
+    throw error;
+  }
+
+  const fromDefinition = await getSupportedAsset({
+    assetCode: fromAssetCode,
+    assetIssuer: fromAssetIssuer,
+    network,
+  });
+  const toDefinition = await getSupportedAsset({
+    assetCode: toAssetCode,
+    assetIssuer: toAssetIssuer,
+    network,
+  });
+
+  if (fromDefinition.assetCode === toDefinition.assetCode) {
+    const error = new Error('Chọn 2 token khác nhau để swap');
+    error.status = 400;
+    throw error;
+  }
+
+  ensureTrustline(sourceAccount, fromDefinition, 'Ví gửi');
+  ensureTrustline(sourceAccount, toDefinition, 'Ví nhận');
+
+  const records = await getStellarServer(network)
+    .strictSendPaths(
+      getAssetForOperation(fromDefinition),
+      sendAmount,
+      [getAssetForOperation(toDefinition)],
+    )
+    .call();
+  const bestPath = records?.records?.[0];
+
+  if (!bestPath) {
+    const error = new Error('Không tìm thấy path swap trên Stellar DEX');
+    error.status = 400;
+    throw error;
+  }
+
+  const destinationAmount = bestPath.destination_amount;
+  const destMin = formatStellarAmount(Number(destinationAmount) * 0.995);
+
+  return {
+    destMin,
+    fromAmount: sendAmount,
+    fromAssetCode: fromDefinition.assetCode,
+    fromAssetIssuer: fromDefinition.assetIssuer,
+    path: bestPath.path || [],
+    rate: Number(destinationAmount) / Number(sendAmount),
+    toAmount: destinationAmount,
+    toAssetCode: toDefinition.assetCode,
+    toAssetIssuer: toDefinition.assetIssuer,
+  };
+}
+
+async function executeMainnetSwap({
+  amount,
+  fromAssetCode,
+  fromAssetIssuer,
+  sourceAddress,
+  sourceWalletId,
+  toAssetCode,
+  toAssetIssuer,
+}) {
+  if (!sourceWalletId) {
+    const error = new Error('Thiếu Privy wallet id của ví swap');
+    error.status = 400;
+    throw error;
+  }
+
+  const network = 'mainnet';
+  const quote = await quoteMainnetSwap({
+    amount,
+    fromAssetCode,
+    fromAssetIssuer,
+    sourceAddress,
+    toAssetCode,
+    toAssetIssuer,
+  });
+  const sourceAccount = await loadAccount(sourceAddress, network);
+  const fromDefinition = await getSupportedAsset({
+    assetCode: fromAssetCode,
+    assetIssuer: fromAssetIssuer,
+    network,
+  });
+  const toDefinition = await getSupportedAsset({
+    assetCode: toAssetCode,
+    assetIssuer: toAssetIssuer,
+    network,
+  });
+  const config = getNetworkConfig(network);
+  const transaction = new TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: config.passphrase,
+  })
+    .addOperation(
+      Operation.pathPaymentStrictSend({
+        destination: sourceAddress,
+        destAsset: getAssetForOperation(toDefinition),
+        destMin: quote.destMin,
+        path: quote.path.map(parsePathAsset),
+        sendAmount: quote.fromAmount,
+        sendAsset: getAssetForOperation(fromDefinition),
+      }),
+    )
+    .setTimeout(60)
+    .build();
+  const submitted = await submitPrivySignedTransaction({
+    network,
+    sourceAddress,
+    transaction,
+    walletId: sourceWalletId,
+  });
+
+  return {
+    ...quote,
+    payoutAddress: sourceAddress,
+    submitted,
+  };
+}
+
+async function fetchAccountOperations(address, network = 'testnet', limit = 30) {
+  const config = getNetworkConfig(network);
   const response = await fetch(
-    `${HORIZON_URL}/accounts/${address}/operations?order=desc&limit=${limit}&join=transactions`,
+    `${config.horizonUrl}/accounts/${address}/operations?order=desc&limit=${limit}&join=transactions`,
   );
 
   if (response.status === 404) {
@@ -531,7 +827,7 @@ async function fetchAccountOperations(address, limit = 30) {
   return body?._embedded?.records || [];
 }
 
-function normalizeOperationRecord(address, operation) {
+function normalizeOperationRecord(address, operation, network = 'testnet') {
   const hash = operation.transaction_hash;
 
   if (!hash) {
@@ -541,23 +837,41 @@ function normalizeOperationRecord(address, operation) {
   const isPayment = operation.type === 'payment';
   const isCreateAccount = operation.type === 'create_account';
   const isChangeTrust = operation.type === 'change_trust';
+  const isPathPayment = operation.type?.startsWith('path_payment');
 
-  if (!isPayment && !isCreateAccount && !isChangeTrust) {
+  if (!isPayment && !isCreateAccount && !isChangeTrust && !isPathPayment) {
     return null;
   }
 
   const assetCode = isCreateAccount
     ? NATIVE_ASSET_CODE
-    : operation.asset_type === 'native'
+    : operation.asset_type === 'native' ||
+      operation.source_asset_type === 'native'
     ? NATIVE_ASSET_CODE
-    : operation.asset_code || NATIVE_ASSET_CODE;
+    : operation.asset_code ||
+      operation.source_asset_code ||
+      operation.destination_asset_code ||
+      NATIVE_ASSET_CODE;
   const amount = isCreateAccount
     ? operation.starting_balance || '0'
     : isChangeTrust
     ? '0'
-    : operation.amount || '0';
-  const from = operation.from || operation.funder || operation.trustor || '';
-  const to = operation.to || operation.account || operation.trustee || '';
+    : operation.amount ||
+      operation.source_amount ||
+      operation.destination_amount ||
+      '0';
+  const from =
+    operation.from ||
+    operation.funder ||
+    operation.source_account ||
+    operation.trustor ||
+    '';
+  const to =
+    operation.to ||
+    operation.account ||
+    operation.destination ||
+    operation.trustee ||
+    '';
   const direction = isChangeTrust
     ? 'trustline'
     : to === address || operation.account === address
@@ -571,38 +885,46 @@ function normalizeOperationRecord(address, operation) {
     amount,
     assetCode,
     assetIssuer:
-      assetCode === NATIVE_ASSET_CODE ? null : operation.asset_issuer || null,
+      assetCode === NATIVE_ASSET_CODE
+        ? null
+        : operation.asset_issuer ||
+          operation.source_asset_issuer ||
+          operation.destination_asset_issuer ||
+          null,
     createdAt: operation.created_at,
     direction,
-    explorerUrl: `https://stellar.expert/explorer/testnet/tx/${hash}`,
+    explorerUrl: getExplorerUrl(network, 'tx', hash),
     from,
     hash,
     ledger: Number(operation.transaction_attr?.ledger || operation.ledger || 0),
-    operation: operation.type,
+    network,
+    operation: isPathPayment ? 'path_payment_strict_send' : operation.type,
     to,
   };
 }
 
-async function getAccountHistory(address, limit = 30) {
-  const records = await fetchAccountOperations(address, limit);
+async function getAccountHistory(address, network = 'testnet', limit = 30) {
+  const records = await fetchAccountOperations(address, network, limit);
 
   return records
-    .map(operation => normalizeOperationRecord(address, operation))
+    .map(operation => normalizeOperationRecord(address, operation, network))
     .filter(Boolean);
 }
 
-function getHorizonErrorMessage(error) {
+function getHorizonErrorMessage(error, network = 'testnet') {
   const resultCodes = error?.response?.data?.extras?.result_codes;
+  const config = getNetworkConfig(network);
 
   if (resultCodes) {
-    return `Stellar Testnet từ chối giao dịch: ${JSON.stringify(resultCodes)}`;
+    return `${config.label} từ chối giao dịch: ${JSON.stringify(resultCodes)}`;
   }
 
-  return error.message || 'Stellar Testnet trả lỗi không rõ';
+  return error.message || `${config.label} trả lỗi không rõ`;
 }
 
 module.exports = {
   assertAmount,
+  assertSecretKey,
   assertStellarAddress,
   assertSupportedAssetCode,
   buildPaymentTransaction,
@@ -611,20 +933,23 @@ module.exports = {
   ensureDemoAssetIssuer,
   ensureDemoAssetIssuers,
   ensureTrustline,
+  executeMainnetSwap,
   friendbotFund,
   fundDemoAsset,
   getAccountBalances,
   getAccountHistory,
+  getAssetForOperation,
   getHorizonErrorMessage,
   getIssuedAsset,
   getNativeBalance,
+  getStellarServer,
   getSupportedAsset,
   getSupportedAssets,
   isNativeAsset,
   loadAccount,
   normalizeAssetCode,
+  quoteDemoSwap,
+  quoteMainnetSwap,
   submitPrivySignedTransaction,
-  signStellarTransaction,
   swapDemoAsset,
-  stellar,
 };

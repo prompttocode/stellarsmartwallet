@@ -90,7 +90,7 @@ async function createPrivyUser(email) {
     body: JSON.stringify({
       linked_accounts: [{ type: 'email', address: email }],
       custom_metadata: {
-        demo: 'stellar-testnet',
+        demo: 'stellar-wallet',
       },
     }),
   });
@@ -107,6 +107,34 @@ async function createSignableStellarWallet(email, displayName) {
       external_id: `stellar_${safeEmail}_${Date.now()}`,
     }),
   });
+}
+
+async function importStellarWallet({ displayName, keypair, network }) {
+  return getPrivyClient()
+    .wallets()
+    .import({
+      display_name: displayName,
+      external_id: `stellar_import_${network}_${Date.now()}`,
+      wallet: {
+        address: keypair.publicKey(),
+        chain_type: 'stellar',
+        entropy_type: 'private-key',
+        private_key: keypair.rawSecretKey(),
+      },
+    });
+}
+
+async function exportStellarWalletSecret(walletId, type = 'private_key') {
+  const wallets = getPrivyClient().wallets();
+  const result =
+    type === 'seed_phrase'
+      ? await wallets.exportSeedPhrase(walletId, { export_type: 'client' })
+      : await wallets.exportPrivateKey(walletId, { export_type: 'client' });
+
+  return {
+    secret:
+      type === 'seed_phrase' ? result?.seed_phrase : result?.private_key,
+  };
 }
 
 function getEmailFromPrivyUser(user) {
@@ -127,22 +155,27 @@ function getPrivyErrorMessage(body, status) {
     : `Privy trả lỗi ${status}`;
 }
 
-function normalizeWallet(wallet) {
+function normalizeWallet(wallet, overrides = {}) {
   return {
     id: wallet.id,
     address: wallet.address,
+    canSign: overrides.canSign !== undefined ? overrides.canSign : true,
     publicKey: wallet.public_key || wallet.address,
     chainType: wallet.chain_type,
     displayName: wallet.display_name,
+    kind: overrides.kind || 'privy',
+    network: overrides.network || 'testnet',
   };
 }
 
 module.exports = {
   createPrivyUser,
   createSignableStellarWallet,
+  exportStellarWalletSecret,
   findPrivyUserByEmail,
   getEmailFromPrivyUser,
   getPrivyClient,
+  importStellarWallet,
   normalizeWallet,
   privyRequest,
 };

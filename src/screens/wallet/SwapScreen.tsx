@@ -15,6 +15,9 @@ import type { WalletDemoState } from '../../hooks/useWalletDemo';
 import type { SwapResult } from '../../types';
 
 const ASSET_ID_MAP: Record<string, string> = {
+  AQUA: 'aquarius',
+  EURC: 'euro-coin',
+  PYUSD: 'paypal-usd',
   XLM: 'stellar',
   USDC: 'usd-coin',
   USDT: 'tether',
@@ -50,6 +53,10 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
   const [sellAmount, setSellAmount] = useState('10');
   const [reviewing, setReviewing] = useState(false);
   const [lastSwap, setLastSwap] = useState<SwapResult | null>(null);
+  const [quote, setQuote] = useState<null | {
+    rate: number;
+    toAmount: string;
+  }>(null);
   
   // Real rates state
   const [prices, setPrices] = useState<Record<string, number>>({ XLM: 0.12, USDC: 1.0, USDT: 1.0 });
@@ -63,22 +70,48 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
   }, []);
 
   const rate = useMemo(() => {
+    if (quote?.rate && reviewing) return quote.rate;
     if (sellCode === buyCode) return 1;
     const fromPrice = prices[sellCode] || 1;
     const toPrice = prices[buyCode] || 1;
     return fromPrice / toPrice;
-  }, [sellCode, buyCode, prices]);
+  }, [sellCode, buyCode, prices, quote, reviewing]);
 
-  const canSwap = sellCode !== buyCode && Number(sellAmount) > 0 && !loadingRates;
+  const canSwap =
+    sellCode !== buyCode &&
+    Number(sellAmount) > 0 &&
+    !loadingRates &&
+    wallet.walletCanSign &&
+    (!wallet.isMainnet || wallet.walletActive);
   const buyAmount = useMemo(() => {
+    if (quote?.toAmount && reviewing) return quote.toAmount;
+
     const amount = Number(sellAmount.replace(',', '.')) || 0;
 
     return (amount * rate).toFixed(6);
-  }, [rate, sellAmount]);
+  }, [quote, rate, reviewing, sellAmount]);
 
   function flipAssets() {
     setSellCode(buyCode);
     setBuyCode(sellCode);
+    setQuote(null);
+  }
+
+  async function startReview() {
+    const result = await wallet.quoteSwap({
+      amount: sellAmount,
+      fromAssetCode: sellCode,
+      toAssetCode: buyCode,
+    });
+
+    if (result) {
+      setQuote({
+        rate: result.rate,
+        toAmount: result.toAmount,
+      });
+    }
+
+    setReviewing(true);
   }
 
   async function handleSwap() {
@@ -124,7 +157,9 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
         showsVerticalScrollIndicator={false}
       >
         <ModernScreenHeader
-          subtitle="Giao dịch đã được gửi lên Stellar Testnet."
+          subtitle={`Giao dịch đã được gửi lên Stellar ${
+            wallet.network === 'mainnet' ? 'Mainnet' : 'Testnet'
+          }.`}
           title="Swap completed"
         />
         <View style={modern.sectionCard}>
@@ -163,9 +198,31 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
       showsVerticalScrollIndicator={false}
     >
       <ModernScreenHeader
-        subtitle="Hoán đổi token nhanh chóng với tỷ giá thời gian thực từ thị trường."
+        subtitle={
+          wallet.isMainnet
+            ? 'Hoán đổi qua Stellar DEX/path payment. Cần biometric mỗi lần.'
+            : 'Hoán đổi token demo với tỷ giá thị trường tham khảo.'
+        }
         title="Swap"
       />
+
+      {!wallet.walletCanSign ? (
+        <View style={modern.sectionCard}>
+          <Text style={modern.emptyModernTitle}>Watch-only wallet</Text>
+          <Text style={modern.emptyModernText}>
+            Ví này chỉ xem được balance/QR, không thể swap.
+          </Text>
+        </View>
+      ) : null}
+
+      {wallet.isMainnet && !wallet.walletActive ? (
+        <View style={modern.sectionCard}>
+          <Text style={modern.emptyModernTitle}>Wallet inactive</Text>
+          <Text style={modern.emptyModernText}>
+            Deposit XLM thật vào ví trước khi swap mainnet.
+          </Text>
+        </View>
+      ) : null}
 
       <View style={modern.formCard}>
         <SectionHeader title="Exchange" />
@@ -179,6 +236,7 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
             onChangeText={value => {
               setSellAmount(value);
               setReviewing(false);
+              setQuote(null);
             }}
             placeholder="0"
             placeholderTextColor="#A7B3BA"
@@ -190,6 +248,7 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
             onSelect={value => {
               setSellCode(value);
               setReviewing(false);
+              setQuote(null);
             }}
             selectedAssetCode={sellCode}
           />
@@ -210,13 +269,16 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
             onSelect={value => {
               setBuyCode(value);
               setReviewing(false);
+              setQuote(null);
             }}
             selectedAssetCode={buyCode}
           />
         </View>
 
         <View style={modern.rateCard}>
-          <Text style={modern.swapLabel}>Exchange rate {loadingRates ? '(Loading...)' : ''}</Text>
+          <Text style={modern.swapLabel}>
+            Exchange rate {loadingRates ? '(Loading...)' : ''}
+          </Text>
           <Text style={modern.assetModernBalance}>
             1 {sellCode} ≈ {rate.toFixed(4)} {buyCode}
           </Text>
@@ -234,7 +296,7 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
 
         <PressScale
           disabled={wallet.isBusy || !canSwap}
-          onPress={reviewing ? handleSwap : () => setReviewing(true)}
+          onPress={reviewing ? handleSwap : startReview}
           style={modern.primaryModernButton}
         >
           <Text style={modern.modernButtonText}>
@@ -243,7 +305,9 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
         </PressScale>
 
         <Text style={modern.emptyModernText}>
-          Tỷ giá được cập nhật trực tiếp từ thị trường (CoinGecko API). Giao dịch sẽ được xử lý trên mạng lưới thử nghiệm Stellar Testnet.
+          {wallet.isMainnet
+            ? 'Quote được lấy từ Stellar DEX. Giao dịch mainnet là giao dịch thật.'
+            : 'Tỷ giá được cập nhật từ CoinGecko để tham khảo. Giao dịch sẽ xử lý trên Stellar Testnet.'}
         </Text>
       </View>
     </ScrollView>

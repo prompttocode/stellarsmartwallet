@@ -146,16 +146,16 @@ export function LoginScreen({ wallet }: { wallet: WalletDemoState }) {
       </View>
 
       <View style={styles.loginHero}>
-        <Text style={styles.kicker}>Privy x Stellar Testnet</Text>
-        <Text style={styles.title}>Access your test wallet in seconds</Text>
+        <Text style={styles.kicker}>Privy x Stellar</Text>
+        <Text style={styles.title}>Access your Stellar wallet in seconds</Text>
         <Text style={styles.subtitle}>
-          Sign in with email, then manage XLM, USDC, and USDT demo assets
-          through a real Stellar Testnet wallet.
+          Sign in with email, then manage Testnet demos or Mainnet assets
+          through a Privy-backed Stellar wallet.
         </Text>
         <View style={styles.loginChipRow}>
           <FeatureChip label="Privy Auth" />
-          <FeatureChip label="Stellar Testnet" />
-          <FeatureChip label="Demo assets" />
+          <FeatureChip label="Testnet + Mainnet" />
+          <FeatureChip label="Wallet security" />
         </View>
       </View>
 
@@ -259,7 +259,7 @@ export function LoginScreen({ wallet }: { wallet: WalletDemoState }) {
         <StatusDot active={Boolean(wallet.health?.ok)} />
         <Text style={styles.statusText}>
           {wallet.health?.ok
-            ? 'Privy API và Stellar Testnet sẵn sàng'
+            ? 'Privy API và Stellar network sẵn sàng'
             : 'Đang kiểm tra máy chủ demo'}
         </Text>
       </View>

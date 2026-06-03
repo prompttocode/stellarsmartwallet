@@ -91,6 +91,11 @@ export function PortfolioScreen({
   }, [wallet.transactions, searchQuery]);
 
   function topUpAsset(assetCode: string) {
+    if (wallet.isMainnet) {
+      onGoToTopUp();
+      return;
+    }
+
     if (assetCode === 'XLM') {
       wallet.fundWallet();
       return;
@@ -111,9 +116,15 @@ export function PortfolioScreen({
           hidden={hidden}
           onHideToggle={() => setHidden(value => !value)}
           onMenu={onGoToWallets}
+          onNetworkPress={() =>
+            wallet.switchNetwork(
+              wallet.network === 'mainnet' ? 'testnet' : 'mainnet',
+            )
+          }
           onScan={onGoToScan}
           onSearch={toggleSearch}
           onWalletPress={() => setIsWalletModalVisible(true)}
+          network={wallet.network}
           portfolioValue={portfolioValue}
         >
           <QuickActionGrid
@@ -137,7 +148,7 @@ export function PortfolioScreen({
         </WalletHero>
 
         <View style={modern.belowHero}>
-          <PromoCarousel />
+          <PromoCarousel network={wallet.network} />
 
           <View style={modern.sectionCard}>
             <SectionHeader
@@ -166,7 +177,7 @@ export function PortfolioScreen({
                 asset={asset}
                 disabled={wallet.isBusy}
                 index={index}
-                key={asset.assetCode}
+                key={`${asset.assetCode}:${asset.assetIssuer || 'native'}`}
                 onAdd={wallet.addTrustline}
                 onSend={onGoToSend}
                 onTopUp={topUpAsset}

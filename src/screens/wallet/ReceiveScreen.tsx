@@ -40,7 +40,11 @@ export function ReceiveScreen({
     >
       <ModernScreenHeader
         onBack={onBack}
-        subtitle="Dùng địa chỉ này để nhận token test trên Stellar Testnet."
+        subtitle={
+          wallet.isMainnet
+            ? 'Dùng địa chỉ này để deposit XLM/token thật trên Stellar Mainnet.'
+            : 'Dùng địa chỉ này để nhận token test trên Stellar Testnet.'
+        }
         title="Receive"
       />
 
@@ -63,11 +67,26 @@ export function ReceiveScreen({
           )}
         </View>
         <SectionHeader title="Wallet address" />
+        {wallet.isMainnet && !wallet.walletActive ? (
+          <View style={modern.reviewModernBox}>
+            <Text style={modern.reviewModernTitle}>Account inactive</Text>
+            <Text style={modern.reviewModernText}>
+              Stellar Mainnet wallet cần nhận XLM thật trước khi có thể gửi,
+              swap hoặc add trustline.
+            </Text>
+          </View>
+        ) : null}
         <View style={modern.infoBlock}>
           <Text selectable style={modern.infoValue}>
             {address || 'Chưa có ví'}
           </Text>
         </View>
+        {wallet.isMainnet ? (
+          <Text style={modern.emptyModernText}>
+            Nếu deposit từ exchange, hãy kiểm tra memo theo hướng dẫn của
+            exchange. Khi gửi vào ví cá nhân này thường chỉ cần address.
+          </Text>
+        ) : null}
         <View style={modern.walletButtons}>
           <PressScale
             disabled={!address}
@@ -96,7 +115,10 @@ export function ReceiveScreen({
           const canReceive = asset.isNative || asset.trusted;
 
           return (
-            <View key={asset.assetCode} style={modern.topUpRow}>
+            <View
+              key={`${asset.assetCode}:${asset.assetIssuer || 'native'}`}
+              style={modern.topUpRow}
+            >
               <TokenIcon assetCode={asset.assetCode} />
               <View style={modern.assetModernBody}>
                 <Text style={modern.assetModernName}>{asset.assetCode}</Text>

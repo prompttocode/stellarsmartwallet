@@ -1,6 +1,7 @@
 import React, { ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
+  Image,
   ScrollView,
   StyleProp,
   StyleSheet,
@@ -26,9 +27,22 @@ import type { AssetItem, BalanceItem, TransactionItem } from '../../types';
 import { formatDate, shortAddress } from '../../utils/format';
 
 const assetColors: Record<string, { bg: string; fg: string }> = {
+  AQUA: { bg: '#E5F8FF', fg: '#087EA4' },
+  EURC: { bg: '#EAF3FF', fg: '#1F66C2' },
+  PYUSD: { bg: '#EEF5FF', fg: '#153B7D' },
   USDC: { bg: '#EAF5FF', fg: '#2374D7' },
   USDT: { bg: '#E5FAF1', fg: '#0ABF73' },
   XLM: { bg: '#EEF3F5', fg: '#132A35' },
+  yUSDC: { bg: '#F0F7FF', fg: '#315A94' },
+  yXLM: { bg: '#F2F6F8', fg: '#284653' },
+};
+
+const assetImages: Record<string, number> = {
+  EURC: require('../../assets/images/eurc.png'),
+  PYUSD: require('../../assets/images/pyusd.png'),
+  USDC: require('../../assets/images/usdc.png'),
+  USDT: require('../../assets/images/usdt.png'),
+  XLM: require('../../assets/images/xlm.png'),
 };
 
 export type PillTabItem<T extends string> = {
@@ -186,6 +200,7 @@ export function TokenIcon({
   size?: number;
 }) {
   const colors = assetColors[assetCode] || { bg: '#EEF3F5', fg: '#24495A' };
+  const image = assetImages[assetCode];
 
   return (
     <View
@@ -198,9 +213,17 @@ export function TokenIcon({
         },
       ]}
     >
-      <Text style={[modern.tokenIconText, { color: colors.fg }]}>
-        {assetCode.slice(0, 1)}
-      </Text>
+      {image ? (
+        <Image
+          resizeMode="contain"
+          source={image}
+          style={{ height: size * 0.7, width: size * 0.7 }}
+        />
+      ) : (
+        <Text style={[modern.tokenIconText, { color: colors.fg }]}>
+          {assetCode.slice(0, 1)}
+        </Text>
+      )}
     </View>
   );
 }
@@ -212,10 +235,12 @@ export function WalletHero({
   hidden,
   onHideToggle,
   onMenu,
+  onNetworkPress,
   onScan,
   onSearch,
   onWalletPress,
   portfolioValue,
+  network = 'testnet',
 }: {
   address?: string;
   children?: ReactNode;
@@ -223,10 +248,12 @@ export function WalletHero({
   hidden: boolean;
   onHideToggle: () => void;
   onMenu: () => void;
+  onNetworkPress?: () => void;
   onScan: () => void;
   onSearch: () => void;
   onWalletPress?: () => void;
   portfolioValue: string;
+  network?: 'testnet' | 'mainnet';
 }) {
   return (
     <View style={modern.hero}>
@@ -234,15 +261,17 @@ export function WalletHero({
         <PressScale onPress={onMenu} style={modern.heroIconButton}>
           <Ionicons color="#FFFFFF" name="menu" size={26} />
         </PressScale>
-        <View style={modern.networkPill}>
+        <Pressable onPress={onNetworkPress} style={modern.networkPill}>
           <TokenIcon assetCode="XLM" size={32} />
-          <Text style={modern.networkPillText}>Testnet</Text>
+          <Text style={modern.networkPillText}>
+            {network === 'mainnet' ? 'Mainnet' : 'Testnet'}
+          </Text>
           <Ionicons
             color="rgba(255,255,255,0.86)"
             name="chevron-down"
             size={16}
           />
-        </View>
+        </Pressable>
         <Pressable onPress={onWalletPress || onMenu} style={modern.addressPill}>
           <Text numberOfLines={1} style={modern.addressPillText}>
             {shortAddress(address)}
@@ -318,28 +347,40 @@ export function QuickActionGrid({
   );
 }
 
-export function PromoCarousel() {
+export function PromoCarousel({ network = 'testnet' }: { network?: 'testnet' | 'mainnet' }) {
   const promos = [
     {
       accent: '#4D46E8',
       iconName: 'rocket-outline',
       iconSet: 'ionicons' as const,
-      subtitle: 'Tài khoản đang chạy trên mạng thử nghiệm',
-      title: 'Stellar Testnet ready',
+      subtitle:
+        network === 'mainnet'
+          ? 'Giao dịch mainnet cần review và biometric'
+          : 'Tài khoản đang chạy trên mạng thử nghiệm',
+      title:
+        network === 'mainnet'
+          ? 'Stellar Mainnet ready'
+          : 'Stellar Testnet ready',
     },
     {
       accent: '#FFFFFF',
       iconName: 'coin',
       iconSet: 'material' as const,
-      subtitle: 'Nạp USDC/USDT demo sau khi add trustline',
-      title: 'Demo token faucet',
+      subtitle:
+        network === 'mainnet'
+          ? 'Nhận XLM thật bằng QR/on-chain deposit'
+          : 'Nạp USDC/USDT demo sau khi add trustline',
+      title: network === 'mainnet' ? 'On-chain deposit' : 'Demo token faucet',
     },
     {
       accent: '#8A2BE2',
       iconName: 'swap-horizontal',
       iconSet: 'material' as const,
-      subtitle: 'Đổi token test qua quầy swap demo',
-      title: 'Swap test assets',
+      subtitle:
+        network === 'mainnet'
+          ? 'Swap qua Stellar DEX/path payment'
+          : 'Đổi token test qua quầy swap demo',
+      title: network === 'mainnet' ? 'Stellar DEX swap' : 'Swap test assets',
     },
   ];
 
@@ -423,12 +464,16 @@ export function AssetListItem({
   onTopUp: (assetCode: string) => void;
 }) {
   const canUse = asset.isNative || asset.trusted;
-  const buttonLabel = canUse ? 'Faucet' : 'Add';
+  const buttonLabel = canUse
+    ? asset.network === 'mainnet'
+      ? 'Deposit'
+      : 'Faucet'
+    : 'Add';
   const buttonAction = canUse ? onTopUp : onAdd;
   const subtitle = asset.isNative
-    ? 'XLM (stellar.org)'
+    ? `${asset.network === 'mainnet' ? 'Mainnet' : 'Testnet'} · stellar.org`
     : asset.trusted
-    ? `${asset.displayName} · ready`
+    ? `${asset.displayName} · ${asset.trustLevel}`
     : `${asset.displayName} · add first`;
 
   return (
@@ -482,7 +527,7 @@ export function TokenPillSelector({
 
         return (
           <PressScale
-            key={asset.assetCode}
+            key={`${asset.assetCode}:${asset.assetIssuer || 'native'}`}
             onPress={() => onSelect(asset.assetCode)}
             style={[modern.tokenPill, selected ? modern.tokenPillActive : null]}
           >
@@ -617,7 +662,13 @@ export function calculateTotalUsdValue(balances: BalanceItem[]): number {
       return sum + amount * 0.12;
     }
 
-    if (balance.assetCode === 'USDC' || balance.assetCode === 'USDT') {
+    if (
+      balance.assetCode === 'EURC' ||
+      balance.assetCode === 'PYUSD' ||
+      balance.assetCode === 'USDC' ||
+      balance.assetCode === 'USDT' ||
+      balance.assetCode === 'yUSDC'
+    ) {
       return sum + amount;
     }
 
@@ -630,7 +681,11 @@ export function getModernAssets(
   visibleAssets: AssetItem[],
 ) {
   return visibleAssets.map<BalanceItem>(asset => {
-    const balance = balances.find(item => item.assetCode === asset.assetCode);
+    const balance = balances.find(
+      item =>
+        item.assetCode === asset.assetCode &&
+        (item.assetIssuer || null) === (asset.assetIssuer || null),
+    );
 
     if (balance) {
       return balance;

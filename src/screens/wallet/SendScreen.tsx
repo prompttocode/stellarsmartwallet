@@ -40,6 +40,11 @@ export function SendScreen({
     wallet.recipientContact?.wallet.address === wallet.recipient
       ? wallet.recipientContact.label
       : shortAddress(wallet.recipient);
+  const canSubmit =
+    wallet.walletCanSign &&
+    (!wallet.isMainnet || wallet.walletActive) &&
+    Boolean(wallet.amount) &&
+    Boolean(wallet.recipient.trim());
 
   async function handleConfirmSend() {
     const rnBiometrics = new ReactNativeBiometrics();
@@ -81,7 +86,9 @@ export function SendScreen({
       >
         <ModernScreenHeader
           onBack={onBack}
-          subtitle="Giao dịch đã gửi lên Stellar Testnet."
+          subtitle={`Giao dịch đã gửi lên Stellar ${
+            wallet.network === 'mainnet' ? 'Mainnet' : 'Testnet'
+          }.`}
           title="Payment sent"
         />
         <View style={modern.sectionCard}>
@@ -121,7 +128,11 @@ export function SendScreen({
       >
         <ModernScreenHeader
           onBack={() => setStep('compose')}
-          subtitle="Kiểm tra kỹ trước khi gửi token test."
+          subtitle={
+            wallet.isMainnet
+              ? 'Kiểm tra kỹ. Mainnet transaction là giao dịch thật.'
+              : 'Kiểm tra kỹ trước khi gửi token test.'
+          }
           title="Review payment"
         />
         <View style={modern.sectionCard}>
@@ -130,11 +141,12 @@ export function SendScreen({
           <InfoLine label="Số lượng" value={wallet.amount || '0'} />
           <InfoLine label="Người nhận" value={recipientLabel} />
           <Text style={modern.emptyModernText}>
-            Sau khi bấm Send, giao dịch test sẽ được gửi thật lên Stellar
-            Testnet.
+            {wallet.isMainnet
+              ? 'Sau khi bấm Send, giao dịch sẽ được ký bằng Privy và gửi lên Stellar Mainnet.'
+              : 'Sau khi bấm Send, giao dịch test sẽ được gửi thật lên Stellar Testnet.'}
           </Text>
           <PressScale
-            disabled={wallet.isBusy}
+            disabled={wallet.isBusy || !canSubmit}
             onPress={handleConfirmSend}
             style={modern.primaryModernButton}
           >
@@ -152,9 +164,31 @@ export function SendScreen({
     >
       <ModernScreenHeader
         onBack={onBack}
-        subtitle="Gửi XLM, USDC hoặc USDT demo qua Stellar Testnet."
+        subtitle={
+          wallet.isMainnet
+            ? 'Gửi/withdraw token thật qua Stellar Mainnet.'
+            : 'Gửi XLM, USDC hoặc USDT demo qua Stellar Testnet.'
+        }
         title="Send"
       />
+
+      {!wallet.walletCanSign ? (
+        <View style={modern.sectionCard}>
+          <Text style={modern.emptyModernTitle}>Watch-only wallet</Text>
+          <Text style={modern.emptyModernText}>
+            Ví này chỉ xem được balance/QR, không thể ký send/swap/export.
+          </Text>
+        </View>
+      ) : null}
+
+      {wallet.isMainnet && !wallet.walletActive ? (
+        <View style={modern.sectionCard}>
+          <Text style={modern.emptyModernTitle}>Wallet inactive</Text>
+          <Text style={modern.emptyModernText}>
+            Deposit XLM thật vào ví trước khi gửi giao dịch mainnet.
+          </Text>
+        </View>
+      ) : null}
 
       <View style={modern.formCard}>
         <SectionHeader title="Asset" />
@@ -198,17 +232,19 @@ export function SendScreen({
             </Text>
           </View>
         ) : null}
-        <PressScale
-          disabled={wallet.isBusy}
-          onPress={wallet.createDemoReceiver}
-          style={modern.secondaryModernButton}
-        >
-          <Text
-            style={[modern.modernButtonText, modern.secondaryModernButtonText]}
+        {!wallet.isMainnet ? (
+          <PressScale
+            disabled={wallet.isBusy}
+            onPress={wallet.createDemoReceiver}
+            style={modern.secondaryModernButton}
           >
-            Create demo receiver
-          </Text>
-        </PressScale>
+            <Text
+              style={[modern.modernButtonText, modern.secondaryModernButtonText]}
+            >
+              Create demo receiver
+            </Text>
+          </PressScale>
+        ) : null}
       </View>
 
       <View style={modern.formCard}>
@@ -222,7 +258,7 @@ export function SendScreen({
           value={wallet.amount}
         />
         <PressScale
-          disabled={wallet.isBusy}
+          disabled={wallet.isBusy || !canSubmit}
           onPress={() => setStep('review')}
           style={modern.primaryModernButton}
         >
