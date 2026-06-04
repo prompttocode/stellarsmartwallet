@@ -4,6 +4,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import ReactNativeBiometrics from 'react-native-biometrics';
 import Toast from 'react-native-toast-message';
+import { InfoLine } from '../../components/WalletPrimitives';
 import {
   ModernScreenHeader,
   PressScale,
@@ -90,6 +91,14 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
 
     return (amount * rate).toFixed(6);
   }, [quote, rate, reviewing, sellAmount]);
+  const sellAsset = useMemo(
+    () => wallet.visibleAssets.find(asset => asset.assetCode === sellCode),
+    [sellCode, wallet.visibleAssets],
+  );
+  const buyAsset = useMemo(
+    () => wallet.visibleAssets.find(asset => asset.assetCode === buyCode),
+    [buyCode, wallet.visibleAssets],
+  );
 
   function flipAssets() {
     setSellCode(buyCode);
@@ -287,9 +296,39 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
         {reviewing ? (
           <View style={modern.reviewModernBox}>
             <Text style={modern.reviewModernTitle}>Review swap</Text>
+            <InfoLine
+              label="Network"
+              value={wallet.isMainnet ? 'Mainnet · real assets' : 'Testnet · demo only'}
+            />
+            <InfoLine
+              label="Amount"
+              value={`${sellAmount || '0'} ${sellCode}`}
+            />
+            <InfoLine
+              label="You receive"
+              value={`≈ ${buyAmount} ${buyCode}`}
+            />
+            <InfoLine
+              label="Destination"
+              value={wallet.wallet?.address || 'Active wallet'}
+            />
+            {sellCode !== 'XLM' ? (
+              <InfoLine
+                label="Sell issuer"
+                value={sellAsset?.assetIssuer || 'Unknown issuer'}
+              />
+            ) : null}
+            {buyCode !== 'XLM' ? (
+              <InfoLine
+                label="Receive issuer"
+                value={buyAsset?.assetIssuer || 'Unknown issuer'}
+              />
+            ) : null}
+            <InfoLine label="Estimated fee" value="0.00001 XLM" />
             <Text style={modern.reviewModernText}>
-              Swap {sellAmount || '0'} {sellCode} để nhận khoảng {buyAmount}{' '}
-              {buyCode}.
+              {wallet.isMainnet
+                ? 'Mainnet swap là giao dịch thật. App sẽ yêu cầu biometric trước khi ký bằng Privy.'
+                : 'Swap test sẽ được gửi thật lên Stellar Testnet.'}
             </Text>
           </View>
         ) : null}
@@ -300,7 +339,12 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
           style={modern.primaryModernButton}
         >
           <Text style={modern.modernButtonText}>
-            {wallet.busy || (reviewing ? 'Confirm swap' : 'Review swap')}
+            {wallet.busy ||
+              (reviewing
+                ? wallet.isMainnet
+                  ? 'Confirm with biometric'
+                  : 'Confirm swap'
+                : 'Review swap')}
           </Text>
         </PressScale>
 

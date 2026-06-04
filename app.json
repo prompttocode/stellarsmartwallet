@@ -1,4 +1,7 @@
 {
   "name": "Privy",
-  "displayName": "Privy"
+  "displayName": "Privy",
+  "expo": {
+    "scheme": "privy"
+  }
 }

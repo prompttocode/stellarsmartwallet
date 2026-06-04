@@ -370,7 +370,7 @@ async function ensureDemoAssetIssuer(assetCode, network = 'testnet') {
     return null;
   }
 
-  const existing = getDemoIssuer(normalized);
+  const existing = await getDemoIssuer(normalized);
 
   if (existing?.publicKey && existing?.secret) {
     const account = await loadAccount(existing.publicKey, normalizedNetwork);
@@ -383,13 +383,13 @@ async function ensureDemoAssetIssuer(assetCode, network = 'testnet') {
   const keypair = Keypair.random();
   await friendbotFund(keypair.publicKey(), normalizedNetwork);
 
-  const issuer = saveIssuer(getIssuerKey(normalizedNetwork, normalized), {
+  const issuer = await saveIssuer(getIssuerKey(normalizedNetwork, normalized), {
     publicKey: keypair.publicKey(),
     secret: keypair.secret(),
     fundedAt: new Date().toISOString(),
   });
 
-  saveIssuer(normalized, issuer);
+  await saveIssuer(normalized, issuer);
 
   return issuer;
 }

@@ -262,9 +262,11 @@ export function WalletHero({
           <Ionicons color="#FFFFFF" name="menu" size={26} />
         </PressScale>
         <Pressable onPress={onNetworkPress} style={modern.networkPill}>
-          <TokenIcon assetCode="XLM" size={32} />
-          <Text style={modern.networkPillText}>
-            {network === 'mainnet' ? 'Mainnet' : 'Testnet'}
+          <TokenIcon assetCode="XLM" size={28} />
+          <Text numberOfLines={1} style={modern.networkPillText}>
+            {network === 'mainnet'
+              ? 'MAINNET · Real assets'
+              : 'TESTNET · Demo only'}
           </Text>
           <Ionicons
             color="rgba(255,255,255,0.86)"
@@ -317,6 +319,29 @@ export function WalletHero({
         </Text>
       </View>
       {children}
+    </View>
+  );
+}
+
+export function ActivateWalletNotice({
+  onPress,
+}: {
+  onPress: () => void;
+}) {
+  return (
+    <View style={modern.activateNotice}>
+      <View style={modern.activateIcon}>
+        <Ionicons color="#0F8EA3" name="flash-outline" size={24} />
+      </View>
+      <View style={modern.activateCopy}>
+        <Text style={modern.activateTitle}>Activate wallet</Text>
+        <Text style={modern.activateText}>
+          Deposit XLM to start using this Mainnet wallet
+        </Text>
+      </View>
+      <PressScale onPress={onPress} style={modern.activateButton}>
+        <Text style={modern.activateButtonText}>Show deposit QR</Text>
+      </PressScale>
     </View>
   );
 }
@@ -470,11 +495,18 @@ export function AssetListItem({
       : 'Faucet'
     : 'Add';
   const buttonAction = canUse ? onTopUp : onAdd;
+  const badgeLabel = !canUse
+    ? 'Trustline needed'
+    : asset.demo
+    ? 'Demo'
+    : asset.trustLevel === 'verified'
+    ? 'Verified'
+    : 'Unverified';
   const subtitle = asset.isNative
-    ? `${asset.network === 'mainnet' ? 'Mainnet' : 'Testnet'} · stellar.org`
+    ? 'Lumens · Native Stellar coin'
     : asset.trusted
-    ? `${asset.displayName} · ${asset.trustLevel}`
-    : `${asset.displayName} · add first`;
+    ? `${asset.displayName} · ${asset.homeDomain || asset.trustLevel}`
+    : `${asset.displayName} · add trustline first`;
 
   return (
     <Animated.View
@@ -488,9 +520,36 @@ export function AssetListItem({
       >
         <TokenIcon assetCode={asset.assetCode} />
         <View style={modern.assetModernBody}>
-          <Text style={modern.assetModernName}>
-            {asset.assetCode === 'XLM' ? 'Lumens' : asset.assetCode}
-          </Text>
+          <View style={modern.assetNameLine}>
+            <Text style={modern.assetModernName}>{asset.assetCode}</Text>
+            <View
+              style={[
+                modern.assetBadge,
+                badgeLabel === 'Demo'
+                  ? modern.assetBadgeDemo
+                  : badgeLabel === 'Verified'
+                  ? modern.assetBadgeVerified
+                  : badgeLabel === 'Trustline needed'
+                  ? modern.assetBadgeTrustline
+                  : modern.assetBadgeUnverified,
+              ]}
+            >
+              <Text
+                style={[
+                  modern.assetBadgeText,
+                  badgeLabel === 'Demo'
+                    ? modern.assetBadgeTextDemo
+                    : badgeLabel === 'Verified'
+                    ? modern.assetBadgeTextVerified
+                    : badgeLabel === 'Trustline needed'
+                    ? modern.assetBadgeTextTrustline
+                    : modern.assetBadgeTextUnverified,
+                ]}
+              >
+                {badgeLabel}
+              </Text>
+            </View>
+          </View>
           <Text style={modern.assetModernMeta}>{subtitle}</Text>
         </View>
         <View style={modern.assetModernRight}>
@@ -723,6 +782,10 @@ export const modern = StyleSheet.create({
     flexGrow: 1,
     paddingBottom: 126,
   },
+  portfolioRoot: {
+    backgroundColor: '#F4F8FA',
+    flex: 1,
+  },
   screenInset: {
     gap: 18,
     paddingBottom: 126,
@@ -753,17 +816,22 @@ export const modern = StyleSheet.create({
   },
   networkPill: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(255,255,255,0.24)',
+    borderColor: 'rgba(255,255,255,0.22)',
+    borderWidth: 1,
     borderRadius: 24,
     flexDirection: 'row',
-    gap: 6,
+    flexShrink: 0,
+    gap: 5,
     height: 46,
-    paddingLeft: 8,
-    paddingRight: 11,
+    maxWidth: 154,
+    paddingLeft: 7,
+    paddingRight: 9,
   },
   networkPillText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    flexShrink: 1,
+    fontSize: 11,
     fontWeight: '800',
   },
   networkChevron: {
@@ -892,6 +960,56 @@ export const modern = StyleSheet.create({
   promoTextDark: {
     color: 'rgba(255,255,255,0.72)',
   },
+  activateNotice: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderColor: '#D7EEF3',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    marginHorizontal: 18,
+    padding: 14,
+    shadowColor: '#1F3B4D',
+    shadowOffset: { height: 8, width: 0 },
+    shadowOpacity: 0.05,
+    shadowRadius: 18,
+  },
+  activateIcon: {
+    alignItems: 'center',
+    backgroundColor: '#EAF7FA',
+    borderRadius: 8,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  activateCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  activateTitle: {
+    color: '#24495A',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  activateText: {
+    color: '#6A7E88',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  activateButton: {
+    alignItems: 'center',
+    backgroundColor: '#0ABF73',
+    borderRadius: 8,
+    justifyContent: 'center',
+    minHeight: 42,
+    paddingHorizontal: 12,
+  },
+  activateButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+  },
   sectionCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 28,
@@ -947,10 +1065,49 @@ export const modern = StyleSheet.create({
     flex: 1,
     gap: 4,
   },
+  assetNameLine: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 7,
+  },
   assetModernName: {
     color: '#24495A',
     fontSize: 17,
     fontWeight: '900',
+  },
+  assetBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+  },
+  assetBadgeDemo: {
+    backgroundColor: '#EEF3F5',
+  },
+  assetBadgeTrustline: {
+    backgroundColor: '#FFF5E7',
+  },
+  assetBadgeUnverified: {
+    backgroundColor: '#FFF1F3',
+  },
+  assetBadgeVerified: {
+    backgroundColor: '#E7F9F1',
+  },
+  assetBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  assetBadgeTextDemo: {
+    color: '#536873',
+  },
+  assetBadgeTextTrustline: {
+    color: '#A86200',
+  },
+  assetBadgeTextUnverified: {
+    color: '#C01048',
+  },
+  assetBadgeTextVerified: {
+    color: '#0ABF73',
   },
   assetModernMeta: {
     color: '#8B99A3',
@@ -1489,6 +1646,17 @@ export const modern = StyleSheet.create({
     gap: 14,
     paddingVertical: 14,
   },
+  disabledActionRow: {
+    alignItems: 'center',
+    backgroundColor: '#F4F8FA',
+    borderColor: '#E2EBEF',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 14,
+    opacity: 0.78,
+    padding: 14,
+  },
   successOrb: {
     alignItems: 'center',
     alignSelf: 'center',
@@ -1543,6 +1711,11 @@ export const modern = StyleSheet.create({
     minHeight: 56,
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  assetSearchInput: {
+    height: 44,
+    marginBottom: 16,
+    paddingHorizontal: 16,
   },
   qrCard: {
     alignItems: 'center',

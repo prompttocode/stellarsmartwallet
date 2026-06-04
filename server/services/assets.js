@@ -137,10 +137,10 @@ function getIssuerKey(network, assetCode) {
   return `${normalizeNetwork(network)}:${normalizeAssetCode(assetCode)}`;
 }
 
-function getDemoIssuer(assetCode) {
+async function getDemoIssuer(assetCode) {
   return (
-    getIssuer(getIssuerKey('testnet', assetCode)) ||
-    getIssuer(normalizeAssetCode(assetCode))
+    (await getIssuer(getIssuerKey('testnet', assetCode))) ||
+    (await getIssuer(normalizeAssetCode(assetCode)))
   );
 }
 
@@ -202,4 +202,3 @@ module.exports = {
   NATIVE_ASSET_CODE,
   normalizeAssetCode,
 };
-

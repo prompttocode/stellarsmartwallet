@@ -5,6 +5,7 @@ import ReactNativeBiometrics from 'react-native-biometrics';
 import {
   useIdentityToken,
   useLoginWithEmail,
+  useLoginWithOAuth,
   usePrivy,
 } from '@privy-io/expo';
 import { api } from '../api/client';
@@ -73,9 +74,10 @@ function getEmailFromPrivyUser(userValue: unknown) {
 
   const linkedAccounts =
     currentUser.linked_accounts || currentUser.linkedAccounts || [];
-  const emailAccount = linkedAccounts.find(
-    account => account.type === 'email' && (account.address || account.email),
-  );
+  const emailAccount =
+    linkedAccounts.find(
+      account => account.type === 'email' && (account.address || account.email),
+    ) || linkedAccounts.find(account => account.address || account.email);
 
   return (emailAccount?.address || emailAccount?.email || '')
     .trim()
@@ -214,6 +216,7 @@ export function useWalletDemo() {
       setMessage('Privy đã gửi mã xác minh về email. Nhập mã đó để đăng nhập.');
     },
   });
+  const { login: loginWithOAuth, state: oauthState } = useLoginWithOAuth();
 
   const run = useCallback(
     async <T,>(
@@ -561,6 +564,29 @@ export function useWalletDemo() {
       setCode('');
       setCodeSent(false);
       await finishPrivySession(undefined, targetEmail, network);
+    });
+  }
+
+  async function loginWithGoogle() {
+    await run('Đăng nhập Google', async () => {
+      if (user) {
+        await logoutPrivy();
+        await forgetDemoSessionEmail();
+        clearWalletSession();
+      }
+
+      const oauthUser = await loginWithOAuth({
+        provider: 'google',
+        redirectUri: '/',
+      });
+      const identityToken = await getTokenWithRetry(getIdentityToken);
+      const oauthEmail = getEmailFromPrivyUser(oauthUser);
+
+      setCode('');
+      setCodeSent(false);
+      await finishPrivySession(identityToken || undefined, oauthEmail, network);
+
+      return true;
     });
   }
 
@@ -1089,12 +1115,14 @@ export function useWalletDemo() {
     isMainnet,
     isReady,
     importWallet,
+    loginWithGoogle,
     loginState,
     logout,
     message,
     network,
     networks,
     openUrl,
+    oauthState,
     privyError,
     quoteSwap,
     rampProviders,

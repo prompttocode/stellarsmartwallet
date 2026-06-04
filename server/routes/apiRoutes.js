@@ -186,7 +186,7 @@ async function requireAccountContext(req, options = {}) {
     throw error;
   }
 
-  const account = getAccountByEmail(email);
+  const account = await getAccountByEmail(email);
 
   if (!account) {
     const error = new Error('Không tìm thấy tài khoản ví');
@@ -194,7 +194,7 @@ async function requireAccountContext(req, options = {}) {
     throw error;
   }
 
-  return saveAccount(
+  return await saveAccount(
     normalizeAccountWallets(
       {
         ...account,
@@ -245,7 +245,7 @@ async function requireDemoAccountByEmail(emailValue, network = 'testnet') {
     throw error;
   }
 
-  const account = getAccountByEmail(email);
+  const account = await getAccountByEmail(email);
 
   if (!account) {
     const error = new Error('Không tìm thấy tài khoản demo');
@@ -263,7 +263,7 @@ async function ensureWalletForNetwork(account, network = 'testnet') {
     .find(wallet => wallet.canSign);
 
   if (existingWallet) {
-    return saveAccount(
+    return await saveAccount(
       normalizeAccountWallets(
         {
           ...normalizedAccount,
@@ -288,7 +288,7 @@ async function ensureWalletForNetwork(account, network = 'testnet') {
     },
   );
 
-  return saveAccount(
+  return await saveAccount(
     normalizeAccountWallets(
       {
         ...normalizedAccount,
@@ -301,12 +301,62 @@ async function ensureWalletForNetwork(account, network = 'testnet') {
   );
 }
 
+async function getOrCreateSessionAccountByEmail(
+  emailValue,
+  network = 'testnet',
+  userId,
+) {
+  const email = normalizeEmail(emailValue);
+
+  if (!isEmailLike(email)) {
+    const error = new Error('Email không hợp lệ');
+    error.status = 400;
+    throw error;
+  }
+
+  const localAccount = await getAccountByEmail(email);
+
+  if (localAccount) {
+    return ensureWalletForNetwork(
+      {
+        ...localAccount,
+        ...(userId ? { id: userId } : null),
+      },
+      network,
+    );
+  }
+
+  const user = userId
+    ? { id: userId }
+    : (await findPrivyUserByEmail(email)) || (await createPrivyUser(email));
+  const wallet = normalizeWallet(
+    await createSignableStellarWallet(email, `Stellar ${network} 1`),
+    {
+      canSign: true,
+      kind: 'privy',
+      network,
+    },
+  );
+
+  return await saveAccount(
+    normalizeAccountWallets(
+      {
+        id: user.id,
+        email,
+        wallet,
+        wallets: [wallet],
+      },
+      network,
+    ),
+  );
+}
+
 async function ensureSignableDemoAccount(account, network = 'testnet') {
   return ensureWalletForNetwork(account, network);
 }
 
 async function buildAccountSession(account, preferredNetwork) {
-  const normalizedAccount = saveAccount(
+  const normalizedAccount = await saveAccount(
     normalizeAccountWallets(account, preferredNetwork),
   );
   const visibleWallets = getVisibleWallets(normalizedAccount);
@@ -862,14 +912,23 @@ router.post('/session', async (req, res, next) => {
     const identityToken = String(req.body?.identityToken || '').trim();
 
     if (identityToken) {
-      req.body.identityToken = identityToken;
-      const account = await requireAccountContext(req, { network });
-      const ensured = await ensureWalletForNetwork(account, network);
-      res.json(await buildAccountSession(ensured, network));
+      const user = await getPrivyClient().users().get({
+        id_token: identityToken,
+      });
+      const account = await getOrCreateSessionAccountByEmail(
+        getEmailFromPrivyUser(user),
+        network,
+        user.id,
+      );
+
+      res.json(await buildAccountSession(account, network));
       return;
     }
 
-    const account = await requireDemoAccountByEmail(req.body?.email, network);
+    const account = await getOrCreateSessionAccountByEmail(
+      req.body?.email,
+      network,
+    );
     res.json(await buildAccountSession(account, network));
   } catch (error) {
     next(error);
@@ -926,7 +985,7 @@ router.post('/wallets', async (req, res, next) => {
       await friendbotFund(nextWallet.address, network);
     }
 
-    const nextAccount = saveAccount(
+    const nextAccount = await saveAccount(
       normalizeAccountWallets(
         {
           ...account,
@@ -966,7 +1025,7 @@ router.post('/wallets/import', async (req, res, next) => {
       kind: 'imported_privy',
       network,
     });
-    const nextAccount = saveAccount(
+    const nextAccount = await saveAccount(
       normalizeAccountWallets(
         {
           ...account,
@@ -1017,7 +1076,7 @@ router.post('/wallets/watch-only', async (req, res, next) => {
         network,
       },
     );
-    const nextAccount = saveAccount(
+    const nextAccount = await saveAccount(
       normalizeAccountWallets(
         {
           ...account,
@@ -1109,7 +1168,7 @@ router.post('/demo/account', async (req, res, next) => {
         network,
       },
     );
-    const account = saveAccount(
+    const account = await saveAccount(
       normalizeAccountWallets(
         {
           id: user.id,
@@ -1134,45 +1193,9 @@ router.post('/demo/session', async (req, res, next) => {
     const network = normalizeNetwork(req.body?.network);
     const email = normalizeEmail(req.body?.email);
 
-    if (!isEmailLike(email)) {
-      const error = new Error('Email không hợp lệ');
-      error.status = 400;
-      throw error;
-    }
+    const account = await getOrCreateSessionAccountByEmail(email, network);
 
-    const localAccount = getAccountByEmail(email);
-
-    if (localAccount) {
-      const account = await ensureSignableDemoAccount(localAccount, network);
-      res.json(await buildAccountSession(account, network));
-      return;
-    }
-
-    const existingUser = await findPrivyUserByEmail(email);
-    const user = existingUser || (await createPrivyUser(email));
-    const wallet = normalizeWallet(
-      await createSignableStellarWallet(email, `Stellar ${network} 1`),
-      {
-        canSign: true,
-        kind: 'privy',
-        network,
-      },
-    );
-    const account = saveAccount(
-      normalizeAccountWallets(
-        {
-          id: user.id,
-          email,
-          wallet,
-          wallets: [wallet],
-        },
-        network,
-      ),
-    );
-
-    res
-      .status(existingUser ? 200 : 201)
-      .json(await buildAccountSession(account, network));
+    res.json(await buildAccountSession(account, network));
   } catch (error) {
     next(error);
   }
@@ -1200,41 +1223,13 @@ router.post('/demo/auth-session', async (req, res, next) => {
       throw error;
     }
 
-    const localAccount = getAccountByEmail(email);
-
-    if (localAccount) {
-      const account = await ensureSignableDemoAccount(
-        {
-          ...localAccount,
-          id: user.id,
-        },
-        network,
-      );
-      res.json(await buildAccountSession(account, network));
-      return;
-    }
-
-    const wallet = normalizeWallet(
-      await createSignableStellarWallet(email, `Stellar ${network} 1`),
-      {
-        canSign: true,
-        kind: 'privy',
-        network,
-      },
-    );
-    const account = saveAccount(
-      normalizeAccountWallets(
-        {
-          id: user.id,
-          email,
-          wallet,
-          wallets: [wallet],
-        },
-        network,
-      ),
+    const account = await getOrCreateSessionAccountByEmail(
+      email,
+      network,
+      user.id,
     );
 
-    res.status(201).json(await buildAccountSession(account, network));
+    res.json(await buildAccountSession(account, network));
   } catch (error) {
     if (!error.status) {
       error.status = 401;
@@ -1271,7 +1266,7 @@ router.post('/demo/wallets', async (req, res, next) => {
       await friendbotFund(nextWallet.address, network);
     }
 
-    const nextAccount = saveAccount(
+    const nextAccount = await saveAccount(
       normalizeAccountWallets(
         {
           ...account,
@@ -1304,7 +1299,7 @@ router.post('/demo/wallets/select', async (req, res, next) => {
       throw error;
     }
 
-    const nextAccount = saveAccount(
+    const nextAccount = await saveAccount(
       normalizeAccountWallets(
         {
           ...account,
@@ -1343,7 +1338,7 @@ router.post('/demo/wallets/rename', async (req, res, next) => {
     const wallets = (account.wallets || []).map(wallet =>
       wallet.id === walletId ? { ...wallet, displayName } : wallet,
     );
-    const nextAccount = saveAccount(
+    const nextAccount = await saveAccount(
       normalizeAccountWallets(
         {
           ...account,
@@ -1394,7 +1389,7 @@ router.post('/demo/wallets/archive', async (req, res, next) => {
         ? { ...wallet, archived: true, archivedAt: new Date().toISOString() }
         : wallet,
     );
-    const nextAccount = saveAccount(
+    const nextAccount = await saveAccount(
       normalizeAccountWallets(
         {
           ...account,
@@ -1449,7 +1444,7 @@ router.post('/demo/receiver', async (req, res, next) => {
       });
     }
 
-    const contact = saveContact({
+    const contact = await saveContact({
       label: req.body?.label || 'Người nhận demo',
       wallet,
       funded: true,

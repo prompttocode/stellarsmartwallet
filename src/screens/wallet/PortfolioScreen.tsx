@@ -3,6 +3,7 @@ import { ScrollView, Text, View, TextInput, LayoutAnimation, Platform, UIManager
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import {
+  ActivateWalletNotice,
   AssetListItem,
   PromoCarousel,
   QuickActionGrid,
@@ -25,6 +26,7 @@ export function PortfolioScreen({
   onGoToTopUp,
   onGoToWallets,
   onGoToTransaction,
+  onGoToHistory,
   onGoToScan,
   wallet,
 }: {
@@ -34,6 +36,7 @@ export function PortfolioScreen({
   onGoToTopUp: () => void;
   onGoToWallets: () => void;
   onGoToTransaction: (id: string) => void;
+  onGoToHistory: () => void;
   onGoToScan: () => void;
   wallet: WalletDemoState;
 }) {
@@ -104,7 +107,7 @@ export function PortfolioScreen({
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#F4F8FA' }}>
+    <View style={modern.portfolioRoot}>
       <ScrollView
         contentContainerStyle={modern.screen}
         showsVerticalScrollIndicator={false}
@@ -140,7 +143,12 @@ export function PortfolioScreen({
                 label: 'Receive',
                 onPress: onGoToReceive,
               },
-              { icon: <Ionicons color="#FFFFFF" name="card" size={28} />, key: 'buy', label: 'Buy', onPress: onGoToTopUp },
+              {
+                icon: <Ionicons color="#FFFFFF" name="card" size={28} />,
+                key: 'buy',
+                label: wallet.isMainnet ? 'Deposit' : 'Buy',
+                onPress: onGoToTopUp,
+              },
               { icon: <MaterialCommunityIcons color="#FFFFFF" name="swap-horizontal" size={30} />, key: 'swap', label: 'Swap', onPress: onGoToSwap },
             ]}
           />
@@ -148,6 +156,10 @@ export function PortfolioScreen({
 
         <View style={modern.belowHero}>
           <PromoCarousel network={wallet.network} />
+
+          {wallet.isMainnet && !wallet.walletActive ? (
+            <ActivateWalletNotice onPress={onGoToReceive} />
+          ) : null}
 
           <View style={modern.sectionCard}>
             <SectionHeader
@@ -163,7 +175,7 @@ export function PortfolioScreen({
             />
             {isSearching && (
               <TextInput
-                style={[modern.modernInput, { marginBottom: 16, height: 44, paddingHorizontal: 16 }]}
+                style={[modern.modernInput, modern.assetSearchInput]}
                 placeholder="Search assets or transactions..."
                 placeholderTextColor="#A7B3BA"
                 value={searchQuery}
@@ -185,7 +197,16 @@ export function PortfolioScreen({
           </View>
 
           <View style={modern.sectionCard}>
-            <SectionHeader title="Recent Transactions" />
+            <SectionHeader
+              action={
+                filteredTransactions.length > 5 ? (
+                  <PressScale onPress={onGoToHistory}>
+                    <Text style={modern.sectionActionText}>View all</Text>
+                  </PressScale>
+                ) : null
+              }
+              title="Recent Transactions"
+            />
             {filteredTransactions.slice(0, 5).map(transaction => (
               <TransactionListItem
                 key={transaction.id}

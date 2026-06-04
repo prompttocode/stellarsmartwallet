@@ -72,10 +72,10 @@ export function ReceiveScreen({
         <SectionHeader title="Wallet address" />
         {wallet.isMainnet && !wallet.walletActive ? (
           <View style={modern.reviewModernBox}>
-            <Text style={modern.reviewModernTitle}>Account inactive</Text>
+            <Text style={modern.reviewModernTitle}>Activate wallet</Text>
             <Text style={modern.reviewModernText}>
-              Stellar Mainnet wallet cần nhận XLM thật trước khi có thể gửi,
-              swap hoặc add trustline.
+              Deposit XLM to start using this Mainnet wallet. Stellar sẽ tạo
+              account trên ledger sau khoản nạp XLM đầu tiên.
             </Text>
           </View>
         ) : null}

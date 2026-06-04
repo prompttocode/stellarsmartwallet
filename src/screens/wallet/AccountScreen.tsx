@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
+import Clipboard from '@react-native-clipboard/clipboard';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
   ModernScreenHeader,
@@ -33,7 +33,7 @@ const CURRENCIES: { code: SupportedCurrency; name: string; symbol: string }[] = 
   { code: 'GBP', name: 'British Pound', symbol: '£' },
 ];
 
-type ToolMode = 'import' | 'watch' | 'export-key' | 'export-seed' | null;
+type ToolMode = 'import' | 'watch' | 'export-key' | null;
 
 export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
   const { selectedCurrency, setSelectedCurrency } = useCurrencyConfig();
@@ -81,9 +81,9 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
       return;
     }
 
-    if (toolMode === 'export-key' || toolMode === 'export-seed') {
+    if (toolMode === 'export-key') {
       const result = await wallet.exportWalletSecret(
-        toolMode === 'export-seed' ? 'seed_phrase' : 'private_key',
+        'private_key',
         confirmation,
       );
 
@@ -99,19 +99,17 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
       return;
     }
 
-    await Clipboard.setStringAsync(exportResult.secret);
+    Clipboard.setString(exportResult.secret);
     Alert.alert('Đã copy', 'Secret đã copy vào clipboard. Xóa clipboard sau khi dùng xong.');
   }
 
   function renderToolModal() {
-    const isExport = toolMode === 'export-key' || toolMode === 'export-seed';
+    const isExport = toolMode === 'export-key';
     const title =
       toolMode === 'import'
         ? 'Import wallet'
         : toolMode === 'watch'
         ? 'Add watch-only'
-        : toolMode === 'export-seed'
-        ? 'Export seed phrase'
         : 'Export private key';
 
     if (!toolMode) {
@@ -142,8 +140,8 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
               <>
                 <Text style={styles.modalDesc}>
                   {toolMode === 'import'
-                    ? 'Nhập Stellar secret key. App gửi lên server để import vào Privy, không lưu local.'
-                    : 'Nhập public address để theo dõi balance/QR mà không ký giao dịch.'}
+                    ? 'Import Stellar secret key (S...). App gửi lên server để import vào Privy, không lưu local.'
+                    : 'Track public address (G...) để xem balance/QR mà không ký giao dịch.'}
                 </Text>
                 <TextInput
                   autoCapitalize="none"
@@ -305,7 +303,7 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
       </View>
 
       <View style={modern.sectionCard}>
-        <SectionHeader title="Wallet tools" />
+        <SectionHeader title="Advanced wallet tools" />
         <View style={styles.toolGrid}>
           <PressScale
             disabled={wallet.isBusy}
@@ -313,7 +311,7 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
             style={styles.toolButton}
           >
             <Ionicons color="#0F8EA3" name="download-outline" size={22} />
-            <Text style={styles.toolText}>Import</Text>
+            <Text style={styles.toolText}>Import Stellar secret key (S...)</Text>
           </PressScale>
           <PressScale
             disabled={wallet.isBusy}
@@ -321,23 +319,26 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
             style={styles.toolButton}
           >
             <Ionicons color="#0F8EA3" name="eye-outline" size={22} />
-            <Text style={styles.toolText}>Watch-only</Text>
+            <Text style={styles.toolText}>Track public address (G...)</Text>
           </PressScale>
           <PressScale
             disabled={wallet.isBusy || !wallet.walletCanSign}
             onPress={() => setToolMode('export-key')}
-            style={styles.toolButton}
+            style={[styles.toolButton, styles.toolButtonDanger]}
           >
-            <Ionicons color="#0F8EA3" name="key-outline" size={22} />
-            <Text style={styles.toolText}>Export key</Text>
+            <Ionicons color="#C01048" name="key-outline" size={22} />
+            <Text style={[styles.toolText, styles.toolTextDanger]}>
+              Export private key
+            </Text>
           </PressScale>
           <PressScale
-            disabled={wallet.isBusy || !wallet.walletCanSign}
-            onPress={() => setToolMode('export-seed')}
-            style={styles.toolButton}
+            disabled
+            style={[styles.toolButton, styles.toolButtonDisabled]}
           >
-            <Ionicons color="#0F8EA3" name="lock-closed-outline" size={22} />
-            <Text style={styles.toolText}>Seed phrase</Text>
+            <Ionicons color="#8A9AA3" name="lock-closed-outline" size={22} />
+            <Text style={[styles.toolText, styles.toolTextDisabled]}>
+              Seed phrase unavailable for Privy-created Stellar wallet
+            </Text>
           </PressScale>
         </View>
         <Text style={modern.emptyModernText}>
@@ -553,6 +554,23 @@ const styles = StyleSheet.create({
     minWidth: '44%',
     padding: 14,
   },
+  toolButtonDanger: {
+    backgroundColor: '#FFF1F3',
+    borderColor: '#FFD0DA',
+    borderWidth: 1,
+  },
+  toolButtonDisabled: {
+    backgroundColor: '#F1F4F6',
+    borderColor: '#E2E8EC',
+    borderWidth: 1,
+  },
   toolGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  toolText: { color: '#24495A', fontSize: 13, fontWeight: '800' },
+  toolText: {
+    color: '#24495A',
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  toolTextDanger: { color: '#C01048' },
+  toolTextDisabled: { color: '#667985' },
 });

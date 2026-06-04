@@ -138,11 +138,19 @@ async function exportStellarWalletSecret(walletId, type = 'private_key') {
 }
 
 function getEmailFromPrivyUser(user) {
-  const emailAccount = user?.linked_accounts?.find(
-    account => account.type === 'email' && account.address,
-  );
+  const linkedAccounts = Array.isArray(user?.linked_accounts)
+    ? user.linked_accounts
+    : [];
+  const emailAccount =
+    linkedAccounts.find(
+      account => account.type === 'email' && (account.address || account.email),
+    ) ||
+    linkedAccounts.find(
+      account =>
+        typeof account.email === 'string' || typeof account.address === 'string',
+    );
 
-  return normalizeEmail(emailAccount?.address);
+  return normalizeEmail(emailAccount?.address || emailAccount?.email);
 }
 
 function getPrivyErrorMessage(body, status) {

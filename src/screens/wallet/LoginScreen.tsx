@@ -244,6 +244,16 @@ export function LoginScreen({ wallet }: { wallet: WalletDemoState }) {
               label={wallet.busy || 'Send verification code'}
               onPress={wallet.sendEmailCode}
             />
+            <ActionButton
+              disabled={!wallet.isReady || wallet.isBusy}
+              label={
+                wallet.busy === 'Đăng nhập Google'
+                  ? wallet.busy
+                  : 'Continue with Google'
+              }
+              onPress={wallet.loginWithGoogle}
+              variant="secondary"
+            />
           </View>
         )}
 

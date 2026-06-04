@@ -30,7 +30,13 @@ function filterTransactions(
   return transactions.filter(transaction => transaction.direction === filter);
 }
 
-export function TransactionsScreen({ wallet }: { wallet: WalletDemoState }) {
+export function TransactionsScreen({
+  onGoToTransaction,
+  wallet,
+}: {
+  onGoToTransaction: (id: string) => void;
+  wallet: WalletDemoState;
+}) {
   const [filter, setFilter] = useState<TransactionFilter>('all');
   const visibleTransactions = useMemo(
     () => filterTransactions(wallet.transactions, filter),
@@ -65,7 +71,7 @@ export function TransactionsScreen({ wallet }: { wallet: WalletDemoState }) {
           visibleTransactions.map(transaction => (
             <TransactionListItem
               key={transaction.id}
-              onPress={() => wallet.openUrl(transaction.explorerUrl)}
+              onPress={() => onGoToTransaction(transaction.id)}
               transaction={transaction}
             />
           ))

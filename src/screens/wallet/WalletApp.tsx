@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { StatusBar, Text, View } from 'react-native';
+import React from 'react';
+import { Text, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { NavigationContainer } from '@react-navigation/native';
@@ -19,6 +19,7 @@ import { SwapScreen } from './SwapScreen';
 import { TopUpScreen } from './TopUpScreen';
 import { AccountScreen } from './AccountScreen';
 import { TransactionDetailScreen } from './TransactionDetailScreen';
+import { TransactionsScreen } from './TransactionsScreen';
 import { ScanScreen } from './ScanScreen';
 
 const Stack = createNativeStackNavigator();
@@ -62,7 +63,27 @@ function MainTabs({ wallet }: { wallet: WalletDemoState }) {
             onGoToTopUp={() => navigation.navigate('TopUp')}
             onGoToWallets={() => navigation.navigate('AccountTab')}
             onGoToTransaction={(id: string) => navigation.navigate('TransactionDetail', { id })}
+            onGoToHistory={() => navigation.navigate('HistoryTab')}
             onGoToScan={() => navigation.navigate('Scan')}
+          />
+        )}
+      </Tab.Screen>
+
+      <Tab.Screen
+        name="HistoryTab"
+        options={{
+          tabBarLabel: 'History',
+          tabBarIcon: ({ color, size }) => (
+            <MaterialCommunityIcons name="history" size={size} color={color} />
+          ),
+        }}
+      >
+        {({ navigation }: any) => (
+          <TransactionsScreen
+            wallet={wallet}
+            onGoToTransaction={(id: string) =>
+              navigation.navigate('TransactionDetail', { id })
+            }
           />
         )}
       </Tab.Screen>
@@ -99,7 +120,12 @@ function MainTabs({ wallet }: { wallet: WalletDemoState }) {
 }
 
 export function WalletApp({ wallet }: { wallet: WalletDemoState }) {
-  const statusText = wallet.busy || wallet.message;
+  const networkStatus = wallet.isMainnet
+    ? 'MAINNET · Real assets'
+    : 'TESTNET · Demo only';
+  const statusText =
+    wallet.busy ||
+    (wallet.message ? `${networkStatus} · ${wallet.message}` : networkStatus);
 
   return (
     <CurrencyProvider>

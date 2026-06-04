@@ -138,12 +138,28 @@ export function SendScreen({
         />
         <View style={modern.sectionCard}>
           <SectionHeader title="Payment details" />
-          <InfoLine label="Token" value={wallet.selectedAssetCode} />
-          <InfoLine label="Số lượng" value={wallet.amount || '0'} />
-          <InfoLine label="Người nhận" value={recipientLabel} />
+          <InfoLine
+            label="Network"
+            value={wallet.isMainnet ? 'Mainnet · real assets' : 'Testnet · demo only'}
+          />
+          <InfoLine
+            label="Amount"
+            value={`${wallet.amount || '0'} ${wallet.selectedAssetCode}`}
+          />
+          <InfoLine
+            label="Destination"
+            value={wallet.recipient.trim() || recipientLabel}
+          />
+          {wallet.selectedAssetCode !== 'XLM' ? (
+            <InfoLine
+              label="Asset issuer"
+              value={wallet.selectedAsset?.assetIssuer || 'Unknown issuer'}
+            />
+          ) : null}
+          <InfoLine label="Estimated fee" value="0.00001 XLM" />
           <Text style={modern.emptyModernText}>
             {wallet.isMainnet
-              ? 'Sau khi bấm Send, giao dịch sẽ được ký bằng Privy và gửi lên Stellar Mainnet.'
+              ? 'Mainnet transaction là giao dịch thật. App sẽ yêu cầu biometric trước khi ký bằng Privy.'
               : 'Sau khi bấm Send, giao dịch test sẽ được gửi thật lên Stellar Testnet.'}
           </Text>
           <PressScale
@@ -151,7 +167,10 @@ export function SendScreen({
             onPress={handleConfirmSend}
             style={modern.primaryModernButton}
           >
-            <Text style={modern.modernButtonText}>{wallet.busy || 'Send'}</Text>
+            <Text style={modern.modernButtonText}>
+              {wallet.busy ||
+                (wallet.isMainnet ? 'Confirm with biometric' : 'Send')}
+            </Text>
           </PressScale>
         </View>
       </ScrollView>

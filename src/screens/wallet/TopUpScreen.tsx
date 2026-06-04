@@ -1,6 +1,7 @@
 import React from 'react';
 import { ScrollView, Share, Text, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import QRCode from 'react-native-qrcode-styled';
 import {
   ModernScreenHeader,
   PressScale,
@@ -53,28 +54,44 @@ export function TopUpScreen({
         onBack={onBack}
         subtitle={
           wallet.isMainnet
-            ? 'Deposit on-chain đã bật. Fiat on/off-ramp chờ provider API.'
+            ? 'Deposit XLM thật on-chain để active ví. Fiat on/off-ramp chờ provider API.'
             : 'Nạp token test để demo luồng ví. Đây không phải tiền thật.'
         }
-        title={wallet.isMainnet ? 'Buy / Deposit' : 'Buy / Faucet'}
+        title={wallet.isMainnet ? 'Deposit' : 'Buy / Faucet'}
       />
 
       {wallet.isMainnet ? (
         <View style={modern.sectionCard}>
-          <SectionHeader title="On-chain deposit" />
+          <SectionHeader title="Deposit XLM" />
           <Text style={modern.emptyModernText}>
-            Dùng address bên dưới để nạp XLM thật và active ví mainnet. Buy
-            fiat đang để Coming soon vì chưa cấu hình provider.
+            Dùng QR hoặc address bên dưới để nạp XLM thật và active ví mainnet.
           </Text>
           {!wallet.walletActive ? (
             <View style={modern.reviewModernBox}>
-              <Text style={modern.reviewModernTitle}>Explorer not available</Text>
+              <Text style={modern.reviewModernTitle}>Activate wallet</Text>
               <Text style={modern.reviewModernText}>
-                Account chưa tồn tại trên ledger Mainnet. Sau khi nhận XLM
-                đầu tiên, Explorer sẽ mở được.
+                Deposit XLM to start using this Mainnet wallet. Explorer sẽ mở
+                được sau khi ví nhận XLM đầu tiên.
               </Text>
             </View>
           ) : null}
+          <View style={modern.qrCard}>
+            {address ? (
+              <QRCode
+                data={address}
+                padding={16}
+                pieceSize={7}
+                color={'#0F8EA3'}
+                backgroundColor={'#FFFFFF'}
+              />
+            ) : (
+              <>
+                <Text style={modern.qrTinyText}>STELLAR</Text>
+                <Ionicons color="#0F8EA3" name="qr-code" size={62} />
+                <Text style={modern.qrTinyText}>No address</Text>
+              </>
+            )}
+          </View>
           <View style={modern.infoBlock}>
             <Text selectable style={modern.infoValue}>
               {address || 'Chưa có ví'}
@@ -108,24 +125,16 @@ export function TopUpScreen({
 
       {wallet.isMainnet ? (
         <View style={modern.sectionCard}>
-          <SectionHeader title="Fiat ramps" />
-          {wallet.rampProviders.map(provider => (
-            <View key={provider.id} style={modern.topUpRow}>
-              <Ionicons
-                color={provider.configured ? '#0ABF73' : '#8A9AA3'}
-                name={provider.type === 'fiat' ? 'card' : 'download-outline'}
-                size={28}
-              />
-              <View style={modern.assetModernBody}>
-                <Text style={modern.assetModernName}>{provider.name}</Text>
-                <Text style={modern.assetModernMeta}>
-                  {provider.configured
-                    ? provider.supports.join(', ')
-                    : 'Coming soon / provider not configured'}
-                </Text>
-              </View>
+          <SectionHeader title="Buy with fiat" />
+          <View style={modern.disabledActionRow}>
+            <Ionicons color="#8A9AA3" name="card" size={28} />
+            <View style={modern.assetModernBody}>
+              <Text style={modern.assetModernName}>Buy with fiat</Text>
+              <Text style={modern.assetModernMeta}>
+                Coming soon · provider not configured
+              </Text>
             </View>
-          ))}
+          </View>
         </View>
       ) : null}
 
