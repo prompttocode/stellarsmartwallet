@@ -1,4 +1,5 @@
 # Resolve native Pod scripts with node to allow for hoisting.
+require 'json'
 require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), "scripts/autolinking")
 require Pod::Executable.execute_command('node', ['-p',
   'require.resolve(
@@ -97,6 +98,38 @@ target 'Privy' do
         end
 
         File.write(fmt_base, patched)
+      end
+    end
+
+    # Expo 55 references RCTDevMenuConfiguration, which is only available in
+    # React Native 0.83+. Keep RN 0.82 on the older root view factory API.
+    rn_package_path = File.expand_path('../node_modules/react-native/package.json', Pod::Config.instance.installation_root)
+    rn_minor = File.exist?(rn_package_path) ? JSON.parse(File.read(rn_package_path))['version'].split('.')[1].to_i : 0
+
+    if rn_minor < 83
+      expo_root = File.expand_path('../node_modules/expo', Pod::Config.instance.installation_root)
+      [
+        File.join(expo_root, 'ios/AppDelegates/EXReactRootViewFactory.h'),
+        File.join(expo_root, 'ios/AppDelegates/EXReactRootViewFactory.mm')
+      ].each do |file|
+        next unless File.exist?(file)
+
+        contents = File.read(file)
+        patched = contents.gsub(
+          '#if TARGET_OS_IOS || TARGET_OS_TV',
+          '#if (TARGET_OS_IOS || TARGET_OS_TV) && REACT_NATIVE_TARGET_VERSION >= 83'
+        )
+        File.write(file, patched) if patched != contents
+      end
+
+      expo_factory = File.join(expo_root, 'ios/AppDelegates/ExpoReactNativeFactory.swift')
+      if File.exist?(expo_factory)
+        contents = File.read(expo_factory)
+        patched = contents.gsub(
+          '#if os(iOS) || os(tvOS)',
+          '#if EXPO_RN_83_ROOT_VIEW_FACTORY && (os(iOS) || os(tvOS))'
+        )
+        File.write(expo_factory, patched) if patched != contents
       end
     end
   end
