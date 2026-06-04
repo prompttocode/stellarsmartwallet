@@ -9,6 +9,7 @@ import {
   TokenIcon,
   getModernAssets,
   modern,
+  useSafeScreenInsetStyle,
 } from '../../components/wallet/ModernWalletUI';
 import type { WalletDemoState } from '../../hooks/useWalletDemo';
 
@@ -19,6 +20,7 @@ export function TopUpScreen({
   onBack: () => void;
   wallet: WalletDemoState;
 }) {
+  const screenInsetStyle = useSafeScreenInsetStyle();
   const assets = getModernAssets(wallet.balances, wallet.visibleAssets);
   const address = wallet.wallet?.address || '';
   const canOpenExplorer =
@@ -47,7 +49,7 @@ export function TopUpScreen({
 
   return (
     <ScrollView
-      contentContainerStyle={modern.screenInset}
+      contentContainerStyle={screenInsetStyle}
       showsVerticalScrollIndicator={false}
     >
       <ModernScreenHeader

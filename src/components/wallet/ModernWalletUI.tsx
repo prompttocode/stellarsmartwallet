@@ -1,4 +1,10 @@
-import React, { ReactNode, useEffect, useMemo, useState } from 'react';
+import React, {
+  ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Pressable,
   Image,
@@ -19,6 +25,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   getTransactionIcon,
   getTransactionTitle,
@@ -38,12 +45,21 @@ const assetColors: Record<string, { bg: string; fg: string }> = {
 };
 
 const assetImages: Record<string, number> = {
-  EURC: require('../../assets/images/eurc.png'),
-  PYUSD: require('../../assets/images/pyusd.png'),
-  USDC: require('../../assets/images/usdc.png'),
-  USDT: require('../../assets/images/usdt.png'),
-  XLM: require('../../assets/images/xlm.png'),
+  EURC: require('../../assets/images/coin/eurc.png'),
+  PYUSD: require('../../assets/images/coin/pyusd.png'),
+  USDC: require('../../assets/images/coin/usdc.png'),
+  USDT: require('../../assets/images/coin/usdt.png'),
+  XLM: require('../../assets/images/coin/xlm.png'),
 };
+
+export function useSafeScreenInsetStyle() {
+  const insets = useSafeAreaInsets();
+
+  return useMemo(
+    () => [modern.screenInset, { paddingTop: insets.top + 18 }],
+    [insets.top],
+  );
+}
 
 export type PillTabItem<T extends string> = {
   icon: ReactNode;
@@ -255,79 +271,175 @@ export function WalletHero({
   portfolioValue: string;
   network?: 'testnet' | 'mainnet';
 }) {
+  const [networkPillExpanded, setNetworkPillExpanded] = useState(false);
+  const networkPillWidth = useSharedValue(72);
+  const closeNetworkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const hideNetworkTextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const insets = useSafeAreaInsets();
+  const heroScrimStyle = useMemo(
+    () => [modern.heroScrim, { paddingTop: insets.top + 12 }],
+    [insets.top],
+  );
+  const networkPillAnimatedStyle = useAnimatedStyle(() => ({
+    width: networkPillWidth.value,
+  }));
+
+  useEffect(
+    () => () => {
+      if (closeNetworkTimerRef.current) {
+        clearTimeout(closeNetworkTimerRef.current);
+      }
+
+      if (hideNetworkTextTimerRef.current) {
+        clearTimeout(hideNetworkTextTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  function clearNetworkPillTimers() {
+    if (closeNetworkTimerRef.current) {
+      clearTimeout(closeNetworkTimerRef.current);
+      closeNetworkTimerRef.current = null;
+    }
+
+    if (hideNetworkTextTimerRef.current) {
+      clearTimeout(hideNetworkTextTimerRef.current);
+      hideNetworkTextTimerRef.current = null;
+    }
+  }
+
+  function handleNetworkPress() {
+    clearNetworkPillTimers();
+    setNetworkPillExpanded(true);
+    networkPillWidth.value = withTiming(118, { duration: 180 });
+    onNetworkPress?.();
+
+    closeNetworkTimerRef.current = setTimeout(() => {
+      networkPillWidth.value = withTiming(72, { duration: 180 });
+      hideNetworkTextTimerRef.current = setTimeout(() => {
+        setNetworkPillExpanded(false);
+      }, 130);
+    }, 760);
+  }
+
   return (
     <View style={modern.hero}>
-      <View style={modern.heroTop}>
-        <PressScale onPress={onMenu} style={modern.heroIconButton}>
-          <Ionicons color="#FFFFFF" name="menu" size={26} />
-        </PressScale>
-        <Pressable onPress={onNetworkPress} style={modern.networkPill}>
-          <TokenIcon assetCode="XLM" size={28} />
-          <Text numberOfLines={1} style={modern.networkPillText}>
-            {network === 'mainnet'
-              ? 'MAINNET · Real assets'
-              : 'TESTNET · Demo only'}
-          </Text>
-          <Ionicons
-            color="rgba(255,255,255,0.86)"
-            name="chevron-down"
-            size={16}
-          />
-        </Pressable>
-        <Pressable onPress={onWalletPress || onMenu} style={modern.addressPill}>
-          <Text numberOfLines={1} style={modern.addressPillText}>
-            {shortAddress(address)}
-          </Text>
-          <Ionicons
-            color="rgba(255,255,255,0.86)"
-            name="chevron-down"
-            size={16}
-          />
-        </Pressable>
-        <PressScale onPress={onSearch} style={modern.heroIconButton}>
-          <Ionicons color="#FFFFFF" name="search" size={24} />
-        </PressScale>
-        <PressScale onPress={onScan} style={modern.heroIconButton}>
-          <Ionicons color="#FFFFFF" name="scan-outline" size={24} />
-        </PressScale>
-      </View>
+      <View style={heroScrimStyle}>
+        <View style={modern.heroTop}>
+          <PressScale onPress={onMenu} style={modern.heroIconButton}>
+            <Ionicons color="#FFFFFF" name="menu" size={23} />
+          </PressScale>
+          <Pressable onPress={handleNetworkPress}>
+            <Animated.View
+              style={[modern.networkPill, networkPillAnimatedStyle]}
+            >
+              <TokenIcon assetCode="XLM" size={25} />
+              {networkPillExpanded ? (
+                <Text numberOfLines={1} style={modern.networkPillText}>
+                  {network === 'mainnet' ? 'Mainnet' : 'Testnet'}
+                </Text>
+              ) : null}
+              <MaterialCommunityIcons
+                color="rgba(255,255,255,0.88)"
+                name="autorenew"
+                size={17}
+              />
+            </Animated.View>
+          </Pressable>
+          <Pressable
+            onPress={onWalletPress || onMenu}
+            style={modern.addressPill}
+          >
+            <Ionicons
+              color="rgba(255,255,255,0.9)"
+              name="wallet-outline"
+              size={15}
+            />
+            <Text numberOfLines={1} style={modern.addressPillText}>
+              {shortAddress(address)}
+            </Text>
+          </Pressable>
+          <View style={modern.heroActions}>
+            <PressScale onPress={onSearch} style={modern.heroIconButton}>
+              <Ionicons color="#FFFFFF" name="search" size={21} />
+            </PressScale>
+            <PressScale onPress={onScan} style={modern.heroIconButton}>
+              <Ionicons color="#FFFFFF" name="scan-outline" size={21} />
+            </PressScale>
+          </View>
+        </View>
 
-      <View style={modern.heroValue}>
-        <Text style={modern.heroLabel}>
-          Estimated portfolio value{' '}
-          <Text onPress={onHideToggle} style={modern.heroEye}>
-            {hidden ? (
+        <View style={modern.heroCard}>
+          <View style={modern.heroCardHeader}>
+            <View>
+              <Text style={modern.heroLabel}>Estimated portfolio value</Text>
+              <Text style={modern.heroNetworkMeta}>
+                {network === 'mainnet'
+                  ? 'Stellar Mainnet · real assets'
+                  : 'Stellar Testnet · demo assets'}
+              </Text>
+            </View>
+            <PressScale onPress={onHideToggle} style={modern.heroEyeButton}>
               <Ionicons
-                color="rgba(255,255,255,0.8)"
-                name="eye-off-outline"
-                size={17}
+                color="#3867D6"
+                name={hidden ? 'eye-off-outline' : 'eye-outline'}
+                size={20}
               />
-            ) : (
-              <Ionicons
-                color="rgba(255,255,255,0.8)"
-                name="eye-outline"
-                size={17}
-              />
-            )}
+            </PressScale>
+          </View>
+
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            style={modern.heroAmount}
+          >
+            {hidden ? '••••' : portfolioValue}
           </Text>
-        </Text>
-        <Text style={modern.heroAmount}>
-          {hidden ? '••••' : portfolioValue}
-        </Text>
-        <Text style={modern.heroSubValue}>
-          {email || 'Privy Stellar wallet'}
-        </Text>
+
+          <View style={modern.heroAccountRow}>
+            <View style={modern.heroAccountMark}>
+              <Text style={modern.heroAccountMarkText}>S</Text>
+            </View>
+            <View style={modern.heroAccountCopy}>
+              <Text numberOfLines={1} style={modern.heroAccountTitle}>
+                Privy Stellar wallet
+              </Text>
+              <Text numberOfLines={1} style={modern.heroSubValue}>
+                {email || shortAddress(address)}
+              </Text>
+            </View>
+            <View
+              style={[
+                modern.heroNetworkBadge,
+                network === 'mainnet' ? modern.heroNetworkBadgeMainnet : null,
+              ]}
+            >
+              <Text
+                style={[
+                  modern.heroNetworkBadgeText,
+                  network === 'mainnet'
+                    ? modern.heroNetworkBadgeTextMainnet
+                    : null,
+                ]}
+              >
+                {network === 'mainnet' ? 'LIVE' : 'DEMO'}
+              </Text>
+            </View>
+          </View>
+
+          {children}
+        </View>
       </View>
-      {children}
     </View>
   );
 }
 
-export function ActivateWalletNotice({
-  onPress,
-}: {
-  onPress: () => void;
-}) {
+export function ActivateWalletNotice({ onPress }: { onPress: () => void }) {
   return (
     <View style={modern.activateNotice}>
       <View style={modern.activateIcon}>
@@ -372,7 +484,11 @@ export function QuickActionGrid({
   );
 }
 
-export function PromoCarousel({ network = 'testnet' }: { network?: 'testnet' | 'mainnet' }) {
+export function PromoCarousel({
+  network = 'testnet',
+}: {
+  network?: 'testnet' | 'mainnet';
+}) {
   const promos = [
     {
       accent: '#4D46E8',
@@ -778,36 +894,47 @@ export const modern = StyleSheet.create({
     flex: 1,
   },
   screen: {
-    backgroundColor: '#F4F8FA',
+    backgroundColor: 'transparent',
     flexGrow: 1,
     paddingBottom: 126,
   },
   portfolioRoot: {
-    backgroundColor: '#F4F8FA',
+    backgroundColor: 'transparent',
     flex: 1,
+  },
+  portfolioBackgroundImage: {
+    opacity: 0.98,
   },
   screenInset: {
     gap: 18,
     paddingBottom: 126,
   },
   hero: {
-    backgroundColor: '#3E8FA0',
-    minHeight: 410,
-    paddingBottom: 34,
+    backgroundColor: 'transparent',
+    minHeight: 492,
+    overflow: 'hidden',
+  },
+  heroScrim: {
+    backgroundColor: 'rgba(18, 42, 96, 0.12)',
+    flex: 1,
+    paddingBottom: 30,
     paddingHorizontal: 18,
     paddingTop: 18,
   },
   heroTop: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
   heroIconButton: {
     alignItems: 'center',
-    borderRadius: 24,
-    height: 46,
+    backgroundColor: 'rgba(14, 31, 74, 0.22)',
+    borderColor: 'rgba(255,255,255,0.24)',
+    borderRadius: 20,
+    borderWidth: 1,
+    height: 40,
     justifyContent: 'center',
-    width: 46,
+    width: 40,
   },
   heroIconText: {
     color: '#FFFFFF',
@@ -816,22 +943,23 @@ export const modern = StyleSheet.create({
   },
   networkPill: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.24)',
-    borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(14, 31, 74, 0.24)',
+    borderColor: 'rgba(255,255,255,0.24)',
     borderWidth: 1,
-    borderRadius: 24,
+    borderRadius: 20,
     flexDirection: 'row',
     flexShrink: 0,
     gap: 5,
-    height: 46,
-    maxWidth: 154,
-    paddingLeft: 7,
-    paddingRight: 9,
+    height: 40,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    paddingLeft: 6,
+    paddingRight: 8,
   },
   networkPillText: {
     color: '#FFFFFF',
     flexShrink: 1,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '800',
   },
   networkChevron: {
@@ -842,19 +970,44 @@ export const modern = StyleSheet.create({
   addressPill: {
     alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.18)',
-    borderRadius: 24,
+    borderColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 20,
+    borderWidth: 1,
     flex: 1,
     flexDirection: 'row',
     gap: 6,
-    height: 46,
+    height: 40,
     justifyContent: 'center',
-    paddingHorizontal: 14,
+    minWidth: 70,
+    paddingHorizontal: 10,
   },
   addressPillText: {
     color: '#FFFFFF',
     flexShrink: 1,
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '800',
+  },
+  heroActions: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  heroCard: {
+    backgroundColor: '#FFFFFF',
+    borderColor: 'rgba(255,255,255,0.78)',
+    borderRadius: 28,
+    borderWidth: 1,
+    marginTop: 42,
+    padding: 20,
+    shadowColor: '#17264F',
+    shadowOffset: { height: 18, width: 0 },
+    shadowOpacity: 0.16,
+    shadowRadius: 34,
+  },
+  heroCardHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 14,
+    justifyContent: 'space-between',
   },
   heroValue: {
     alignItems: 'center',
@@ -863,45 +1016,108 @@ export const modern = StyleSheet.create({
     paddingTop: 52,
   },
   heroLabel: {
-    color: 'rgba(255,255,255,0.62)',
-    fontSize: 17,
+    color: '#6D7F98',
+    fontSize: 13,
+    fontWeight: '800',
   },
   heroEye: {
     color: 'rgba(255,255,255,0.8)',
     fontWeight: '800',
   },
+  heroEyeButton: {
+    alignItems: 'center',
+    backgroundColor: '#EEF4FF',
+    borderRadius: 18,
+    height: 38,
+    justifyContent: 'center',
+    width: 38,
+  },
+  heroNetworkMeta: {
+    color: '#9AA7BA',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 4,
+  },
   heroAmount: {
-    color: '#FFFFFF',
-    fontSize: 58,
-    fontWeight: '800',
+    color: '#17233D',
+    fontSize: 44,
+    fontWeight: '900',
     letterSpacing: 0,
-    marginTop: 12,
+    marginTop: 16,
+  },
+  heroAccountRow: {
+    alignItems: 'center',
+    backgroundColor: '#F5F8FF',
+    borderRadius: 20,
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+    padding: 10,
+  },
+  heroAccountMark: {
+    alignItems: 'center',
+    backgroundColor: '#3867D6',
+    borderRadius: 17,
+    height: 34,
+    justifyContent: 'center',
+    width: 34,
+  },
+  heroAccountMarkText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  heroAccountCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  heroAccountTitle: {
+    color: '#17233D',
+    fontSize: 13,
+    fontWeight: '900',
   },
   heroSubValue: {
-    color: 'rgba(255,255,255,0.74)',
-    fontSize: 14,
-    marginTop: 12,
+    color: '#71839B',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  heroNetworkBadge: {
+    backgroundColor: '#EDF4FF',
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  heroNetworkBadgeMainnet: {
+    backgroundColor: '#EAF8F1',
+  },
+  heroNetworkBadgeText: {
+    color: '#3867D6',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  heroNetworkBadgeTextMainnet: {
+    color: '#0B9361',
   },
   quickGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 34,
-    paddingHorizontal: 4,
+    marginTop: 22,
   },
   quickItem: {
     alignItems: 'center',
-    gap: 10,
-    width: 78,
+    flex: 1,
+    gap: 8,
+    minWidth: 0,
   },
   quickCircle: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.24)',
-    borderColor: 'rgba(255,255,255,0.24)',
-    borderRadius: 38,
+    backgroundColor: '#EEF4FF',
+    borderColor: '#DCE8FF',
+    borderRadius: 22,
     borderWidth: 1,
-    height: 76,
+    height: 52,
     justifyContent: 'center',
-    width: 76,
+    width: 52,
   },
   quickIcon: {
     color: '#FFFFFF',
@@ -909,23 +1125,26 @@ export const modern = StyleSheet.create({
     fontWeight: '500',
   },
   quickLabel: {
-    color: '#FFFFFF',
-    fontSize: 15,
+    color: '#243653',
+    fontSize: 12,
     fontWeight: '800',
     textAlign: 'center',
   },
   belowHero: {
-    backgroundColor: '#F4F8FA',
-    gap: 18,
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    gap: 16,
+    marginTop: 20,
     paddingBottom: 24,
-    paddingTop: 18,
+    paddingTop: 28,
   },
   promoTrack: {
     gap: 12,
     paddingHorizontal: 18,
   },
   promoCard: {
-    borderRadius: 22,
+    borderRadius: 18,
     gap: 10,
     minHeight: 128,
     padding: 18,
@@ -1012,14 +1231,16 @@ export const modern = StyleSheet.create({
   },
   sectionCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 28,
-    gap: 8,
+    borderColor: '#E8EEF8',
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 6,
     marginHorizontal: 18,
-    padding: 20,
+    padding: 18,
     shadowColor: '#1F3B4D',
-    shadowOffset: { height: 10, width: 0 },
-    shadowOpacity: 0.07,
-    shadowRadius: 24,
+    shadowOffset: { height: 8, width: 0 },
+    shadowOpacity: 0.05,
+    shadowRadius: 20,
   },
   sectionHeader: {
     alignItems: 'center',
@@ -1032,14 +1253,22 @@ export const modern = StyleSheet.create({
     gap: 8,
   },
   sectionTitle: {
-    color: '#24495A',
-    fontSize: 22,
+    color: '#17233D',
+    fontSize: 19,
     fontWeight: '900',
   },
   sectionActionText: {
-    color: '#9AA7AE',
-    fontSize: 22,
+    color: '#3867D6',
+    fontSize: 13,
     fontWeight: '800',
+  },
+  sectionIconButton: {
+    alignItems: 'center',
+    backgroundColor: '#F2F6FF',
+    borderRadius: 16,
+    height: 34,
+    justifyContent: 'center',
+    width: 34,
   },
   assetModernRow: {
     borderBottomColor: '#EDF2F4',
@@ -1209,7 +1438,7 @@ export const modern = StyleSheet.create({
   },
   appStatus: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    backgroundColor: 'rgba(255,255,255,0.96)',
     borderColor: '#E4EEF2',
     borderRadius: 20,
     borderWidth: 1,

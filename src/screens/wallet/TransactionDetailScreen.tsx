@@ -5,7 +5,8 @@ import {
   SectionHeader,
   modern,
   TokenIcon,
-  PressScale
+  PressScale,
+  useSafeScreenInsetStyle,
 } from '../../components/wallet/ModernWalletUI';
 import { formatDate } from '../../utils/format';
 import type { WalletDemoState } from '../../hooks/useWalletDemo';
@@ -20,6 +21,7 @@ export function TransactionDetailScreen({
   transaction: TransactionItem;
   wallet: WalletDemoState;
 }) {
+  const screenInsetStyle = useSafeScreenInsetStyle();
   const isReceived = transaction.direction === 'received';
   const isTrustline = transaction.operation === 'change_trust';
   const amountPrefix = isTrustline ? '' : isReceived ? '+' : '-';
@@ -29,7 +31,7 @@ export function TransactionDetailScreen({
 
   return (
     <ScrollView
-      contentContainerStyle={modern.screenInset}
+      contentContainerStyle={screenInsetStyle}
       showsVerticalScrollIndicator={false}
     >
       <ModernScreenHeader title="Transaction Details" onBack={onBack} />

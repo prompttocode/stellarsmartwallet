@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ActionButton, SectionHeading } from '../../components/WalletPrimitives';
 import type { WalletDemoState } from '../../hooks/useWalletDemo';
 import { styles } from '../../styles/walletStyles';
@@ -33,6 +34,11 @@ const demoDapps: DemoDapp[] = [
 ];
 
 export function AppsScreen({ wallet }: { wallet: WalletDemoState }) {
+  const insets = useSafeAreaInsets();
+  const screenContentStyle = useMemo(
+    () => [styles.screenContent, { paddingTop: insets.top + 18 }],
+    [insets.top],
+  );
   const [request, setRequest] = useState<DemoDapp | null>(null);
 
   function connectDemo() {
@@ -47,7 +53,7 @@ export function AppsScreen({ wallet }: { wallet: WalletDemoState }) {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.screenContent}>
+    <ScrollView contentContainerStyle={screenContentStyle}>
       <View style={styles.transactionsHeader}>
         <View style={styles.heroTop}>
           <View style={styles.menuButton}>

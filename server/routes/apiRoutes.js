@@ -174,7 +174,7 @@ async function requireAccountContext(req, options = {}) {
 
   if (requireAuth && !tokenEmail) {
     const error = new Error(
-      'Cần đăng nhập Privy lại trước khi ký giao dịch mainnet.',
+      'Phiên Privy chưa sẵn sàng. Hãy đăng xuất rồi đăng nhập lại Privy trước khi thực hiện thao tác bảo mật này.',
     );
     error.status = 401;
     throw error;

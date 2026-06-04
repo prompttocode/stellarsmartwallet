@@ -1,5 +1,14 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { ScrollView, Text, View, TextInput, LayoutAnimation, Platform, UIManager } from 'react-native';
+import {
+  ImageBackground,
+  LayoutAnimation,
+  Platform,
+  ScrollView,
+  Text,
+  TextInput,
+  UIManager,
+  View,
+} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import {
@@ -18,6 +27,8 @@ import {
 import { WalletManagerModal } from '../../components/wallet/WalletManagerModal';
 import { useCurrencyConfig } from '../../contexts/CurrencyContext';
 import type { WalletDemoState } from '../../hooks/useWalletDemo';
+
+const portfolioBackground = require('../../assets/images/background/backstellar.png');
 
 export function PortfolioScreen({
   onGoToReceive,
@@ -45,10 +56,12 @@ export function PortfolioScreen({
   const [searchQuery, setSearchQuery] = useState('');
   const [isWalletModalVisible, setIsWalletModalVisible] = useState(false);
   const { selectedCurrency, convertFromUSD, loading } = useCurrencyConfig();
-  
-  // Enable LayoutAnimation for Android
+
   useEffect(() => {
-    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+    if (
+      Platform.OS === 'android' &&
+      UIManager.setLayoutAnimationEnabledExperimental
+    ) {
       UIManager.setLayoutAnimationEnabledExperimental(true);
     }
   }, []);
@@ -56,39 +69,52 @@ export function PortfolioScreen({
   const toggleSearch = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setIsSearching(!isSearching);
-    if (isSearching) setSearchQuery(''); // Clear when closing
+    if (isSearching) setSearchQuery('');
   };
 
   const baseUsdValue = calculateTotalUsdValue(wallet.balances);
   const convertedValue = convertFromUSD(baseUsdValue);
-  
+
   // Format based on currency
   const currencySymbols: Record<string, string> = {
-    USD: '$', VND: '₫', EUR: '€', JPY: '¥', GBP: '£'
+    EUR: '€',
+    GBP: '£',
+    JPY: '¥',
+    USD: '$',
+    VND: '₫',
   };
   const symbol = currencySymbols[selectedCurrency] || '$';
-  
-  const portfolioValue = loading ? '...' : 
-    (selectedCurrency === 'VND' || selectedCurrency === 'JPY') 
-      ? `${Math.round(convertedValue).toLocaleString('vi-VN')} ${symbol}`
-      : `${symbol}${convertedValue.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
+
+  const portfolioValue = loading
+    ? '...'
+    : selectedCurrency === 'VND' || selectedCurrency === 'JPY'
+    ? `${Math.round(convertedValue).toLocaleString('vi-VN')} ${symbol}`
+    : `${symbol}${convertedValue.toLocaleString('en-US', {
+        maximumFractionDigits: 2,
+        minimumFractionDigits: 2,
+      })}`;
 
   const assets = getModernAssets(wallet.balances, wallet.visibleAssets);
-  
+
   const filteredAssets = useMemo(() => {
     if (!searchQuery) return assets;
     const q = searchQuery.toLowerCase();
-    return assets.filter(a => a.assetCode.toLowerCase().includes(q) || a.balance.includes(q));
+    return assets.filter(
+      asset =>
+        asset.assetCode.toLowerCase().includes(q) || asset.balance.includes(q),
+    );
   }, [assets, searchQuery]);
 
   const filteredTransactions = useMemo(() => {
     if (!searchQuery) return wallet.transactions;
     const q = searchQuery.toLowerCase();
-    return wallet.transactions.filter(t => 
-      t.id.toLowerCase().includes(q) || 
-      t.operation.toLowerCase().includes(q) || 
-      t.direction.toLowerCase().includes(q) ||
-      (t.assetCode && t.assetCode.toLowerCase().includes(q))
+    return wallet.transactions.filter(
+      transaction =>
+        transaction.id.toLowerCase().includes(q) ||
+        transaction.operation.toLowerCase().includes(q) ||
+        transaction.direction.toLowerCase().includes(q) ||
+        (transaction.assetCode &&
+          transaction.assetCode.toLowerCase().includes(q)),
     );
   }, [wallet.transactions, searchQuery]);
 
@@ -107,7 +133,12 @@ export function PortfolioScreen({
   }
 
   return (
-    <View style={modern.portfolioRoot}>
+    <ImageBackground
+      imageStyle={modern.portfolioBackgroundImage}
+      resizeMode="cover"
+      source={portfolioBackground}
+      style={modern.portfolioRoot}
+    >
       <ScrollView
         contentContainerStyle={modern.screen}
         showsVerticalScrollIndicator={false}
@@ -132,30 +163,53 @@ export function PortfolioScreen({
           <QuickActionGrid
             actions={[
               {
-                icon: <MaterialCommunityIcons color="#FFFFFF" name="arrow-top-right" size={30} />,
+                icon: (
+                  <MaterialCommunityIcons
+                    color="#3867D6"
+                    name="arrow-top-right"
+                    size={25}
+                  />
+                ),
                 key: 'send',
                 label: 'Send',
                 onPress: () => onGoToSend(),
               },
               {
-                icon: <MaterialCommunityIcons color="#FFFFFF" name="arrow-bottom-left" size={30} />,
+                icon: (
+                  <MaterialCommunityIcons
+                    color="#3867D6"
+                    name="arrow-bottom-left"
+                    size={25}
+                  />
+                ),
                 key: 'receive',
                 label: 'Receive',
                 onPress: onGoToReceive,
               },
               {
-                icon: <Ionicons color="#FFFFFF" name="card" size={28} />,
+                icon: <Ionicons color="#3867D6" name="card" size={24} />,
                 key: 'buy',
                 label: wallet.isMainnet ? 'Deposit' : 'Buy',
                 onPress: onGoToTopUp,
               },
-              { icon: <MaterialCommunityIcons color="#FFFFFF" name="swap-horizontal" size={30} />, key: 'swap', label: 'Swap', onPress: onGoToSwap },
+              {
+                icon: (
+                  <MaterialCommunityIcons
+                    color="#3867D6"
+                    name="swap-horizontal"
+                    size={25}
+                  />
+                ),
+                key: 'swap',
+                label: 'Swap',
+                onPress: onGoToSwap,
+              },
             ]}
           />
         </WalletHero>
 
         <View style={modern.belowHero}>
-          <PromoCarousel network={wallet.network} />
+          {/* <PromoCarousel network={wallet.network} /> */}
 
           {wallet.isMainnet && !wallet.walletActive ? (
             <ActivateWalletNotice onPress={onGoToReceive} />
@@ -165,10 +219,16 @@ export function PortfolioScreen({
             <SectionHeader
               action={
                 <View style={modern.sectionHeaderActions}>
-                  <PressScale onPress={toggleSearch}>
-                    <Ionicons color={isSearching ? "#0F8EA3" : "#9AA7AE"} name="search" size={20} />
+                  <PressScale
+                    onPress={toggleSearch}
+                    style={modern.sectionIconButton}
+                  >
+                    <Ionicons
+                      color={isSearching ? '#3867D6' : '#7E8BA3'}
+                      name="search"
+                      size={18}
+                    />
                   </PressScale>
-                  <Ionicons color="#9AA7AE" name="filter" size={20} />
                 </View>
               }
               title="My assets"
@@ -216,7 +276,9 @@ export function PortfolioScreen({
             ))}
             {filteredTransactions.length === 0 && (
               <Text style={modern.emptyModernText}>
-                {searchQuery ? "Không tìm thấy kết quả phù hợp." : "Chưa có giao dịch nào."}
+                {searchQuery
+                  ? 'Không tìm thấy kết quả phù hợp.'
+                  : 'Chưa có giao dịch nào.'}
               </Text>
             )}
           </View>
@@ -228,6 +290,6 @@ export function PortfolioScreen({
         onClose={() => setIsWalletModalVisible(false)}
         walletState={wallet}
       />
-    </View>
+    </ImageBackground>
   );
 }

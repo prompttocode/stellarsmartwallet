@@ -199,6 +199,7 @@ export function useWalletDemo() {
   const [walletConnectConfig, setWalletConnectConfig] =
     useState<WalletConnectConfig | null>(null);
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
+  const [privySessionReady, setPrivySessionReady] = useState(false);
   const [restoreAttemptedForUser, setRestoreAttemptedForUser] = useState<
     string | null
   >(null);
@@ -276,7 +277,13 @@ export function useWalletDemo() {
     checkServer();
   }, [checkServer]);
 
-  const wallet = account?.wallet;
+  const accountWallets = account?.wallets || [];
+  const wallet =
+    wallets.find(item => item.id === activeWalletId && item.network === network) ||
+    accountWallets.find(
+      item => item.id === activeWalletId && item.network === network,
+    ) ||
+    account?.wallet;
   const isMainnet = network === 'mainnet';
   const userKey = getPrivyUserKey(user);
   const visibleAssets = assets.length > 0 ? assets : balances;
@@ -347,12 +354,50 @@ export function useWalletDemo() {
     rememberDemoSessionNetwork(sessionNetwork);
   }, [network]);
 
+  const refreshPrivySecuritySession = useCallback(async () => {
+    if (!isReady || !user) {
+      setPrivySessionReady(false);
+      return false;
+    }
+
+    const identityToken = await getTokenWithRetry(getIdentityToken);
+    const hasToken = Boolean(identityToken);
+
+    setPrivySessionReady(hasToken);
+
+    return hasToken;
+  }, [getIdentityToken, isReady, user]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function probePrivyToken() {
+      if (!isReady || !user) {
+        setPrivySessionReady(false);
+        return;
+      }
+
+      const identityToken = await getTokenWithRetry(getIdentityToken);
+
+      if (!cancelled) {
+        setPrivySessionReady(Boolean(identityToken));
+      }
+    }
+
+    probePrivyToken();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getIdentityToken, isReady, user, userKey]);
+
   async function getAuthHeaders(required = false) {
     const identityToken = await getTokenWithRetry(getIdentityToken);
+    setPrivySessionReady(Boolean(identityToken));
 
     if (!identityToken && required) {
       throw new Error(
-        'Cần đăng nhập Privy lại trước khi ký giao dịch mainnet.',
+        'Phiên Privy chưa sẵn sàng. Hãy đăng xuất rồi đăng nhập lại Privy trước khi thực hiện thao tác bảo mật này.',
       );
     }
 
@@ -1013,8 +1058,8 @@ export function useWalletDemo() {
     }
 
     return run('Import ví', async () => {
-      await requireBiometric('Xác thực để import ví Stellar');
       const headers = await getAuthHeaders(true);
+      await requireBiometric('Xác thực để import ví Stellar');
       const session = await api<SessionResponse>('/api/wallets/import', {
         method: 'POST',
         headers,
@@ -1065,8 +1110,8 @@ export function useWalletDemo() {
     }
 
     return run('Export secret', async () => {
-      await requireBiometric('Xác thực để export secret ví');
       const headers = await getAuthHeaders(true);
+      await requireBiometric('Xác thực để export secret ví');
       const result = await api<ExportWalletResult>('/api/wallets/export', {
         method: 'POST',
         headers,
@@ -1123,12 +1168,14 @@ export function useWalletDemo() {
     networks,
     openUrl,
     oauthState,
+    privySessionReady,
     privyError,
     quoteSwap,
     rampProviders,
     recipient,
     recipientContact,
     recipientSelectedBalance,
+    refreshPrivySecuritySession,
     refreshSession,
     renameWallet,
     resetLoginCode,

@@ -11,6 +11,7 @@ import {
   SectionHeader,
   TokenPillSelector,
   modern,
+  useSafeScreenInsetStyle,
 } from '../../components/wallet/ModernWalletUI';
 import type { WalletDemoState } from '../../hooks/useWalletDemo';
 import type { SwapResult } from '../../types';
@@ -46,6 +47,7 @@ async function fetchRealRates(): Promise<Record<string, number>> {
 }
 
 export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
+  const screenInsetStyle = useSafeScreenInsetStyle();
   const initialBuy =
     wallet.visibleAssets.find(asset => asset.assetCode !== wallet.selectedAssetCode)
       ?.assetCode || 'USDC';
@@ -162,7 +164,7 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
   if (lastSwap) {
     return (
       <ScrollView
-        contentContainerStyle={modern.screenInset}
+        contentContainerStyle={screenInsetStyle}
         showsVerticalScrollIndicator={false}
       >
         <ModernScreenHeader
@@ -203,7 +205,7 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
 
   return (
     <ScrollView
-      contentContainerStyle={modern.screenInset}
+      contentContainerStyle={screenInsetStyle}
       showsVerticalScrollIndicator={false}
     >
       <ModernScreenHeader

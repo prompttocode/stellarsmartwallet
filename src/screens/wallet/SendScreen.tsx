@@ -10,6 +10,7 @@ import {
   SectionHeader,
   TokenPillSelector,
   modern,
+  useSafeScreenInsetStyle,
 } from '../../components/wallet/ModernWalletUI';
 import type { WalletDemoState } from '../../hooks/useWalletDemo';
 import type { SendResult } from '../../types';
@@ -28,6 +29,7 @@ export function SendScreen({
   route?: any;
   wallet: WalletDemoState;
 }) {
+  const screenInsetStyle = useSafeScreenInsetStyle();
   const [step, setStep] = useState<SendStep>('compose');
   const [lastResult, setLastResult] = useState<SendResult | null>(null);
   const { setRecipient } = wallet;
@@ -82,7 +84,7 @@ export function SendScreen({
   if (step === 'success' && lastResult) {
     return (
       <ScrollView
-        contentContainerStyle={modern.screenInset}
+        contentContainerStyle={screenInsetStyle}
         showsVerticalScrollIndicator={false}
       >
         <ModernScreenHeader
@@ -124,7 +126,7 @@ export function SendScreen({
   if (step === 'review') {
     return (
       <ScrollView
-        contentContainerStyle={modern.screenInset}
+        contentContainerStyle={screenInsetStyle}
         showsVerticalScrollIndicator={false}
       >
         <ModernScreenHeader
@@ -179,7 +181,7 @@ export function SendScreen({
 
   return (
     <ScrollView
-      contentContainerStyle={modern.screenInset}
+      contentContainerStyle={screenInsetStyle}
       showsVerticalScrollIndicator={false}
     >
       <ModernScreenHeader

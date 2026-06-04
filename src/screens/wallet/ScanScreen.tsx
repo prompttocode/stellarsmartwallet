@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, useCodeScanner } from 'react-native-vision-camera';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function parseScannedValue(value: string) {
   if (value.startsWith('wc:')) {
@@ -27,6 +28,11 @@ function parseScannedValue(value: string) {
 }
 
 export function ScanScreen({ navigation }: any) {
+  const insets = useSafeAreaInsets();
+  const headerStyle = useMemo(
+    () => [styles.header, { top: insets.top + 12 }],
+    [insets.top],
+  );
   const device = useCameraDevice('back');
   const { hasPermission, requestPermission } = useCameraPermission();
   const [scanned, setScanned] = useState(false);
@@ -95,12 +101,12 @@ export function ScanScreen({ navigation }: any) {
         isActive={!scanned}
         codeScanner={codeScanner}
       />
-      <View style={styles.header}>
+      <View style={headerStyle}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="close" size={28} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.title}>Quét mã QR</Text>
-        <View style={{ width: 44 }} />
+        <View style={styles.headerSpacer} />
       </View>
       <View style={styles.overlay}>
         <View style={styles.scanFrame} />
@@ -126,7 +132,6 @@ const styles = StyleSheet.create({
   },
   header: {
     position: 'absolute',
-    top: 44,
     left: 0,
     right: 0,
     flexDirection: 'row',
@@ -146,6 +151,9 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 18,
     fontWeight: '600',
+  },
+  headerSpacer: {
+    width: 44,
   },
   overlay: {
     position: 'absolute',

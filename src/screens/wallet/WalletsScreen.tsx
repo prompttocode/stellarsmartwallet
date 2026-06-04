@@ -6,6 +6,7 @@ import {
   PressScale,
   SectionHeader,
   modern,
+  useSafeScreenInsetStyle,
 } from '../../components/wallet/ModernWalletUI';
 import type { WalletDemoState } from '../../hooks/useWalletDemo';
 import type { Wallet } from '../../types';
@@ -22,6 +23,7 @@ export function WalletsScreen({
   onBack: () => void;
   wallet: WalletDemoState;
 }) {
+  const screenInsetStyle = useSafeScreenInsetStyle();
   const [draftNames, setDraftNames] = useState<Record<string, string>>({});
   const wallets =
     wallet.wallets.length > 0
@@ -65,7 +67,7 @@ export function WalletsScreen({
 
   return (
     <ScrollView
-      contentContainerStyle={modern.screenInset}
+      contentContainerStyle={screenInsetStyle}
       showsVerticalScrollIndicator={false}
     >
       <ModernScreenHeader

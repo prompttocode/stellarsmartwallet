@@ -7,6 +7,7 @@ import {
   SegmentedFilter,
   TransactionListItem,
   modern,
+  useSafeScreenInsetStyle,
 } from '../../components/wallet/ModernWalletUI';
 import type { WalletDemoState } from '../../hooks/useWalletDemo';
 import type { TransactionItem } from '../../types';
@@ -38,6 +39,7 @@ export function TransactionsScreen({
   wallet: WalletDemoState;
 }) {
   const [filter, setFilter] = useState<TransactionFilter>('all');
+  const screenInsetStyle = useSafeScreenInsetStyle();
   const visibleTransactions = useMemo(
     () => filterTransactions(wallet.transactions, filter),
     [filter, wallet.transactions],
@@ -45,7 +47,7 @@ export function TransactionsScreen({
 
   return (
     <ScrollView
-      contentContainerStyle={modern.screenInset}
+      contentContainerStyle={screenInsetStyle}
       showsVerticalScrollIndicator={false}
     >
       <ModernScreenHeader

@@ -16,6 +16,7 @@ import {
   PressScale,
   SectionHeader,
   modern,
+  useSafeScreenInsetStyle,
 } from '../../components/wallet/ModernWalletUI';
 import type { WalletDemoState } from '../../hooks/useWalletDemo';
 import { shortAddress } from '../../utils/format';
@@ -37,6 +38,7 @@ const CURRENCIES: { code: SupportedCurrency; name: string; symbol: string }[] =
 type ToolMode = 'import' | 'watch' | 'export-key' | null;
 
 export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
+  const screenInsetStyle = useSafeScreenInsetStyle();
   const { selectedCurrency, setSelectedCurrency } = useCurrencyConfig();
   const [isCurrencyModalVisible, setIsCurrencyModalVisible] = useState(false);
   const [toolMode, setToolMode] = useState<ToolMode>(null);
@@ -50,6 +52,7 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
   const activeWallet =
     wallet.wallets.find(item => item.id === wallet.activeWalletId) ||
     wallet.wallet;
+  const activeWalletCanSign = Boolean(activeWallet?.canSign);
   const canOpenExplorer =
     Boolean(wallet.explorerAddressUrl) &&
     (!wallet.isMainnet || wallet.walletActive);
@@ -61,7 +64,51 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
     setConfirmation('');
   }
 
+  async function requirePrivyToolSession() {
+    const hasPrivyToken = await wallet.refreshPrivySecuritySession();
+
+    if (!hasPrivyToken) {
+      Alert.alert(
+        'Cần đăng nhập lại Privy',
+        'Import/export private key cần phiên Privy thật. Hãy đăng xuất rồi đăng nhập lại bằng email OTP hoặc Google.',
+      );
+      closeToolModal();
+      return false;
+    }
+
+    return true;
+  }
+
+  async function checkPrivyTokenStatus() {
+    const hasPrivyToken = await wallet.refreshPrivySecuritySession();
+
+    Alert.alert(
+      hasPrivyToken ? 'Privy token OK' : 'Chưa có Privy token',
+      hasPrivyToken
+        ? 'getIdentityToken() đã trả token. Import/export có thể tiếp tục kiểm tra biometric.'
+        : 'getIdentityToken() chưa trả token. Hãy đăng xuất rồi đăng nhập lại bằng email OTP hoặc Google, sau đó bấm Check lại.',
+    );
+  }
+
+  async function openTool(mode: ToolMode) {
+    if (
+      (mode === 'import' || mode === 'export-key') &&
+      !(await requirePrivyToolSession())
+    ) {
+      return;
+    }
+
+    setToolMode(mode);
+  }
+
   async function submitTool() {
+    if (
+      (toolMode === 'import' || toolMode === 'export-key') &&
+      !(await requirePrivyToolSession())
+    ) {
+      return;
+    }
+
     if (toolMode === 'import') {
       const result = await wallet.importWallet(toolValue, toolName);
 
@@ -190,7 +237,7 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
 
   return (
     <ScrollView
-      contentContainerStyle={modern.screenInset}
+      contentContainerStyle={screenInsetStyle}
       showsVerticalScrollIndicator={false}
     >
       <ModernScreenHeader
@@ -311,10 +358,30 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
 
       <View style={modern.sectionCard}>
         <SectionHeader title="Advanced wallet tools" />
+        <View style={styles.tokenStatusBox}>
+          <View style={styles.tokenStatusCopy}>
+            <Text style={styles.tokenStatusLabel}>Privy identity token</Text>
+            <Text
+              style={[
+                styles.tokenStatusValue,
+                wallet.privySessionReady && styles.tokenStatusReady,
+              ]}
+            >
+              {wallet.privySessionReady ? 'Ready' : 'Not ready'}
+            </Text>
+          </View>
+          <PressScale
+            disabled={wallet.isBusy}
+            onPress={checkPrivyTokenStatus}
+            style={styles.tokenCheckButton}
+          >
+            <Text style={styles.tokenCheckText}>Check</Text>
+          </PressScale>
+        </View>
         <View style={styles.toolGrid}>
           <PressScale
             disabled={wallet.isBusy}
-            onPress={() => setToolMode('import')}
+            onPress={() => openTool('import')}
             style={styles.toolButton}
           >
             <Ionicons color="#0F8EA3" name="download-outline" size={22} />
@@ -324,15 +391,15 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
           </PressScale>
           <PressScale
             disabled={wallet.isBusy}
-            onPress={() => setToolMode('watch')}
+            onPress={() => openTool('watch')}
             style={styles.toolButton}
           >
             <Ionicons color="#0F8EA3" name="eye-outline" size={22} />
             <Text style={styles.toolText}>Track public address (G...)</Text>
           </PressScale>
           <PressScale
-            disabled={wallet.isBusy || !wallet.walletCanSign}
-            onPress={() => setToolMode('export-key')}
+            disabled={wallet.isBusy || !activeWalletCanSign}
+            onPress={() => openTool('export-key')}
             style={[styles.toolButton, styles.toolButtonDanger]}
           >
             <Ionicons color="#C01048" name="key-outline" size={22} />
@@ -351,8 +418,13 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
           </PressScale>
         </View>
         <Text style={modern.emptyModernText}>
-          Mainnet transaction và export đều yêu cầu biometric. Watch-only không
-          thể ký giao dịch.
+          {wallet.isBusy
+            ? `Đang xử lý: ${wallet.busy}`
+            : !activeWalletCanSign
+            ? 'Export bị khóa vì ví đang chọn là watch-only hoặc chưa có quyền ký. Import và watch-only vẫn dùng được.'
+            : wallet.privySessionReady
+            ? 'Import/export dùng Privy token và biometric. Watch-only chỉ theo dõi địa chỉ, không thể ký giao dịch.'
+            : 'Import/export sẽ kiểm tra Privy token khi bấm. Nếu phiên hết hạn, hãy đăng xuất rồi đăng nhập lại Privy.'}
         </Text>
       </View>
 
@@ -559,14 +631,51 @@ const styles = StyleSheet.create({
   secretInput: { minHeight: 86, textAlignVertical: 'top' },
   secretText: { color: '#FFF', fontSize: 14, lineHeight: 20 },
   settingsRow: { alignItems: 'center' },
+  tokenCheckButton: {
+    alignItems: 'center',
+    backgroundColor: '#E8F7FA',
+    borderRadius: 999,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+  },
+  tokenCheckText: {
+    color: '#0F8EA3',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  tokenStatusBox: {
+    alignItems: 'center',
+    backgroundColor: '#F6FAFB',
+    borderRadius: 16,
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    padding: 14,
+  },
+  tokenStatusCopy: { flex: 1, gap: 4 },
+  tokenStatusLabel: {
+    color: '#667985',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  tokenStatusReady: { color: '#0F8EA3' },
+  tokenStatusValue: {
+    color: '#C01048',
+    fontSize: 15,
+    fontWeight: '900',
+  },
   toolButton: {
     alignItems: 'center',
     backgroundColor: '#EEF7F9',
     borderRadius: 16,
-    flex: 1,
     gap: 8,
-    minWidth: '44%',
+    justifyContent: 'center',
+    minHeight: 76,
     padding: 14,
+    width: '100%',
   },
   toolButtonDanger: {
     backgroundColor: '#FFF1F3',
@@ -578,7 +687,10 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8EC',
     borderWidth: 1,
   },
-  toolGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  toolGrid: {
+    flexDirection: 'column',
+    gap: 10,
+  },
   toolText: {
     color: '#24495A',
     fontSize: 13,
