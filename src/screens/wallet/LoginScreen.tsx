@@ -20,36 +20,51 @@ function sanitizeOtp(value: string) {
   return value.replace(/\D/g, '').slice(0, OTP_LENGTH);
 }
 
-function FeatureChip({ label }: { label: string }) {
+function ConnectionPill({
+  active,
+  label,
+}: {
+  active: boolean;
+  label: string;
+}) {
   return (
-    <View style={styles.loginChip}>
-      <Text style={styles.loginChipText}>{label}</Text>
+    <View style={styles.loginPill}>
+      <StatusDot active={active} />
+      <Text style={styles.loginPillText}>{label}</Text>
     </View>
   );
 }
 
-function StatusBadge({
-  active,
+function GoogleButton({
+  disabled,
   label,
-  value,
+  onPress,
 }: {
-  active: boolean;
+  disabled?: boolean;
   label: string;
-  value: string;
+  onPress: () => void;
 }) {
   return (
-    <View style={styles.trustBadge}>
-      <View
-        style={[
-          styles.trustBadgeDot,
-          active ? styles.trustBadgeDotActive : null,
-        ]}
-      />
-      <View>
-        <Text style={styles.trustBadgeLabel}>{label}</Text>
-        <Text style={styles.trustBadgeValue}>{value}</Text>
+    <Pressable
+      disabled={disabled}
+      onPress={onPress}
+      style={[
+        styles.googleButton,
+        disabled ? styles.googleButtonDisabled : null,
+      ]}
+    >
+      <View style={styles.googleMark}>
+        <Text style={styles.googleMarkText}>G</Text>
       </View>
-    </View>
+      <Text
+        style={[
+          styles.googleButtonText,
+          disabled ? styles.disabledButtonText : null,
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -126,74 +141,63 @@ function OtpInput({
 export function LoginScreen({ wallet }: { wallet: WalletDemoState }) {
   const otpReady = wallet.code.length === OTP_LENGTH;
   const serverReady = Boolean(wallet.health?.ok);
+  const googleBusy = wallet.busy === 'Đăng nhập Google';
 
   return (
     <ScrollView
       contentContainerStyle={styles.loginContent}
       keyboardShouldPersistTaps="handled"
     >
-      <View style={styles.loginDecorTop} />
-      <View style={styles.loginDecorBottom} />
-
       <View style={styles.brandRow}>
         <View style={styles.logoMark}>
           <Text style={styles.logoText}>S</Text>
         </View>
-        <View>
+        <View style={styles.headerCopy}>
           <Text style={styles.brandName}>Stellar Wallet</Text>
-          <Text style={styles.brandMeta}>Privy secured access</Text>
+          <Text style={styles.brandMeta}>Privy secured</Text>
         </View>
+        {wallet.isBusy ? <ActivityIndicator color="#1A6F8F" /> : null}
       </View>
 
-      <View style={styles.loginHero}>
-        <Text style={styles.kicker}>Privy x Stellar</Text>
-        <Text style={styles.title}>Access your Stellar wallet in seconds</Text>
-        <Text style={styles.subtitle}>
-          Sign in with email, then manage Testnet demos or Mainnet assets
-          through a Privy-backed Stellar wallet.
-        </Text>
-        <View style={styles.loginChipRow}>
-          <FeatureChip label="Privy Auth" />
-          <FeatureChip label="Testnet + Mainnet" />
-          <FeatureChip label="Wallet security" />
-        </View>
+      <View style={styles.loginStatusRow}>
+        <ConnectionPill
+          active={wallet.isReady}
+          label={wallet.isReady ? 'Privy ready' : 'Privy loading'}
+        />
+        <ConnectionPill
+          active={serverReady}
+          label={serverReady ? 'Server online' : 'Server sync'}
+        />
       </View>
 
-      <View style={styles.loginPanel}>
-        <View style={styles.authHeader}>
-          <View>
-            <Text style={styles.authEyebrow}>
-              {wallet.codeSent ? 'Verification' : 'Email sign in'}
-            </Text>
-            <Text style={styles.authTitle}>
-              {wallet.codeSent ? 'Enter your code' : 'Open your wallet'}
+      {wallet.codeSent ? (
+        <View style={styles.loginPanel}>
+          <View style={styles.authHeader}>
+            <Pressable
+              disabled={wallet.isBusy}
+              onPress={wallet.resetLoginCode}
+              style={styles.authBackButton}
+            >
+              <Text style={styles.authBackButtonText}>Back</Text>
+            </Pressable>
+            <Text style={styles.authEyebrow}>Verification</Text>
+          </View>
+
+          <View style={styles.loginTitleBlock}>
+            <Text style={styles.authTitle}>Check your email</Text>
+            <Text style={styles.subtitle}>
+              Enter the 6-digit code sent to your inbox.
             </Text>
           </View>
-          {wallet.isBusy ? <ActivityIndicator color="#35F2A7" /> : null}
-        </View>
 
-        <View style={styles.trustBadgeRow}>
-          <StatusBadge
-            active={wallet.isReady}
-            label="Privy"
-            value={wallet.isReady ? 'Ready' : 'Loading'}
-          />
-          <StatusBadge
-            active={serverReady}
-            label="Server"
-            value={serverReady ? 'Online' : 'Syncing'}
-          />
-        </View>
+          <View style={styles.sentToBox}>
+            <Text style={styles.sentToLabel}>Sent to</Text>
+            <Text numberOfLines={1} style={styles.sentToEmail}>
+              {wallet.email}
+            </Text>
+          </View>
 
-        {wallet.codeSent ? (
           <View style={styles.authForm}>
-            <View style={styles.sentToBox}>
-              <Text style={styles.sentToLabel}>Code sent to</Text>
-              <Text numberOfLines={1} style={styles.sentToEmail}>
-                {wallet.email}
-              </Text>
-            </View>
-
             <OtpInput
               code={wallet.code}
               disabled={wallet.isBusy}
@@ -219,12 +223,34 @@ export function LoginScreen({ wallet }: { wallet: WalletDemoState }) {
                 onPress={wallet.resetLoginCode}
                 style={styles.authTextButton}
               >
-                <Text style={styles.authTextButtonText}>Change email</Text>
+                <Text style={styles.authTextButtonText}>Use another email</Text>
               </Pressable>
             </View>
           </View>
-        ) : (
+        </View>
+      ) : (
+        <View style={styles.loginPanel}>
+          <View style={styles.loginTitleBlock}>
+            <Text style={styles.kicker}>Privy x Stellar</Text>
+            <Text style={styles.title}>Sign in to your wallet</Text>
+            <Text style={styles.subtitle}>
+              Choose Google or continue with an email code.
+            </Text>
+          </View>
+
           <View style={styles.authForm}>
+            <GoogleButton
+              disabled={!wallet.isReady || wallet.isBusy}
+              label={googleBusy ? 'Opening Google' : 'Continue with Google'}
+              onPress={wallet.loginWithGoogle}
+            />
+
+            <View style={styles.loginDivider}>
+              <View style={styles.loginDividerLine} />
+              <Text style={styles.loginDividerText}>or</Text>
+              <View style={styles.loginDividerLine} />
+            </View>
+
             <Text style={styles.inputLabel}>Email address</Text>
             <TextInput
               autoCapitalize="none"
@@ -234,44 +260,29 @@ export function LoginScreen({ wallet }: { wallet: WalletDemoState }) {
               keyboardType="email-address"
               onChangeText={wallet.setEmail}
               placeholder="name@example.com"
-              placeholderTextColor="#7D8D9A"
+              placeholderTextColor="#8A97A6"
               style={styles.input}
               value={wallet.email}
             />
 
             <ActionButton
               disabled={!wallet.isReady || wallet.isBusy}
-              label={wallet.busy || 'Send verification code'}
+              label={
+                wallet.busy && !googleBusy
+                  ? wallet.busy
+                  : 'Send verification code'
+              }
               onPress={wallet.sendEmailCode}
             />
-            <ActionButton
-              disabled={!wallet.isReady || wallet.isBusy}
-              label={
-                wallet.busy === 'Đăng nhập Google'
-                  ? wallet.busy
-                  : 'Continue with Google'
-              }
-              onPress={wallet.loginWithGoogle}
-              variant="secondary"
-            />
           </View>
-        )}
-
-        <View style={styles.loginMessageBox}>
-          <Text style={styles.helper}>{wallet.message}</Text>
         </View>
+      )}
+
+      <View style={styles.loginMessageBox}>
+        <Text style={styles.helper}>{wallet.message}</Text>
         {wallet.privyError ? (
           <Text style={styles.loginErrorText}>{String(wallet.privyError)}</Text>
         ) : null}
-      </View>
-
-      <View style={styles.statusStrip}>
-        <StatusDot active={Boolean(wallet.health?.ok)} />
-        <Text style={styles.statusText}>
-          {wallet.health?.ok
-            ? 'Privy API và Stellar network sẵn sàng'
-            : 'Đang kiểm tra máy chủ demo'}
-        </Text>
       </View>
     </ScrollView>
   );

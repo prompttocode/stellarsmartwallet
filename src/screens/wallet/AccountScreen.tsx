@@ -25,13 +25,14 @@ import {
 } from '../../contexts/CurrencyContext';
 import type { ExportWalletResult } from '../../types';
 
-const CURRENCIES: { code: SupportedCurrency; name: string; symbol: string }[] = [
-  { code: 'USD', name: 'US Dollar', symbol: '$' },
-  { code: 'VND', name: 'Vietnamese Dong', symbol: '₫' },
-  { code: 'EUR', name: 'Euro', symbol: '€' },
-  { code: 'JPY', name: 'Japanese Yen', symbol: '¥' },
-  { code: 'GBP', name: 'British Pound', symbol: '£' },
-];
+const CURRENCIES: { code: SupportedCurrency; name: string; symbol: string }[] =
+  [
+    { code: 'USD', name: 'US Dollar', symbol: '$' },
+    { code: 'VND', name: 'Vietnamese Dong', symbol: '₫' },
+    { code: 'EUR', name: 'Euro', symbol: '€' },
+    { code: 'JPY', name: 'Japanese Yen', symbol: '¥' },
+    { code: 'GBP', name: 'British Pound', symbol: '£' },
+  ];
 
 type ToolMode = 'import' | 'watch' | 'export-key' | null;
 
@@ -100,7 +101,10 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
     }
 
     Clipboard.setString(exportResult.secret);
-    Alert.alert('Đã copy', 'Secret đã copy vào clipboard. Xóa clipboard sau khi dùng xong.');
+    Alert.alert(
+      'Đã copy',
+      'Secret đã copy vào clipboard. Xóa clipboard sau khi dùng xong.',
+    );
   }
 
   function renderToolModal() {
@@ -163,7 +167,10 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
               </>
             )}
             <View style={styles.promptActions}>
-              <TouchableOpacity style={styles.promptBtn} onPress={closeToolModal}>
+              <TouchableOpacity
+                style={styles.promptBtn}
+                onPress={closeToolModal}
+              >
                 <Text style={styles.promptBtnText}>Hủy</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -311,7 +318,9 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
             style={styles.toolButton}
           >
             <Ionicons color="#0F8EA3" name="download-outline" size={22} />
-            <Text style={styles.toolText}>Import Stellar secret key (S...)</Text>
+            <Text style={styles.toolText}>
+              Import Stellar secret key (S...)
+            </Text>
           </PressScale>
           <PressScale
             disabled={wallet.isBusy}
@@ -483,7 +492,7 @@ const styles = StyleSheet.create({
   closeBtnText: { color: '#8A9AA3', fontSize: 16, fontWeight: '600' },
   currencyItem: {
     alignItems: 'center',
-    backgroundColor: '#0F172A',
+    backgroundColor: '#ffffff',
     borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -492,10 +501,10 @@ const styles = StyleSheet.create({
   },
   currencyItemSelected: { borderColor: '#0F8EA3', borderWidth: 1 },
   currencyText: { color: '#8A9AA3', fontSize: 16, fontWeight: '600' },
-  currencyTextSelected: { color: '#FFF' },
+  currencyTextSelected: { color: '#000000' },
   inlineValue: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   modalBox: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#ffffff',
     borderRadius: 16,
     padding: 20,
     width: '100%',
@@ -513,7 +522,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 20,
   },
-  modalTitle: { color: '#FFF', fontSize: 18, fontWeight: '700', marginBottom: 12 },
+  modalTitle: {
+    color: '#000000',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
   promptActions: { flexDirection: 'row', gap: 12, justifyContent: 'flex-end' },
   promptBtn: { paddingHorizontal: 16, paddingVertical: 10 },
   promptBtnPrimary: {

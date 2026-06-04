@@ -1,4 +1,4 @@
-# API Documentation
+# Tài liệu API
 
 Base URL khi chạy local:
 
@@ -6,44 +6,44 @@ Base URL khi chạy local:
 http://localhost:8787
 ```
 
-Mobile app khong goi Horizon truc tiep. App goi backend qua `API_BASE_URL`
-trong `src/config.ts`, backend moi goi Privy API va Stellar Horizon.
+Mobile app không gọi Horizon trực tiếp. App gọi backend qua `API_BASE_URL`
+trong `src/config.ts`, backend mới gọi Privy API và Stellar Horizon.
 
 ## Auth
 
-- Testnet demo cho phep mo session bang email de de demo.
-- Mainnet va cac thao tac nhay cam can Privy identity token trong header:
+- Testnet demo cho phép mở session bằng email để dễ demo.
+- Mainnet và các thao tác nhạy cảm cần Privy identity token trong header:
 
 ```http
 Authorization: Bearer <privy_identity_token>
 ```
 
-Khong dua `PRIVY_APP_SECRET`, Google OAuth client secret, seed phrase hoac
-private key vao app mobile.
+Không đưa `PRIVY_APP_SECRET`, Google OAuth client secret, seed phrase hoặc
+private key vào app mobile.
 
 ## Network
 
-Nhung route Stellar moi nen dung dang co `:network`:
+Những route Stellar mới nên dùng dạng có `:network`:
 
 ```text
 testnet
 mainnet
 ```
 
-Vi du:
+Ví dụ:
 
 ```http
 GET /api/stellar/testnet/<address>
 POST /api/stellar/mainnet/send
 ```
 
-Cac route cu khong co `:network` van duoc giu fallback ve `testnet`.
+Các route cũ không có `:network` vẫn được giữ fallback về `testnet`.
 
 ## Health And Config
 
 ### `GET /api/health`
 
-Kiem tra backend dang chay va tra ve cau hinh public.
+Kiểm tra backend đang chạy và trả về cấu hình public.
 
 Response:
 
@@ -66,19 +66,19 @@ Response:
 
 ### `GET /api/networks`
 
-Tra ve danh sach network backend ho tro.
+Trả về danh sách network backend hỗ trợ.
 
 ### `GET /api/assets?network=testnet`
 
-Tra ve danh sach asset ho tro theo network.
+Trả về danh sách asset hỗ trợ theo network.
 
 ## Session
 
 ### `POST /api/session`
 
-Mo hoac khoi phuc session vi cho user hien tai.
+Mở hoặc khôi phục session ví cho user hiện tại.
 
-Dung voi Privy token:
+Dùng với Privy token:
 
 ```json
 {
@@ -87,7 +87,7 @@ Dung voi Privy token:
 }
 ```
 
-Fallback demo bang email:
+Fallback demo bằng email:
 
 ```json
 {
@@ -96,7 +96,7 @@ Fallback demo bang email:
 }
 ```
 
-Response chinh:
+Response chính:
 
 ```json
 {
@@ -120,21 +120,21 @@ Response chinh:
 
 ### `POST /api/demo/session`
 
-Tao/khoi phuc session demo bang email. Phu hop cho testnet demo va fallback.
+Tạo hoặc khôi phục session demo bằng email. Phù hợp cho testnet demo và fallback.
 
 ### `POST /api/demo/auth-session`
 
-Tao/khoi phuc session demo bang Privy identity token.
+Tạo hoặc khôi phục session demo bằng Privy identity token.
 
 ## Wallets
 
 ### `GET /api/wallets`
 
-Liet ke Stellar wallets tren Privy.
+Liệt kê Stellar wallets trên Privy.
 
 ### `POST /api/wallets`
 
-Tao vi Stellar moi cho account dang dang nhap.
+Tạo ví Stellar mới cho account đang đăng nhập.
 
 Body:
 
@@ -147,12 +147,12 @@ Body:
 }
 ```
 
-Voi `network=mainnet`, backend khong goi Friendbot. User phai nap XLM that de
-active vi.
+Với `network=mainnet`, backend không gọi Friendbot. User phải nạp XLM thật để
+active ví.
 
 ### `POST /api/wallets/import`
 
-Import Stellar secret key vao Privy. Route nay luon can Privy auth token.
+Import Stellar secret key vào Privy. Route này luôn cần Privy auth token.
 
 Body:
 
@@ -167,12 +167,12 @@ Body:
 
 ### `POST /api/wallets/watch-only`
 
-Them vi watch-only. Vi nay xem duoc balance/history nhung khong ky giao dich.
+Thêm ví watch-only. Ví này xem được balance/history nhưng không ký giao dịch.
 
 ### `POST /api/wallets/export`
 
-Export private key hoac seed phrase. Route nay luon can Privy auth token.
-App dang bat biometric va confirm `EXPORT` truoc khi goi.
+Export private key hoặc seed phrase. Route này luôn cần Privy auth token.
+App đang bật biometric và confirm `EXPORT` trước khi gọi.
 
 Body:
 
@@ -190,30 +190,30 @@ Body:
 
 ### `POST /api/demo/wallets`
 
-Tao vi demo moi cho account theo email.
+Tạo ví demo mới cho account theo email.
 
 ### `POST /api/demo/wallets/select`
 
-Chon vi active.
+Chọn ví active.
 
 ### `POST /api/demo/wallets/rename`
 
-Doi ten hien thi cua vi.
+Đổi tên hiển thị của ví.
 
 ### `POST /api/demo/wallets/archive`
 
-An vi khoi danh sach.
+Ẩn ví khỏi danh sách.
 
 ### `POST /api/demo/receiver`
 
-Tao vi nguoi nhan demo tren testnet, fund XLM test va them trustline demo.
-Route nay chi dung cho testnet.
+Tạo ví người nhận demo trên testnet, fund XLM test và thêm trustline demo.
+Route này chỉ dùng cho testnet.
 
 ## Stellar
 
 ### `GET /api/stellar/:network/:address`
 
-Lay balance va transaction history cua dia chi Stellar.
+Lấy balance và transaction history của địa chỉ Stellar.
 
 Example:
 
@@ -223,7 +223,7 @@ GET /api/stellar/testnet/GBHO...
 
 ### `POST /api/stellar/:network/fund`
 
-Fund XLM test bang Friendbot. Chi hop le tren testnet.
+Fund XLM test bằng Friendbot. Chỉ hợp lệ trên testnet.
 
 Body:
 
@@ -235,7 +235,7 @@ Body:
 
 ### `POST /api/stellar/:network/fund-asset`
 
-Fund asset demo tren testnet.
+Fund asset demo trên testnet.
 
 Body:
 
@@ -249,7 +249,7 @@ Body:
 
 ### `POST /api/stellar/:network/trustline`
 
-Them trustline cho asset khong phai XLM.
+Thêm trustline cho asset không phải XLM.
 
 Body:
 
@@ -265,7 +265,7 @@ Body:
 
 ### `POST /api/stellar/:network/send`
 
-Gui XLM hoac token Stellar.
+Gửi XLM hoặc token Stellar.
 
 Body:
 
@@ -282,54 +282,54 @@ Body:
 }
 ```
 
-Response co `hash`, `ledger`, `transaction.explorerUrl`, balances moi va
-`transactions` da refresh.
+Response có `hash`, `ledger`, `transaction.explorerUrl`, balances mới và
+`transactions` đã refresh.
 
 ### `POST /api/stellar/:network/swap/quote`
 
-Lay quote swap. Tren testnet backend tra quote demo; tren mainnet backend dung
-path payment cua Stellar.
+Lấy quote swap. Trên testnet backend trả quote demo; trên mainnet backend dùng
+path payment của Stellar.
 
 ### `POST /api/stellar/:network/swap/execute`
 
-Thuc thi swap. Mainnet can Privy auth token.
+Thực thi swap. Mainnet cần Privy auth token.
 
 ## Ramp
 
 ### `GET /api/ramp/providers`
 
-Tra ve danh sach provider top up/ramp dang cau hinh.
+Trả về danh sách provider top up/ramp đang cấu hình.
 
 ### `POST /api/ramp/quote`
 
-Dang bi disable neu chua co provider that.
+Đang bị disable nếu chưa có provider thật.
 
 ### `POST /api/ramp/checkout`
 
-Dang bi disable neu chua co provider that.
+Đang bị disable nếu chưa có provider thật.
 
 ## WalletConnect
 
 ### `GET /api/walletconnect/config`
 
-Tra ve WalletConnect project id public neu da cau hinh.
+Trả về WalletConnect project id public nếu đã cấu hình.
 
 ### `POST /api/walletconnect/stellar/review-xdr`
 
-Review XDR truoc khi ky.
+Review XDR trước khi ký.
 
 ### `POST /api/walletconnect/stellar/sign-xdr`
 
-Ky XDR bang vi Privy. Route nay can Privy auth token.
+Ký XDR bằng ví Privy. Route này cần Privy auth token.
 
 ## Error Format
 
-Backend tra loi loi qua middleware chung:
+Backend trả lỗi qua middleware chung:
 
 ```json
 {
-  "error": "Thong bao loi"
+  "error": "Thông báo lỗi"
 }
 ```
 
-Mobile app doc field `error` va hien thi cho user.
+Mobile app đọc field `error` và hiển thị cho user.
