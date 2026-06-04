@@ -4,7 +4,6 @@ import {
   Image,
   ImageBackground,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,

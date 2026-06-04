@@ -16,6 +16,7 @@ const {
   getIssuerKey,
   getKnownAssetDefinitions,
   mergeKnownAndDiscoveredAssets,
+  mapStellarExpertRecordToAsset,
   NATIVE_ASSET_CODE,
   normalizeAssetCode,
 } = require('./assets');
@@ -410,6 +411,48 @@ async function ensureDemoAssetIssuers(network = 'testnet') {
 
 async function getSupportedAssets(network = 'testnet') {
   const normalizedNetwork = normalizeNetwork(network);
+
+  if (normalizedNetwork === 'mainnet') {
+    try {
+      const response = await fetch(
+        'https://api.stellar.expert/explorer/public/asset?limit=40&sort=rating',
+        { signal: AbortSignal.timeout(4000) }
+      );
+
+      if (response.ok) {
+        const body = await response.json();
+        const records = body?._embedded?.records || [];
+
+        if (records.length > 0) {
+          const mapped = records
+            .map(record => {
+              try {
+                return mapStellarExpertRecordToAsset(record, 'mainnet');
+              } catch (e) {
+                return null;
+              }
+            })
+            .filter(Boolean);
+
+          if (mapped.length > 0) {
+            // Ensure XLM is always at the top
+            const xlmIndex = mapped.findIndex(a => a.isNative);
+            let finalAssets = mapped;
+            if (xlmIndex > 0) {
+              const [xlm] = finalAssets.splice(xlmIndex, 1);
+              finalAssets.unshift(xlm);
+            }
+            return finalAssets;
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to fetch dynamic assets from Stellar Expert, falling back to static list:', error.message);
+    }
+
+    return getKnownAssetDefinitions('mainnet');
+  }
+
   const issuers = await ensureDemoAssetIssuers(normalizedNetwork);
 
   return getKnownAssetDefinitions(normalizedNetwork, issuers);

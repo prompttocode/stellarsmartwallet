@@ -50,6 +50,7 @@ export type AssetItem = {
   isNative: boolean;
   network: StellarNetwork;
   trustLevel: AssetTrustLevel;
+  image?: string | null;
 };
 
 export type AssetsResponse = {

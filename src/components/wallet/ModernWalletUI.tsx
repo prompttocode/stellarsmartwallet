@@ -26,6 +26,7 @@ import Animated, {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SvgUri } from 'react-native-svg';
 import {
   getTransactionIcon,
   getTransactionTitle,
@@ -208,15 +209,99 @@ export function ScreenTransition({
   );
 }
 
+export function SmartRemoteImage({
+  uri,
+  width,
+  height,
+  borderRadius,
+  fallback,
+}: {
+  uri: string;
+  width: number;
+  height: number;
+  borderRadius?: number;
+  fallback: React.ReactNode;
+}) {
+  const [isSvg, setIsSvg] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    async function determineType() {
+      try {
+        const res = await fetch(uri, { method: 'HEAD' });
+        const contentType =
+          res.headers.get('content-type') ||
+          res.headers.get('Content-Type') ||
+          '';
+
+        if (active) {
+          setIsSvg(contentType.toLowerCase().includes('svg'));
+        }
+      } catch {
+        if (active) {
+          // Fallback based on extension if HEAD request fails
+          const lower = uri.toLowerCase();
+          setIsSvg(lower.endsWith('.svg'));
+        }
+      }
+    }
+
+    determineType();
+    return () => {
+      active = false;
+    };
+  }, [uri]);
+
+  if (isSvg === null) {
+    return <>{fallback}</>;
+  }
+
+  if (isSvg) {
+    return (
+      <SvgUri
+        uri={uri}
+        width={width}
+        height={height}
+        onError={() => {
+          setIsSvg(false);
+        }}
+      />
+    );
+  }
+
+  return (
+    <Image
+      resizeMode="contain"
+      source={{ uri }}
+      style={{
+        height: height,
+        width: width,
+        borderRadius: borderRadius || 0,
+      }}
+      onError={() => {
+        setIsSvg(null); // Fallback to placeholder if image fails to load
+      }}
+    />
+  );
+}
+
 export function TokenIcon({
   assetCode,
   size = 46,
+  imageUrl,
 }: {
   assetCode: string;
   size?: number;
+  imageUrl?: string | null;
 }) {
   const colors = assetColors[assetCode] || { bg: '#EEF3F5', fg: '#24495A' };
   const image = assetImages[assetCode];
+  const placeholder = (
+    <Text style={[modern.tokenIconText, { color: colors.fg }]}>
+      {assetCode.slice(0, 1)}
+    </Text>
+  );
 
   return (
     <View
@@ -229,16 +314,32 @@ export function TokenIcon({
         },
       ]}
     >
-      {image ? (
+      {imageUrl ? (
+        <SmartRemoteImage
+          uri={imageUrl}
+          width={size * 0.7}
+          height={size * 0.7}
+          borderRadius={size * 0.35}
+          fallback={
+            image ? (
+              <Image
+                resizeMode="contain"
+                source={image}
+                style={{ height: size * 0.7, width: size * 0.7 }}
+              />
+            ) : (
+              placeholder
+            )
+          }
+        />
+      ) : image ? (
         <Image
           resizeMode="contain"
           source={image}
           style={{ height: size * 0.7, width: size * 0.7 }}
         />
       ) : (
-        <Text style={[modern.tokenIconText, { color: colors.fg }]}>
-          {assetCode.slice(0, 1)}
-        </Text>
+        placeholder
       )}
     </View>
   );
@@ -634,7 +735,7 @@ export function AssetListItem({
         onPress={() => canUse && onSend(asset.assetCode)}
         style={modern.assetPressArea}
       >
-        <TokenIcon assetCode={asset.assetCode} />
+        <TokenIcon assetCode={asset.assetCode} imageUrl={asset.image} />
         <View style={modern.assetModernBody}>
           <View style={modern.assetNameLine}>
             <Text style={modern.assetModernName}>{asset.assetCode}</Text>
@@ -724,9 +825,11 @@ export function TokenPillSelector({
 export function TransactionListItem({
   onPress,
   transaction,
+  imageUrl,
 }: {
   onPress: () => void;
   transaction: TransactionItem;
+  imageUrl?: string | null;
 }) {
   const isReceived = transaction.direction === 'received';
   const isTrustline = transaction.operation === 'change_trust';
@@ -737,7 +840,7 @@ export function TransactionListItem({
 
   return (
     <PressScale onPress={onPress} style={modern.txModernRow}>
-      <TokenIcon assetCode={transaction.assetCode} size={42} />
+      <TokenIcon assetCode={transaction.assetCode} size={42} imageUrl={imageUrl} />
       <View style={modern.txModernBody}>
         <Text style={modern.txModernTitle}>
           {getTransactionTitle(transaction)}

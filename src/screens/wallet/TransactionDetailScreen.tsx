@@ -29,6 +29,10 @@ export function TransactionDetailScreen({
     ? 'Trustline'
     : `${amountPrefix}${transaction.amount} ${transaction.assetCode}`;
 
+  const asset = wallet.balances.find(item => item.assetCode === transaction.assetCode) ||
+                wallet.visibleAssets.find(item => item.assetCode === transaction.assetCode);
+  const imageUrl = asset?.image;
+
   return (
     <ScrollView
       contentContainerStyle={screenInsetStyle}
@@ -37,7 +41,7 @@ export function TransactionDetailScreen({
       <ModernScreenHeader title="Transaction Details" onBack={onBack} />
       <View style={modern.sectionCard}>
         <View style={{ alignItems: 'center', marginBottom: 24, marginTop: 16 }}>
-           <TokenIcon assetCode={transaction.assetCode} size={64} />
+           <TokenIcon assetCode={transaction.assetCode} size={64} imageUrl={imageUrl} />
            <Text style={[modern.heroAmount, { color: '#132A35', fontSize: 36, marginTop: 12 }]}>
              {amountText}
            </Text>

@@ -192,6 +192,53 @@ function mergeKnownAndDiscoveredAssets(knownAssets, account, network) {
   return [...merged.values()];
 }
 
+function mapStellarExpertRecordToAsset(record, network) {
+  const isXlm = record.asset === 'XLM';
+  if (isXlm) {
+    return {
+      assetCode: 'XLM',
+      assetIssuer: null,
+      displayName: 'Lumens',
+      homeDomain: 'stellar.org',
+      iconKey: 'xlm',
+      isNative: true,
+      network: network,
+      trustLevel: 'verified',
+      image: 'https://stellar.org/images/lumens.svg',
+    };
+  }
+
+  const toml = record.tomlInfo || {};
+  let code = toml.code;
+  if (!code) {
+    const parts = record.asset.split('-');
+    code = parts[0] || 'UNKNOWN';
+  }
+  code = normalizeAssetCode(code);
+
+  let issuer = toml.issuer;
+  if (!issuer) {
+    const parts = record.asset.split('-');
+    issuer = parts[1] || null;
+  }
+
+  const displayName = toml.name || record.orgName || code;
+  const homeDomain = record.domain || toml.orgName || 'unknown';
+  const image = toml.image || toml.orgLogo || null;
+
+  return {
+    assetCode: code,
+    assetIssuer: issuer,
+    displayName: displayName,
+    homeDomain: homeDomain,
+    iconKey: code.toLowerCase(),
+    isNative: false,
+    network: network,
+    trustLevel: 'verified',
+    image: image,
+  };
+}
+
 module.exports = {
   DEMO_ASSET_CODES,
   getAssetKey,
@@ -199,6 +246,7 @@ module.exports = {
   getIssuerKey,
   getKnownAssetDefinitions,
   mergeKnownAndDiscoveredAssets,
+  mapStellarExpertRecordToAsset,
   NATIVE_ASSET_CODE,
   normalizeAssetCode,
 };

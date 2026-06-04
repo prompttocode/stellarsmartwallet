@@ -124,7 +124,7 @@ export function ReceiveScreen({
               key={`${asset.assetCode}:${asset.assetIssuer || 'native'}`}
               style={modern.topUpRow}
             >
-              <TokenIcon assetCode={asset.assetCode} />
+              <TokenIcon assetCode={asset.assetCode} imageUrl={asset.image} />
               <View style={modern.assetModernBody}>
                 <Text style={modern.assetModernName}>{asset.assetCode}</Text>
                 <Text style={modern.assetModernMeta}>

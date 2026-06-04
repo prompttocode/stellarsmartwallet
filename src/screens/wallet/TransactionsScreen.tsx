@@ -70,13 +70,18 @@ export function TransactionsScreen({
           options={filters}
         />
         {visibleTransactions.length > 0 ? (
-          visibleTransactions.map(transaction => (
-            <TransactionListItem
-              key={transaction.id}
-              onPress={() => onGoToTransaction(transaction.id)}
-              transaction={transaction}
-            />
-          ))
+          visibleTransactions.map(transaction => {
+            const asset = wallet.balances.find(item => item.assetCode === transaction.assetCode) ||
+                          wallet.visibleAssets.find(item => item.assetCode === transaction.assetCode);
+            return (
+              <TransactionListItem
+                key={transaction.id}
+                onPress={() => onGoToTransaction(transaction.id)}
+                transaction={transaction}
+                imageUrl={asset?.image}
+              />
+            );
+          })
         ) : (
           <View style={modern.emptyModern}>
             <Text style={modern.emptyModernTitle}>Chưa có giao dịch</Text>

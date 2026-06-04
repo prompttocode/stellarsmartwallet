@@ -57,15 +57,23 @@ export function SendScreen({
       try {
         const { success } = await rnBiometrics.simplePrompt({
           promptMessage: 'Xác thực để gửi giao dịch',
-          cancelButtonText: 'Hủy'
+          cancelButtonText: 'Hủy',
         });
-        
+
         if (!success) {
-          Toast.show({ type: 'error', text1: 'Xác thực thất bại', text2: 'Không thể gửi giao dịch' });
+          Toast.show({
+            type: 'error',
+            text1: 'Xác thực thất bại',
+            text2: 'Không thể gửi giao dịch',
+          });
           return;
         }
       } catch {
-        Toast.show({ type: 'error', text1: 'Lỗi xác thực', text2: 'Vui lòng thử lại' });
+        Toast.show({
+          type: 'error',
+          text1: 'Lỗi xác thực',
+          text2: 'Vui lòng thử lại',
+        });
         return;
       }
     }
@@ -77,7 +85,11 @@ export function SendScreen({
       setStep('success');
       Toast.show({ type: 'success', text1: 'Giao dịch thành công!' });
     } else {
-      Toast.show({ type: 'error', text1: 'Giao dịch thất bại', text2: wallet.message });
+      Toast.show({
+        type: 'error',
+        text1: 'Giao dịch thất bại',
+        text2: wallet.message,
+      });
     }
   }
 
@@ -113,7 +125,10 @@ export function SendScreen({
             style={modern.secondaryModernButton}
           >
             <Text
-              style={[modern.modernButtonText, modern.secondaryModernButtonText]}
+              style={[
+                modern.modernButtonText,
+                modern.secondaryModernButtonText,
+              ]}
             >
               Send again
             </Text>
@@ -142,7 +157,9 @@ export function SendScreen({
           <SectionHeader title="Payment details" />
           <InfoLine
             label="Network"
-            value={wallet.isMainnet ? 'Mainnet · real assets' : 'Testnet · demo only'}
+            value={
+              wallet.isMainnet ? 'Mainnet · real assets' : 'Testnet · demo only'
+            }
           />
           <InfoLine
             label="Amount"
@@ -253,19 +270,6 @@ export function SendScreen({
               {shortAddress(wallet.recipientContact.wallet.address)}
             </Text>
           </View>
-        ) : null}
-        {!wallet.isMainnet ? (
-          <PressScale
-            disabled={wallet.isBusy}
-            onPress={wallet.createDemoReceiver}
-            style={modern.secondaryModernButton}
-          >
-            <Text
-              style={[modern.modernButtonText, modern.secondaryModernButtonText]}
-            >
-              Create demo receiver
-            </Text>
-          </PressScale>
         ) : null}
       </View>
 

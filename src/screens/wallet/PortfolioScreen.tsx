@@ -14,7 +14,6 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import {
   ActivateWalletNotice,
   AssetListItem,
-  PromoCarousel,
   QuickActionGrid,
   SectionHeader,
   WalletHero,
@@ -267,13 +266,17 @@ export function PortfolioScreen({
               }
               title="Recent Transactions"
             />
-            {filteredTransactions.slice(0, 5).map(transaction => (
-              <TransactionListItem
-                key={transaction.id}
-                onPress={() => onGoToTransaction(transaction.id)}
-                transaction={transaction}
-              />
-            ))}
+            {filteredTransactions.slice(0, 5).map(transaction => {
+              const assetItem = assets.find(item => item.assetCode === transaction.assetCode);
+              return (
+                <TransactionListItem
+                  key={transaction.id}
+                  onPress={() => onGoToTransaction(transaction.id)}
+                  transaction={transaction}
+                  imageUrl={assetItem?.image}
+                />
+              );
+            })}
             {filteredTransactions.length === 0 && (
               <Text style={modern.emptyModernText}>
                 {searchQuery
