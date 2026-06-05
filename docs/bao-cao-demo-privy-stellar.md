@@ -155,14 +155,14 @@ Phần app:
 
 Phần server:
 
-- `server/index.js`: khởi động Express server.
-- `server/routes/apiRoutes.js`: các API chính.
-- `server/services/privy.js`: xử lý Privy.
-- `server/services/stellar.js`: xử lý Stellar.
-- `server/db.js`: đọc ghi database demo.
-- `server/config.js`: cấu hình server.
-- `server/middleware/errorHandler.js`: trả lỗi API.
-- `server/utils/`: hàm tiện ích.
+- `be/index.js`: khởi động Express server.
+- `be/routes/apiRoutes.js`: các API chính.
+- `be/services/privy.js`: xử lý Privy.
+- `be/services/stellar.js`: xử lý Stellar.
+- `be/db.js`: đọc ghi database demo.
+- `be/config.js`: cấu hình server.
+- `be/middleware/errorHandler.js`: trả lỗi API.
+- `be/utils/`: hàm tiện ích.
 
 ## 5. Các API server hiện có
 
@@ -192,7 +192,7 @@ Database demo local chỉ lưu:
 File database demo:
 
 ```text
-server/data/demo-db.json
+be/data/demo-db.json
 ```
 
 Tại thời điểm kiểm tra, database demo local đang có:
@@ -234,7 +234,7 @@ http://192.168.1.19:8787
 Nếu IP mạng của máy thay đổi, cần sửa lại `API_BASE_URL` trong:
 
 ```text
-src/config.ts
+mobile/src/config.ts
 ```
 
 ## 8. Phần nào đã thật, phần nào vẫn là demo

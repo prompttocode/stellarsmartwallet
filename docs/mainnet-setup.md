@@ -24,7 +24,7 @@ Khong can dua private key, seed phrase, hay secret vi cho agent/code reviewer.
 
 ## 2. Can dien gi vao dau?
 
-### `src/config.ts`
+### `mobile/src/config.ts`
 
 Day la config public nam trong app mobile.
 
@@ -43,12 +43,12 @@ export const PRIVY_CLIENT_ID = 'your_privy_client_id';
 - `PRIVY_CLIENT_ID`: lay trong Privy Dashboard, dung cho mobile client.
 - Khong bao gio de `PRIVY_APP_SECRET` trong file nay.
 
-### `server/.env`
+### `be/.env`
 
-Copy tu `server/.env.example`:
+Copy tu `be/.env.example`:
 
 ```sh
-cp server/.env.example server/.env
+cp be/.env.example be/.env
 ```
 
 Sau do dien:
@@ -78,7 +78,7 @@ MYSQL_PASSWORD=your_mysql_password
 - `FRIENDBOT_URL`: chi dung cho Testnet. Mainnet khong co faucet.
 - MySQL config: lay tu MySQL local hoac database provider.
 
-`server/.env` da nam trong `.gitignore`, khong commit file nay.
+`be/.env` da nam trong `.gitignore`, khong commit file nay.
 
 ## 3. Privy la gi, lay key o dau?
 
@@ -93,7 +93,7 @@ Lay key tai Privy Dashboard:
    - `PRIVY_APP_ID`
    - `PRIVY_CLIENT_ID`
    - `PRIVY_APP_SECRET`
-4. `APP_SECRET` chi dua vao `server/.env`.
+4. `APP_SECRET` chi dua vao `be/.env`.
 
 ## 4. Horizon la gi?
 
@@ -152,7 +152,7 @@ Viec test mainnet nen bat dau bang so tien rat nho.
 
 ## 7. Nhung gi khong nen lam
 
-- Khong commit `server/.env`.
+- Khong commit `be/.env`.
 - Khong dua `PRIVY_APP_SECRET` vao mobile app.
 - Khong dua private key/seed phrase cho ai.
 - Khong test mainnet bang so tien lon luc dau.

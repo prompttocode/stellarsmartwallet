@@ -6,7 +6,7 @@ const { closeDb, writeDb } = require('../db');
 
 async function main() {
   if (String(DB_DRIVER).toLowerCase() !== 'mysql') {
-    throw new Error('Set DB_DRIVER=mysql in server/.env before migrating.');
+    throw new Error('Set DB_DRIVER=mysql in be/.env before migrating.');
   }
 
   if (!fs.existsSync(DB_PATH)) {

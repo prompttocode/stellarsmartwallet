@@ -210,4 +210,4 @@ Dung checklist nay khi quay demo:
 - Khong can dua private key, seed phrase, Google client secret hay
   `PRIVY_APP_SECRET` cho nguoi review video.
 - `PRIVY_APP_ID`, `PRIVY_CLIENT_ID`, `API_BASE_URL` la public config cua app.
-- `PRIVY_APP_SECRET` chi nam trong `server/.env`.
+- `PRIVY_APP_SECRET` chi nam trong `be/.env`.

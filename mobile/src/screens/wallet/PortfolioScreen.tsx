@@ -147,7 +147,6 @@ export function PortfolioScreen({
           email={wallet.account?.email}
           hidden={hidden}
           onHideToggle={() => setHidden(value => !value)}
-          onMenu={onGoToWallets}
           onNetworkPress={() =>
             wallet.switchNetwork(
               wallet.network === 'mainnet' ? 'testnet' : 'mainnet',

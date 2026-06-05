@@ -5,7 +5,7 @@
 export const API_BASE_URL = 'http://192.168.21.229:8787';
 
 // Privy public app identifiers from https://dashboard.privy.io.
-// Do not put PRIVY_APP_SECRET in the mobile app. It belongs in server/.env only.
+// Do not put PRIVY_APP_SECRET in the mobile app. It belongs in be/.env only.
 export const PRIVY_APP_ID = 'cmpi5182800mh0cjslqv5fgxt';
 export const PRIVY_CLIENT_ID =
   'client-WY6ZYnJ25Wu5vL7JMW7raUWLuxLqgvL6pjFRrVMhvbR32';

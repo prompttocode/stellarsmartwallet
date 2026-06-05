@@ -19,7 +19,6 @@ export function WalletHero({
   email,
   hidden,
   onHideToggle,
-  onMenu,
   onNetworkPress,
   onScan,
   onSearch,
@@ -32,7 +31,6 @@ export function WalletHero({
   email?: string;
   hidden: boolean;
   onHideToggle: () => void;
-  onMenu: () => void;
   onNetworkPress?: () => void;
   onScan: () => void;
   onSearch: () => void;
@@ -100,9 +98,6 @@ export function WalletHero({
     <View style={modern.hero}>
       <View style={heroScrimStyle}>
         <View style={modern.heroTop}>
-          <PressScale onPress={onMenu} style={modern.heroIconButton}>
-            <Ionicons color="#FFFFFF" name="menu" size={23} />
-          </PressScale>
           <Pressable onPress={handleNetworkPress}>
             <Animated.View
               style={[modern.networkPill, networkPillAnimatedStyle]}
@@ -121,7 +116,7 @@ export function WalletHero({
             </Animated.View>
           </Pressable>
           <Pressable
-            onPress={onWalletPress || onMenu}
+            onPress={onWalletPress}
             style={modern.addressPill}
           >
             <Ionicons

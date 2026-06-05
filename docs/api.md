@@ -105,7 +105,7 @@ Status lỗi hay gặp:
 | `404` | Không tìm thấy account hoặc wallet. |
 | `501` | Ramp chưa cấu hình provider thật. |
 | `502` | Privy/Horizon không thực hiện được thao tác. |
-| `500` | Lỗi server/env ngoài dự kiến. |
+| `500` | Lỗi backend/env ngoài dự kiến. |
 
 ## System APIs
 
