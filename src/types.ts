@@ -32,7 +32,7 @@ export type Wallet = {
   network: StellarNetwork;
 };
 
-export type DemoAccount = {
+export type WalletAccount = {
   id: string;
   activeWalletId?: string | null;
   email: string;
@@ -49,7 +49,10 @@ export type AssetItem = {
   iconKey?: string;
   isNative: boolean;
   network: StellarNetwork;
+  priceUsd?: number | null;
+  rating?: number | null;
   trustLevel: AssetTrustLevel;
+  volume7d?: number | null;
   image?: string | null;
 };
 
@@ -104,7 +107,7 @@ export type TransactionItem = {
 };
 
 export type SessionResponse = {
-  account: DemoAccount;
+  account: WalletAccount;
   activeWalletId?: string;
   balance: Balance;
   balances: BalanceItem[];

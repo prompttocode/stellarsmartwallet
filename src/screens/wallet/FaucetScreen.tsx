@@ -10,15 +10,16 @@ import {
   getModernAssets,
   modern,
   useSafeScreenInsetStyle,
-} from '../../components/wallet/ModernWalletUI';
-import type { WalletDemoState } from '../../hooks/useWalletDemo';
+} from '@components/wallet';
+import type { WalletState } from '@hooks/useWallet';
+import { formatTokenAmount } from '@utils/format';
 
-export function TopUpScreen({
+export function FaucetScreen({
   onBack,
   wallet,
 }: {
   onBack: () => void;
-  wallet: WalletDemoState;
+  wallet: WalletState;
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
   const assets = getModernAssets(wallet.balances, wallet.visibleAssets);
@@ -38,13 +39,13 @@ export function TopUpScreen({
     });
   }
 
-  function handleTopUp(assetCode: string) {
+  function handleFaucet(assetCode: string) {
     if (assetCode === 'XLM') {
       wallet.fundWallet();
       return;
     }
 
-    wallet.fundDemoAsset(assetCode);
+    wallet.fundTestAsset(assetCode);
   }
 
   return (
@@ -56,24 +57,25 @@ export function TopUpScreen({
         onBack={onBack}
         subtitle={
           wallet.isMainnet
-            ? 'Deposit XLM thật on-chain để active ví. Fiat on/off-ramp chờ provider API.'
-            : 'Nạp token test để demo luồng ví. Đây không phải tiền thật.'
+            ? 'Deposit XLM on-chain to activate this wallet. Fiat on/off-ramp is waiting for a provider API.'
+            : 'Fund test tokens for wallet demos. These are not real assets.'
         }
-        title={wallet.isMainnet ? 'Deposit' : 'Buy / Faucet'}
+        title={wallet.isMainnet ? 'Deposit' : 'Faucet'}
       />
 
       {wallet.isMainnet ? (
         <View style={modern.sectionCard}>
           <SectionHeader title="Deposit XLM" />
           <Text style={modern.emptyModernText}>
-            Dùng QR hoặc address bên dưới để nạp XLM thật và active ví mainnet.
+            Use the QR code or address below to deposit real XLM and activate
+            this Mainnet wallet.
           </Text>
           {!wallet.walletActive ? (
             <View style={modern.reviewModernBox}>
               <Text style={modern.reviewModernTitle}>Activate wallet</Text>
               <Text style={modern.reviewModernText}>
-                Deposit XLM to start using this Mainnet wallet. Explorer sẽ mở
-                được sau khi ví nhận XLM đầu tiên.
+                Deposit XLM to start using this Mainnet wallet. Explorer opens
+                after the wallet receives its first XLM deposit.
               </Text>
             </View>
           ) : null}
@@ -96,7 +98,7 @@ export function TopUpScreen({
           </View>
           <View style={modern.infoBlock}>
             <Text selectable style={modern.infoValue}>
-              {address || 'Chưa có ví'}
+              {address || 'No wallet yet'}
             </Text>
           </View>
           <View style={modern.walletButtons}>
@@ -127,11 +129,11 @@ export function TopUpScreen({
 
       {wallet.isMainnet ? (
         <View style={modern.sectionCard}>
-          <SectionHeader title="Buy with fiat" />
+          <SectionHeader title="Fiat on-ramp" />
           <View style={modern.disabledActionRow}>
             <Ionicons color="#8A9AA3" name="card" size={28} />
             <View style={modern.assetModernBody}>
-              <Text style={modern.assetModernName}>Buy with fiat</Text>
+              <Text style={modern.assetModernName}>Fiat on-ramp</Text>
               <Text style={modern.assetModernMeta}>
                 Coming soon · provider not configured
               </Text>
@@ -143,21 +145,25 @@ export function TopUpScreen({
       <View style={modern.sectionCard}>
         <SectionHeader title={wallet.isMainnet ? 'Assets' : 'Choose asset'} />
         {assets.map(asset => {
-          const canTopUp = asset.isNative || asset.trusted;
+          const canUseFaucet = asset.isNative || asset.trusted;
 
           return (
             <View
               key={`${asset.assetCode}:${asset.assetIssuer || 'native'}`}
-              style={modern.topUpRow}
+              style={modern.faucetRow}
             >
               <TokenIcon assetCode={asset.assetCode} imageUrl={asset.image} />
               <View style={modern.assetModernBody}>
                 <Text style={modern.assetModernName}>{asset.assetCode}</Text>
                 <Text style={modern.assetModernMeta}>
-                  {canTopUp
+                  {canUseFaucet
                     ? wallet.isMainnet
-                      ? `Current balance ${asset.balance}`
-                      : `Current balance ${asset.balance}`
+                      ? `Current balance ${formatTokenAmount(asset.balance, {
+                          compact: true,
+                        })}`
+                      : `Current balance ${formatTokenAmount(asset.balance, {
+                          compact: true,
+                        })}`
                     : 'Add trustline before faucet'}
                 </Text>
               </View>
@@ -166,12 +172,12 @@ export function TopUpScreen({
                 onPress={() =>
                   wallet.isMainnet
                     ? wallet.openUrl(wallet.explorerAddressUrl)
-                    : canTopUp
-                    ? handleTopUp(asset.assetCode)
+                    : canUseFaucet
+                    ? handleFaucet(asset.assetCode)
                     : wallet.addTrustline(asset.assetCode)
                 }
                 style={
-                  canTopUp ? modern.assetTopUpButton : modern.assetAddButton
+                  canUseFaucet ? modern.assetFaucetButton : modern.assetAddButton
                 }
               >
                 <Text style={modern.assetButtonText}>
@@ -179,7 +185,7 @@ export function TopUpScreen({
                     ? wallet.walletActive
                       ? 'Explorer'
                       : 'Inactive'
-                    : canTopUp
+                    : canUseFaucet
                     ? 'Faucet'
                     : 'Add'}
                 </Text>

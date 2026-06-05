@@ -1,7 +1,21 @@
 {
   "extends": "@react-native/typescript-config",
   "compilerOptions": {
-    "moduleResolution": "Bundler"
+    "baseUrl": ".",
+    "moduleResolution": "Bundler",
+    "paths": {
+      "@api/*": ["src/api/*"],
+      "@app-types": ["src/types"],
+      "@assets/*": ["src/assets/*"],
+      "@components": ["src/components"],
+      "@components/*": ["src/components/*"],
+      "@config": ["src/config"],
+      "@contexts/*": ["src/contexts/*"],
+      "@hooks/*": ["src/hooks/*"],
+      "@screens/*": ["src/screens/*"],
+      "@styles/*": ["src/styles/*"],
+      "@utils/*": ["src/utils/*"]
+    }
   },
   "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["**/node_modules", "**/Pods"]

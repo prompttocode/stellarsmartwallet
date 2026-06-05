@@ -13,14 +13,9 @@ jest.mock('react-native-gesture-handler', () => {
   };
 });
 
-jest.mock('react-native-toast-message', () => {
-  const { View } = require('react-native');
-
-  return View;
-});
-
 jest.mock('@react-native-async-storage/async-storage', () => ({
   getItem: jest.fn(async () => null),
+  multiRemove: jest.fn(async () => undefined),
   removeItem: jest.fn(async () => undefined),
   setItem: jest.fn(async () => undefined),
 }));

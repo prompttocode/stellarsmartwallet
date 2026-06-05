@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { styles } from '../styles/walletStyles';
+import { styles } from '@styles/walletStyles';
 
 export function StatusDot({ active }: { active: boolean }) {
   return (
@@ -25,7 +25,7 @@ export function AddressBlock({ address }: { address?: string }) {
   if (!address) {
     return (
       <View style={styles.addressBox}>
-        <Text style={styles.addressText}>Chưa có địa chỉ ví.</Text>
+        <Text style={styles.addressText}>No wallet address yet.</Text>
       </View>
     );
   }

@@ -22,18 +22,18 @@ import {
   modern,
   PressScale,
   TransactionListItem,
-} from '../../components/wallet/ModernWalletUI';
-import { WalletManagerModal } from '../../components/wallet/WalletManagerModal';
-import { useCurrencyConfig } from '../../contexts/CurrencyContext';
-import type { WalletDemoState } from '../../hooks/useWalletDemo';
+} from '@components/wallet';
+import { WalletManagerModal } from '@components/wallet';
+import { useCurrencyConfig } from '@contexts/CurrencyContext';
+import type { WalletState } from '@hooks/useWallet';
 
-const portfolioBackground = require('../../assets/images/background/backstellar.png');
+const portfolioBackground = require('@assets/images/background/backstellar.png');
 
 export function PortfolioScreen({
   onGoToReceive,
   onGoToSend,
   onGoToSwap,
-  onGoToTopUp,
+  onGoToFaucet,
   onGoToWallets,
   onGoToTransaction,
   onGoToHistory,
@@ -43,12 +43,12 @@ export function PortfolioScreen({
   onGoToReceive: () => void;
   onGoToSend: (assetCode?: string) => void;
   onGoToSwap: () => void;
-  onGoToTopUp: () => void;
+  onGoToFaucet: () => void;
   onGoToWallets: () => void;
   onGoToTransaction: (id: string) => void;
   onGoToHistory: () => void;
   onGoToScan: () => void;
-  wallet: WalletDemoState;
+  wallet: WalletState;
 }) {
   const [hidden, setHidden] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
@@ -87,7 +87,7 @@ export function PortfolioScreen({
   const portfolioValue = loading
     ? '...'
     : selectedCurrency === 'VND' || selectedCurrency === 'JPY'
-    ? `${Math.round(convertedValue).toLocaleString('vi-VN')} ${symbol}`
+    ? `${Math.round(convertedValue).toLocaleString('en-US')} ${symbol}`
     : `${symbol}${convertedValue.toLocaleString('en-US', {
         maximumFractionDigits: 2,
         minimumFractionDigits: 2,
@@ -117,9 +117,9 @@ export function PortfolioScreen({
     );
   }, [wallet.transactions, searchQuery]);
 
-  function topUpAsset(assetCode: string) {
+  function faucetAsset(assetCode: string) {
     if (wallet.isMainnet) {
-      onGoToTopUp();
+      onGoToFaucet();
       return;
     }
 
@@ -128,7 +128,7 @@ export function PortfolioScreen({
       return;
     }
 
-    wallet.fundDemoAsset(assetCode);
+    wallet.fundTestAsset(assetCode);
   }
 
   return (
@@ -187,9 +187,9 @@ export function PortfolioScreen({
               },
               {
                 icon: <Ionicons color="#3867D6" name="card" size={24} />,
-                key: 'buy',
-                label: wallet.isMainnet ? 'Deposit' : 'Buy',
-                onPress: onGoToTopUp,
+                key: 'faucet',
+                label: wallet.isMainnet ? 'Deposit' : 'Faucet',
+                onPress: onGoToFaucet,
               },
               {
                 icon: (
@@ -250,7 +250,7 @@ export function PortfolioScreen({
                 key={`${asset.assetCode}:${asset.assetIssuer || 'native'}`}
                 onAdd={wallet.addTrustline}
                 onSend={onGoToSend}
-                onTopUp={topUpAsset}
+                onFaucet={faucetAsset}
               />
             ))}
           </View>
@@ -280,8 +280,8 @@ export function PortfolioScreen({
             {filteredTransactions.length === 0 && (
               <Text style={modern.emptyModernText}>
                 {searchQuery
-                  ? 'Không tìm thấy kết quả phù hợp.'
-                  : 'Chưa có giao dịch nào.'}
+                  ? 'No matching results found.'
+                  : 'No transactions yet.'}
               </Text>
             )}
           </View>

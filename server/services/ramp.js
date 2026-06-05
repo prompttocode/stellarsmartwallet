@@ -21,7 +21,7 @@ function getRampProviders() {
 
 function getDisabledRampResponse() {
   const error = new Error(
-    'Chưa cấu hình provider on/off-ramp. V1 chỉ hỗ trợ deposit on-chain và withdraw qua send.',
+    'On/off-ramp provider is not configured. V1 only supports on-chain deposits and withdrawals through send.',
   );
   error.status = 501;
   throw error;
@@ -31,4 +31,3 @@ module.exports = {
   getDisabledRampResponse,
   getRampProviders,
 };
-

@@ -8,14 +8,14 @@ import {
   useLoginWithOAuth,
   usePrivy,
 } from '@privy-io/expo';
-import { api } from '../api/client';
+import { api } from '@api/client';
 import type {
   AssetItem,
   AssetsResponse,
   Balance,
   BalanceItem,
   Contact,
-  DemoAccount,
+  WalletAccount,
   ExportWalletResult,
   FundAssetResult,
   Health,
@@ -32,15 +32,17 @@ import type {
   TrustlineResult,
   Wallet,
   WalletConnectConfig,
-} from '../types';
-import { getErrorMessage, isEmailLike } from '../utils/format';
+} from '@app-types';
+import { formatTokenAmount, getErrorMessage, isEmailLike } from '@utils/format';
 
 type RunOptions = {
   showAlert?: boolean;
 };
 
-const DEMO_SESSION_EMAIL_STORAGE_KEY = 'lobstr-demo-session-email';
-const DEMO_SESSION_NETWORK_STORAGE_KEY = 'lobstr-demo-session-network';
+const LEGACY_LOCAL_SESSION_STORAGE_KEYS = [
+  'lobstr-demo-session-email',
+  'lobstr-demo-session-network',
+];
 
 type PrivyLinkedEmailAccount = {
   type?: string;
@@ -106,46 +108,6 @@ async function getTokenWithRetry(
   return null;
 }
 
-function rememberDemoSessionEmail(email: string) {
-  const normalizedEmail = email.trim().toLowerCase();
-
-  if (isEmailLike(normalizedEmail)) {
-    AsyncStorage.setItem(
-      DEMO_SESSION_EMAIL_STORAGE_KEY,
-      normalizedEmail,
-    ).catch(() => null);
-  }
-}
-
-async function getRememberedDemoSessionEmail() {
-  const storedEmail = await AsyncStorage.getItem(
-    DEMO_SESSION_EMAIL_STORAGE_KEY,
-  );
-
-  return String(storedEmail || '').trim().toLowerCase();
-}
-
-async function forgetDemoSessionEmail() {
-  await Promise.all([
-    AsyncStorage.removeItem(DEMO_SESSION_EMAIL_STORAGE_KEY),
-    AsyncStorage.removeItem(DEMO_SESSION_NETWORK_STORAGE_KEY),
-  ]).catch(() => null);
-}
-
-function rememberDemoSessionNetwork(network: StellarNetwork) {
-  AsyncStorage.setItem(DEMO_SESSION_NETWORK_STORAGE_KEY, network).catch(
-    () => null,
-  );
-}
-
-async function getRememberedDemoSessionNetwork() {
-  const storedNetwork = await AsyncStorage.getItem(
-    DEMO_SESSION_NETWORK_STORAGE_KEY,
-  );
-
-  return storedNetwork === 'mainnet' ? 'mainnet' : 'testnet';
-}
-
 export function getBalanceForAsset(balances: BalanceItem[], assetCode: string) {
   return balances.find(balance => balance.assetCode === assetCode) || null;
 }
@@ -156,12 +118,12 @@ export function getBalanceAmount(balances: BalanceItem[], assetCode: string) {
 
 export function getTransactionTitle(transaction: TransactionItem) {
   if (transaction.operation === 'change_trust') {
-    return `Thêm trustline ${transaction.assetCode}`;
+    return `Added ${transaction.assetCode} trustline`;
   }
 
-  const verb = transaction.direction === 'received' ? 'Nhận' : 'Gửi';
+  const verb = transaction.direction === 'received' ? 'Received' : 'Sent';
 
-  return `${verb} ${transaction.amount} ${transaction.assetCode}`;
+  return `${verb} ${transaction.assetCode}`;
 }
 
 export function getTransactionIcon(transaction: TransactionItem) {
@@ -172,12 +134,12 @@ export function getTransactionIcon(transaction: TransactionItem) {
   return transaction.direction === 'received' ? '↓' : '↑';
 }
 
-export function useWalletDemo() {
+export function useWallet() {
   const [health, setHealth] = useState<Health | null>(null);
   const [network, setNetwork] = useState<StellarNetwork>('testnet');
   const [networks, setNetworks] = useState<StellarNetworkInfo[]>([]);
   const [assets, setAssets] = useState<AssetItem[]>([]);
-  const [account, setAccount] = useState<DemoAccount | null>(null);
+  const [account, setAccount] = useState<WalletAccount | null>(null);
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [activeWalletId, setActiveWalletId] = useState<string | null>(null);
   const [balances, setBalances] = useState<BalanceItem[]>([]);
@@ -193,7 +155,7 @@ export function useWalletDemo() {
   const [codeSent, setCodeSent] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState(
-    'Nhập email thật để Privy gửi mã đăng nhập.',
+    'Enter your email to receive a Privy login code.',
   );
   const [rampProviders, setRampProviders] = useState<RampProvider[]>([]);
   const [walletConnectConfig, setWalletConnectConfig] =
@@ -203,8 +165,6 @@ export function useWalletDemo() {
   const [restoreAttemptedForUser, setRestoreAttemptedForUser] = useState<
     string | null
   >(null);
-  const [restoreAttemptedForSavedSession, setRestoreAttemptedForSavedSession] =
-    useState(false);
   const { user, isReady, error: privyError, logout: logoutPrivy } = usePrivy();
   const { getIdentityToken } = useIdentityToken();
   const {
@@ -214,7 +174,7 @@ export function useWalletDemo() {
   } = useLoginWithEmail({
     onSendCodeSuccess: () => {
       setCodeSent(true);
-      setMessage('Privy đã gửi mã xác minh về email. Nhập mã đó để đăng nhập.');
+      setMessage('Privy sent a verification code to your email.');
     },
   });
   const { login: loginWithOAuth, state: oauthState } = useLoginWithOAuth();
@@ -233,7 +193,7 @@ export function useWalletDemo() {
         setMessage(errorMessage);
 
         if (options.showAlert !== false) {
-          Alert.alert('Có lỗi', errorMessage);
+          Alert.alert('Error', errorMessage);
         }
 
         return null;
@@ -245,7 +205,7 @@ export function useWalletDemo() {
   );
 
   const checkServer = useCallback(async () => {
-    await run('Kiểm tra máy chủ', async () => {
+    await run('Checking server', async () => {
       const [
         result,
         networkResult,
@@ -267,8 +227,8 @@ export function useWalletDemo() {
       setWalletConnectConfig(walletConnectResult);
       setMessage(
         network === 'mainnet'
-          ? 'Sẵn sàng Stellar Mainnet. Giao dịch cần biometric.'
-          : 'Sẵn sàng kết nối Privy và Stellar Testnet.',
+          ? 'Stellar Mainnet is ready. Transactions require biometric confirmation.'
+          : 'Privy and Stellar Testnet are ready.',
       );
     });
   }, [network, run]);
@@ -276,6 +236,10 @@ export function useWalletDemo() {
   useEffect(() => {
     checkServer();
   }, [checkServer]);
+
+  useEffect(() => {
+    AsyncStorage.multiRemove(LEGACY_LOCAL_SESSION_STORAGE_KEYS).catch(() => null);
+  }, []);
 
   const accountWallets = account?.wallets || [];
   const wallet =
@@ -328,7 +292,7 @@ export function useWalletDemo() {
 
   const applySession = useCallback((
     session: SessionResponse,
-    nextMessage = 'Ví Stellar đã sẵn sàng.',
+    nextMessage = 'Your Stellar wallet is ready.',
   ) => {
     const sessionWallets =
       session.wallets ||
@@ -350,8 +314,6 @@ export function useWalletDemo() {
     setBalances(session.balances || session.balance.balances || []);
     setTransactions(session.transactions);
     setMessage(nextMessage);
-    rememberDemoSessionEmail(session.account.email);
-    rememberDemoSessionNetwork(sessionNetwork);
   }, [network]);
 
   const refreshPrivySecuritySession = useCallback(async () => {
@@ -397,7 +359,7 @@ export function useWalletDemo() {
 
     if (!identityToken && required) {
       throw new Error(
-        'Phiên Privy chưa sẵn sàng. Hãy đăng xuất rồi đăng nhập lại Privy trước khi thực hiện thao tác bảo mật này.',
+        'Privy session is not ready. Sign out and sign in again before using this security action.',
       );
     }
 
@@ -417,12 +379,12 @@ export function useWalletDemo() {
     }
 
     const { success } = await rnBiometrics.simplePrompt({
-      cancelButtonText: 'Hủy',
+      cancelButtonText: 'Cancel',
       promptMessage,
     });
 
     if (!success) {
-      throw new Error('Xác thực sinh trắc học thất bại.');
+      throw new Error('Biometric authentication failed.');
     }
 
     return true;
@@ -440,7 +402,7 @@ export function useWalletDemo() {
 
       if (!identityToken && !isEmailLike(sessionEmail)) {
         throw new Error(
-          'Phiên Privy chưa sẵn sàng hoặc đã hết hạn. Hãy đăng xuất rồi đăng nhập lại.',
+          'Privy session is not ready or has expired. Please sign out and sign in again.',
         );
       }
 
@@ -477,7 +439,7 @@ export function useWalletDemo() {
     ) {
       setRestoreAttemptedForUser(userKey);
       run(
-        'Khôi phục phiên',
+        'Restoring session',
         () => finishPrivySession(undefined, getEmailFromPrivyUser(user), network),
         { showAlert: false },
       );
@@ -494,50 +456,12 @@ export function useWalletDemo() {
     userKey,
   ]);
 
-  useEffect(() => {
-    if (
-      !isReady ||
-      user ||
-      account ||
-      busy ||
-      restoreAttemptedForSavedSession
-    ) {
-      return;
-    }
-
-    setRestoreAttemptedForSavedSession(true);
-    run(
-      'Khôi phục phiên',
-      async () => {
-        const storedEmail = await getRememberedDemoSessionEmail();
-        const storedNetwork = await getRememberedDemoSessionNetwork();
-
-        if (!isEmailLike(storedEmail)) {
-          return null;
-        }
-
-        await finishPrivySession(undefined, storedEmail, storedNetwork);
-
-        return true;
-      },
-      { showAlert: false },
-    );
-  }, [
-    account,
-    busy,
-    finishPrivySession,
-    isReady,
-    restoreAttemptedForSavedSession,
-    run,
-    user,
-  ]);
-
   async function sendEmailCode() {
-    return run('Gửi mã Privy', async () => {
+    return run('Sending Privy code', async () => {
       const targetEmail = email.trim().toLowerCase();
 
       if (!isEmailLike(targetEmail)) {
-        throw new Error('Nhập email thật để nhận mã đăng nhập từ Privy.');
+        throw new Error('Enter a valid email to receive your Privy login code.');
       }
 
       const currentPrivyEmail = getEmailFromPrivyUser(user);
@@ -555,11 +479,9 @@ export function useWalletDemo() {
         }
 
         await logoutPrivy();
-        await forgetDemoSessionEmail();
         clearWalletSession();
       } else if (user) {
         await logoutPrivy();
-        await forgetDemoSessionEmail();
         clearWalletSession();
       }
 
@@ -572,11 +494,11 @@ export function useWalletDemo() {
   }
 
   async function verifyCodeAndLogin() {
-    await run('Xác minh Privy', async () => {
+    await run('Verifying Privy code', async () => {
       const verificationCode = code.replace(/\D/g, '').slice(0, 6);
 
       if (verificationCode.length < 6) {
-        throw new Error('Nhập đủ 6 số Privy đã gửi về email.');
+        throw new Error('Enter the 6-digit code Privy sent to your email.');
       }
 
       const targetEmail = email.trim().toLowerCase();
@@ -594,11 +516,9 @@ export function useWalletDemo() {
         }
 
         await logoutPrivy();
-        await forgetDemoSessionEmail();
         clearWalletSession();
       } else if (user) {
         await logoutPrivy();
-        await forgetDemoSessionEmail();
         clearWalletSession();
       }
 
@@ -613,10 +533,9 @@ export function useWalletDemo() {
   }
 
   async function loginWithGoogle() {
-    await run('Đăng nhập Google', async () => {
+    await run('Sign in with Google', async () => {
       if (user) {
         await logoutPrivy();
-        await forgetDemoSessionEmail();
         clearWalletSession();
       }
 
@@ -638,7 +557,7 @@ export function useWalletDemo() {
   function resetLoginCode() {
     setCode('');
     setCodeSent(false);
-    setMessage('Nhập email thật để Privy gửi mã đăng nhập.');
+    setMessage('Enter your email to receive a Privy login code.');
   }
 
   async function refreshSession() {
@@ -646,13 +565,13 @@ export function useWalletDemo() {
       return;
     }
 
-    await run('Làm mới ví', async () => {
+    await run('Refreshing wallet', async () => {
       const session = await api<SessionResponse>('/api/session', {
         method: 'POST',
         body: JSON.stringify({ email: account.email, network }),
       });
       applySession(session);
-      setMessage('Đã làm mới số dư và lịch sử giao dịch.');
+      setMessage('Balances and transaction history refreshed.');
     });
   }
 
@@ -661,7 +580,7 @@ export function useWalletDemo() {
       return null;
     }
 
-    return run('Tạo ví mới', async () => {
+    return run('Creating wallet', async () => {
       const headers = await getAuthHeaders(isMainnet);
       const session = await api<SessionResponse>('/api/wallets', {
         method: 'POST',
@@ -677,8 +596,8 @@ export function useWalletDemo() {
       applySession(
         session,
         isMainnet
-          ? 'Đã tạo ví mainnet. Hãy deposit XLM để active.'
-          : 'Đã tạo ví mới và nạp sẵn XLM test.',
+          ? 'Mainnet wallet created. Deposit XLM to activate it.'
+          : 'Wallet created and funded with test XLM.',
       );
 
       return session;
@@ -691,18 +610,18 @@ export function useWalletDemo() {
     }
 
     if (walletId === activeWalletId) {
-      setMessage('Ví này đang được chọn.');
+      setMessage('This wallet is already selected.');
       return null;
     }
 
-    return run('Đổi ví', async () => {
+    return run('Switching wallet', async () => {
       const session = await api<SessionResponse>('/api/demo/wallets/select', {
         method: 'POST',
         body: JSON.stringify({ email: account.email, network, walletId }),
       });
 
       resetRecipientState();
-      applySession(session, 'Đã chuyển ví đang dùng.');
+      applySession(session, 'Active wallet switched.');
 
       return session;
     });
@@ -713,7 +632,7 @@ export function useWalletDemo() {
       return null;
     }
 
-    return run('Đổi tên ví', async () => {
+    return run('Renaming wallet', async () => {
       const session = await api<SessionResponse>('/api/demo/wallets/rename', {
         method: 'POST',
         body: JSON.stringify({
@@ -724,7 +643,7 @@ export function useWalletDemo() {
         }),
       });
 
-      applySession(session, 'Đã đổi tên ví.');
+      applySession(session, 'Wallet renamed.');
 
       return session;
     });
@@ -735,14 +654,14 @@ export function useWalletDemo() {
       return null;
     }
 
-    return run('Ẩn ví', async () => {
+    return run('Archiving wallet', async () => {
       const session = await api<SessionResponse>('/api/demo/wallets/archive', {
         method: 'POST',
         body: JSON.stringify({ email: account.email, network, walletId }),
       });
 
       resetRecipientState();
-      applySession(session, 'Đã ẩn ví khỏi danh sách.');
+      applySession(session, 'Wallet archived from the list.');
 
       return session;
     });
@@ -753,10 +672,10 @@ export function useWalletDemo() {
       return;
     }
 
-    await run('Nạp test XLM', async () => {
+    await run('Funding test XLM', async () => {
       if (isMainnet) {
         throw new Error(
-          'Mainnet không có Friendbot. Vào Receive để lấy QR/address rồi deposit XLM thật.',
+          'Mainnet does not have Friendbot. Open Receive for your QR/address and deposit real XLM.',
         );
       }
 
@@ -767,20 +686,26 @@ export function useWalletDemo() {
 
       setBalances(result.balances || []);
       setTransactions(current => result.transactions || current);
-      setMessage('Đã nạp test XLM từ Friendbot của Stellar Testnet.');
+      setMessage('Test XLM funded from Stellar Testnet Friendbot.');
     });
   }
 
-  async function addTrustline(assetCode: string) {
+  async function addTrustline(assetCode: string, assetIssuer?: string | null) {
     if (!wallet) {
       return;
     }
 
-    await run(`Thêm ${assetCode}`, async () => {
+    await run(`Adding ${assetCode}`, async () => {
       if (isMainnet) {
-        await requireBiometric('Xác thực để thêm trustline mainnet');
+        await requireBiometric('Confirm to add a Mainnet trustline');
       }
 
+      const assetDefinition =
+        visibleAssets.find(
+          asset =>
+            asset.assetCode === assetCode &&
+            (!assetIssuer || asset.assetIssuer === assetIssuer),
+        ) || visibleAssets.find(asset => asset.assetCode === assetCode);
       const headers = await getAuthHeaders(isMainnet);
       const result = await api<TrustlineResult>(
         `/api/stellar/${network}/trustline`,
@@ -790,9 +715,7 @@ export function useWalletDemo() {
           body: JSON.stringify({
             accountId: account?.id,
             assetCode,
-            assetIssuer:
-              visibleAssets.find(asset => asset.assetCode === assetCode)
-                ?.assetIssuer || null,
+            assetIssuer: assetIssuer || assetDefinition?.assetIssuer || null,
             email: account?.email,
             sourceAddress: wallet.address,
             sourceWalletId: wallet.id,
@@ -804,21 +727,21 @@ export function useWalletDemo() {
       setTransactions(result.transactions);
       setMessage(
         result.alreadyTrusted
-          ? `Ví đã có trustline ${assetCode}.`
-          : `Đã thêm trustline ${assetCode}.`,
+          ? `Wallet already has a ${assetCode} trustline.`
+          : `${assetCode} trustline added.`,
       );
     });
   }
 
-  async function fundDemoAsset(assetCode: string) {
+  async function fundTestAsset(assetCode: string) {
     if (!wallet) {
       return;
     }
 
-    await run(`Nạp ${assetCode}`, async () => {
+    await run(`Funding ${assetCode}`, async () => {
       if (isMainnet) {
         throw new Error(
-          'Mainnet không hỗ trợ token demo. Hãy deposit on-chain hoặc dùng send/withdraw.',
+          'Mainnet does not support demo token funding. Deposit on-chain or use send/withdraw.',
         );
       }
 
@@ -836,26 +759,26 @@ export function useWalletDemo() {
 
       setBalances(result.balances);
       setTransactions(result.transactions);
-      setMessage(`Đã nạp 100 ${assetCode} demo.`);
+      setMessage(`Funded 100 demo ${assetCode}.`);
     });
   }
 
-  async function createDemoReceiver() {
-    return run('Tạo người nhận', async () => {
+  async function createTestReceiver() {
+    return run('Creating receiver', async () => {
       if (isMainnet) {
-        throw new Error('Mainnet không tạo ví nhận demo. Hãy nhập ví thật.');
+        throw new Error('Mainnet cannot create demo receivers. Enter a real wallet address.');
       }
 
       const result = await api<ReceiverResponse>('/api/demo/receiver', {
         method: 'POST',
-        body: JSON.stringify({ label: 'Người nhận demo' }),
+        body: JSON.stringify({ label: 'Test receiver' }),
       });
 
       setRecipientContact(result.contact);
       setRecipient(result.contact.wallet.address);
       setRecipientBalances(result.balance.balances || []);
       setMessage(
-        'Đã tạo người nhận demo, nạp sẵn XLM test và add trustline USDC/USDT.',
+        'Test receiver created, funded with test XLM, and prepared for USDC/USDT.',
       );
 
       return result;
@@ -871,13 +794,13 @@ export function useWalletDemo() {
 
     if (!destination) {
       Alert.alert(
-        'Thiếu ví nhận',
-        'Hãy nhập địa chỉ ví nhận hoặc tạo người nhận demo.',
+        'Missing recipient',
+        'Enter a recipient wallet address or create a test receiver.',
       );
       return null;
     }
 
-    return run(`Gửi ${selectedAssetCode}`, async () => {
+    return run(`Sending ${selectedAssetCode}`, async () => {
       const headers = await getAuthHeaders(isMainnet);
       const result = await api<SendResult>(`/api/stellar/${network}/send`, {
         method: 'POST',
@@ -901,7 +824,9 @@ export function useWalletDemo() {
         setRecipientBalances(result.destinationBalances);
       }
 
-      setMessage(`Đã gửi ${amount} ${selectedAssetCode} lên Stellar ${network}.`);
+      setMessage(
+        `Sent ${formatTokenAmount(amount)} ${selectedAssetCode} on Stellar ${network}.`,
+      );
 
       return result;
     });
@@ -944,6 +869,26 @@ export function useWalletDemo() {
       },
       { showAlert: false },
     );
+  }
+
+  async function searchAssets(query: string) {
+    const params = new URLSearchParams({
+      limit: '40',
+      network,
+    });
+    const search = query.trim();
+
+    if (search) {
+      params.set('search', search);
+    }
+
+    try {
+      const result = await api<AssetsResponse>(`/api/assets?${params.toString()}`);
+
+      return result.assets || [];
+    } catch {
+      return [];
+    }
   }
 
   async function swapAsset({
@@ -989,7 +934,7 @@ export function useWalletDemo() {
       setBalances(result.balances);
       setTransactions(result.transactions);
       setMessage(
-        `Đã swap ${result.fromAmount} ${result.fromAssetCode} sang ${result.toAmount} ${result.toAssetCode}.`,
+        `Swapped ${formatTokenAmount(result.fromAmount)} ${result.fromAssetCode} to ${formatTokenAmount(result.toAmount)} ${result.toAssetCode}.`,
       );
 
       return result;
@@ -998,23 +943,21 @@ export function useWalletDemo() {
 
   async function logout() {
     await logoutPrivy();
-    await forgetDemoSessionEmail();
-    clearWalletSession('Đã thoát ví demo.');
+    clearWalletSession('Signed out.');
   }
 
   async function switchNetwork(nextNetwork: StellarNetwork) {
     if (nextNetwork === network) {
       setMessage(
         nextNetwork === 'mainnet'
-          ? 'Bạn đang ở Stellar Mainnet.'
-          : 'Bạn đang ở Stellar Testnet.',
+          ? 'You are already on Stellar Mainnet.'
+          : 'You are already on Stellar Testnet.',
       );
       return null;
     }
 
-    return run('Đổi mạng', async () => {
+    return run('Switching network', async () => {
       setNetwork(nextNetwork);
-      rememberDemoSessionNetwork(nextNetwork);
       setSelectedAssetCode('XLM');
       resetRecipientState();
 
@@ -1028,8 +971,8 @@ export function useWalletDemo() {
         setTransactions([]);
         setMessage(
           nextNetwork === 'mainnet'
-            ? 'Đã chuyển Mainnet. Đăng nhập để tạo ví mainnet.'
-            : 'Đã chuyển Testnet.',
+            ? 'Switched to Mainnet. Sign in to create a mainnet wallet.'
+            : 'Switched to Testnet.',
         );
         return null;
       }
@@ -1044,8 +987,8 @@ export function useWalletDemo() {
       applySession(
         session,
         nextNetwork === 'mainnet'
-          ? 'Đã chuyển Mainnet. Ví cần deposit XLM thật để active.'
-          : 'Đã chuyển Testnet.',
+          ? 'Switched to Mainnet. Deposit real XLM to activate this wallet.'
+          : 'Switched to Testnet.',
       );
 
       return session;
@@ -1057,9 +1000,9 @@ export function useWalletDemo() {
       return null;
     }
 
-    return run('Import ví', async () => {
+    return run('Importing wallet', async () => {
       const headers = await getAuthHeaders(true);
-      await requireBiometric('Xác thực để import ví Stellar');
+      await requireBiometric('Confirm to import this Stellar wallet');
       const session = await api<SessionResponse>('/api/wallets/import', {
         method: 'POST',
         headers,
@@ -1071,7 +1014,7 @@ export function useWalletDemo() {
         }),
       });
 
-      applySession(session, 'Đã import ví vào Privy.');
+      applySession(session, 'Wallet imported into Privy.');
 
       return session;
     });
@@ -1082,7 +1025,7 @@ export function useWalletDemo() {
       return null;
     }
 
-    return run('Thêm watch-only', async () => {
+    return run('Adding watch-only wallet', async () => {
       const headers = await getAuthHeaders(isMainnet);
       const session = await api<SessionResponse>('/api/wallets/watch-only', {
         method: 'POST',
@@ -1095,7 +1038,7 @@ export function useWalletDemo() {
         }),
       });
 
-      applySession(session, 'Đã thêm ví watch-only.');
+      applySession(session, 'Watch-only wallet added.');
 
       return session;
     });
@@ -1111,7 +1054,7 @@ export function useWalletDemo() {
 
     return run('Export secret', async () => {
       const headers = await getAuthHeaders(true);
-      await requireBiometric('Xác thực để export secret ví');
+      await requireBiometric('Confirm to export this wallet secret');
       const result = await api<ExportWalletResult>('/api/wallets/export', {
         method: 'POST',
         headers,
@@ -1124,7 +1067,7 @@ export function useWalletDemo() {
         }),
       });
 
-      setMessage('Secret chỉ hiển thị một lần. Không chia sẻ cho ai.');
+      setMessage('The secret is shown once. Do not share it with anyone.');
 
       return result;
     });
@@ -1148,12 +1091,12 @@ export function useWalletDemo() {
     busy,
     code,
     codeSent,
-    createDemoReceiver,
+    createTestReceiver,
     createWallet,
     email,
     explorerAddressUrl,
     exportWalletSecret,
-    fundDemoAsset,
+    fundTestAsset,
     fundWallet,
     health,
     isBusy: busy !== null,
@@ -1191,6 +1134,7 @@ export function useWalletDemo() {
     setMessage,
     setRecipient,
     setSelectedAssetCode,
+    searchAssets,
     swapAsset,
     switchNetwork,
     transactions,
@@ -1205,4 +1149,4 @@ export function useWalletDemo() {
   };
 }
 
-export type WalletDemoState = ReturnType<typeof useWalletDemo>;
+export type WalletState = ReturnType<typeof useWallet>;

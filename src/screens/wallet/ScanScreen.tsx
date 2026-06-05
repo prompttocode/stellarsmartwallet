@@ -56,7 +56,7 @@ export function ScanScreen({ navigation }: any) {
           if (parsed.type === 'walletconnect') {
             Alert.alert(
               'WalletConnect',
-              'WalletConnect URI đã nhận. Vào Account để cấu hình Reown projectId trước khi pair dApp.',
+              'WalletConnect URI received. Open Account to configure a Reown projectId before pairing dApps.',
             );
             navigation.goBack();
             return;
@@ -71,12 +71,12 @@ export function ScanScreen({ navigation }: any) {
   if (!hasPermission) {
     return (
       <View style={styles.container}>
-        <Text style={styles.text}>Vui lòng cấp quyền sử dụng Camera trong cài đặt máy.</Text>
+        <Text style={styles.text}>Please allow camera access in device settings.</Text>
         <TouchableOpacity style={styles.buttonPrimary} onPress={requestPermission}>
-          <Text style={styles.buttonPrimaryText}>Cấp quyền Camera</Text>
+          <Text style={styles.buttonPrimaryText}>Allow camera</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.buttonSecondary} onPress={() => navigation.goBack()}>
-          <Text style={styles.buttonSecondaryText}>Quay lại</Text>
+          <Text style={styles.buttonSecondaryText}>Go back</Text>
         </TouchableOpacity>
       </View>
     );
@@ -85,9 +85,9 @@ export function ScanScreen({ navigation }: any) {
   if (device == null) {
     return (
       <View style={styles.container}>
-        <Text style={styles.text}>Không tìm thấy Camera trên thiết bị này.</Text>
+        <Text style={styles.text}>No camera was found on this device.</Text>
         <TouchableOpacity style={styles.buttonSecondary} onPress={() => navigation.goBack()}>
-          <Text style={styles.buttonSecondaryText}>Quay lại</Text>
+          <Text style={styles.buttonSecondaryText}>Go back</Text>
         </TouchableOpacity>
       </View>
     );
@@ -105,12 +105,12 @@ export function ScanScreen({ navigation }: any) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="close" size={28} color="#FFFFFF" />
         </TouchableOpacity>
-        <Text style={styles.title}>Quét mã QR</Text>
+        <Text style={styles.title}>Scan QR code</Text>
         <View style={styles.headerSpacer} />
       </View>
       <View style={styles.overlay}>
         <View style={styles.scanFrame} />
-        <Text style={styles.scanText}>Di chuyển mã QR vào giữa khung hình</Text>
+        <Text style={styles.scanText}>Place the QR code inside the frame</Text>
       </View>
     </View>
   );

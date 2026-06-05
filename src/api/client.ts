@@ -1,4 +1,4 @@
-import { API_BASE_URL } from '../config';
+import { API_BASE_URL } from '@config';
 
 export async function api<T>(
   path: string,
@@ -17,7 +17,7 @@ export async function api<T>(
   const body = text ? JSON.parse(text) : null;
 
   if (!response.ok) {
-    throw new Error(body?.error || `Lỗi HTTP ${response.status}`);
+    throw new Error(body?.error || `HTTP error ${response.status}`);
   }
 
   return body as T;

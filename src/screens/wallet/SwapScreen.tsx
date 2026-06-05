@@ -1,20 +1,22 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, ScrollView, Text, TextInput, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import ReactNativeBiometrics from 'react-native-biometrics';
-import Toast from 'react-native-toast-message';
-import { InfoLine } from '../../components/WalletPrimitives';
 import {
+  AssetPickerModal,
+  AssetSelectButton,
+  getModernAssets,
+  InfoLine,
   ModernScreenHeader,
   PressScale,
   SectionHeader,
-  TokenPillSelector,
   modern,
   useSafeScreenInsetStyle,
-} from '../../components/wallet/ModernWalletUI';
-import type { WalletDemoState } from '../../hooks/useWalletDemo';
-import type { SwapResult } from '../../types';
+} from '@components/wallet';
+import type { WalletState } from '@hooks/useWallet';
+import type { SwapResult } from '@app-types';
+import { formatTokenAmount } from '@utils/format';
 
 const ASSET_ID_MAP: Record<string, string> = {
   AQUA: 'aquarius',
@@ -46,7 +48,7 @@ async function fetchRealRates(): Promise<Record<string, number>> {
   }
 }
 
-export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
+export function SwapScreen({ wallet }: { wallet: WalletState }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
   const initialBuy =
     wallet.visibleAssets.find(asset => asset.assetCode !== wallet.selectedAssetCode)
@@ -54,6 +56,7 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
   const [sellCode, setSellCode] = useState(wallet.selectedAssetCode);
   const [buyCode, setBuyCode] = useState(initialBuy);
   const [sellAmount, setSellAmount] = useState('10');
+  const [pickerMode, setPickerMode] = useState<'sell' | 'buy' | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [lastSwap, setLastSwap] = useState<SwapResult | null>(null);
   const [quote, setQuote] = useState<null | {
@@ -64,6 +67,7 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
   // Real rates state
   const [prices, setPrices] = useState<Record<string, number>>({ XLM: 0.12, USDC: 1.0, USDT: 1.0 });
   const [loadingRates, setLoadingRates] = useState(true);
+  const assets = getModernAssets(wallet.balances, wallet.visibleAssets);
 
   useEffect(() => {
     fetchRealRates().then((p) => {
@@ -94,18 +98,38 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
     return (amount * rate).toFixed(6);
   }, [quote, rate, reviewing, sellAmount]);
   const sellAsset = useMemo(
-    () => wallet.visibleAssets.find(asset => asset.assetCode === sellCode),
-    [sellCode, wallet.visibleAssets],
+    () => assets.find(asset => asset.assetCode === sellCode),
+    [assets, sellCode],
   );
   const buyAsset = useMemo(
-    () => wallet.visibleAssets.find(asset => asset.assetCode === buyCode),
-    [buyCode, wallet.visibleAssets],
+    () => assets.find(asset => asset.assetCode === buyCode),
+    [assets, buyCode],
   );
 
   function flipAssets() {
     setSellCode(buyCode);
     setBuyCode(sellCode);
     setQuote(null);
+  }
+
+  function selectPickerAsset(assetCode: string) {
+    if (pickerMode === 'sell') {
+      setSellCode(assetCode);
+    }
+
+    if (pickerMode === 'buy') {
+      setBuyCode(assetCode);
+    }
+
+    setReviewing(false);
+    setQuote(null);
+    setPickerMode(null);
+  }
+
+  async function searchPickerAssets(query: string) {
+    const result = await wallet.searchAssets(query);
+
+    return getModernAssets(wallet.balances, result);
   }
 
   async function startReview() {
@@ -132,16 +156,16 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
     if (available) {
       try {
         const { success } = await rnBiometrics.simplePrompt({
-          promptMessage: 'Xác thực để hoán đổi token',
-          cancelButtonText: 'Hủy'
+          promptMessage: 'Confirm to swap tokens',
+          cancelButtonText: 'Cancel'
         });
         
         if (!success) {
-          Toast.show({ type: 'error', text1: 'Xác thực thất bại' });
+          Alert.alert('Authentication failed', 'Could not complete the swap.');
           return;
         }
       } catch {
-        Toast.show({ type: 'error', text1: 'Lỗi xác thực sinh trắc học' });
+        Alert.alert('Biometric authentication error', 'Please try again.');
         return;
       }
     }
@@ -155,9 +179,6 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
     if (result) {
       setLastSwap(result);
       setReviewing(false);
-      Toast.show({ type: 'success', text1: 'Hoán đổi thành công!' });
-    } else {
-      Toast.show({ type: 'error', text1: 'Hoán đổi thất bại', text2: wallet.message });
     }
   }
 
@@ -168,7 +189,7 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
         showsVerticalScrollIndicator={false}
       >
         <ModernScreenHeader
-          subtitle={`Giao dịch đã được gửi lên Stellar ${
+          subtitle={`Transaction submitted to Stellar ${
             wallet.network === 'mainnet' ? 'Mainnet' : 'Testnet'
           }.`}
           title="Swap completed"
@@ -179,8 +200,8 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
           </View>
           <Text style={modern.successModernTitle}>Swap completed</Text>
           <Text style={modern.successModernText}>
-            {lastSwap.fromAmount} {lastSwap.fromAssetCode} →{' '}
-            {lastSwap.toAmount} {lastSwap.toAssetCode}
+            {formatTokenAmount(lastSwap.fromAmount)} {lastSwap.fromAssetCode} →{' '}
+            {formatTokenAmount(lastSwap.toAmount)} {lastSwap.toAssetCode}
           </Text>
           <PressScale
             onPress={() => wallet.openUrl(lastSwap.transaction.explorerUrl)}
@@ -204,24 +225,25 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
   }
 
   return (
-    <ScrollView
-      contentContainerStyle={screenInsetStyle}
-      showsVerticalScrollIndicator={false}
-    >
-      <ModernScreenHeader
-        subtitle={
-          wallet.isMainnet
-            ? 'Hoán đổi qua Stellar DEX/path payment. Cần biometric mỗi lần.'
-            : 'Hoán đổi token demo với tỷ giá thị trường tham khảo.'
-        }
-        title="Swap"
-      />
+    <>
+      <ScrollView
+        contentContainerStyle={screenInsetStyle}
+        showsVerticalScrollIndicator={false}
+      >
+        <ModernScreenHeader
+          subtitle={
+            wallet.isMainnet
+              ? 'Swap through Stellar DEX/path payment. Biometric confirmation is required each time.'
+              : 'Swap demo tokens using live reference market rates.'
+          }
+          title="Swap"
+        />
 
       {!wallet.walletCanSign ? (
         <View style={modern.sectionCard}>
           <Text style={modern.emptyModernTitle}>Watch-only wallet</Text>
           <Text style={modern.emptyModernText}>
-            Ví này chỉ xem được balance/QR, không thể swap.
+            This wallet can only view balances and QR codes. It cannot swap.
           </Text>
         </View>
       ) : null}
@@ -230,7 +252,7 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
         <View style={modern.sectionCard}>
           <Text style={modern.emptyModernTitle}>Wallet inactive</Text>
           <Text style={modern.emptyModernText}>
-            Deposit XLM thật vào ví trước khi swap mainnet.
+            Deposit real XLM into this wallet before swapping on Mainnet.
           </Text>
         </View>
       ) : null}
@@ -238,10 +260,15 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
       <View style={modern.formCard}>
         <SectionHeader title="Exchange" />
         <View style={modern.swapField}>
-          <View style={modern.swapFieldTop}>
-            <Text style={modern.swapLabel}>You pay</Text>
-            <Text style={modern.swapLabel}>{sellCode}</Text>
-          </View>
+          <AssetSelectButton
+            asset={sellAsset}
+            label="You pay"
+            onPress={() => setPickerMode('sell')}
+            valueLabel={`${formatTokenAmount(
+              sellAsset?.balance || '0',
+              { compact: true },
+            )} ${sellCode}`}
+          />
           <TextInput
             keyboardType="decimal-pad"
             onChangeText={value => {
@@ -254,15 +281,6 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
             style={modern.swapAmountInput}
             value={sellAmount}
           />
-          <TokenPillSelector
-            assets={wallet.visibleAssets}
-            onSelect={value => {
-              setSellCode(value);
-              setReviewing(false);
-              setQuote(null);
-            }}
-            selectedAssetCode={sellCode}
-          />
         </View>
 
         <PressScale onPress={flipAssets} style={modern.swapMiddleButton}>
@@ -270,20 +288,23 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
         </PressScale>
 
         <View style={modern.swapField}>
-          <View style={modern.swapFieldTop}>
-            <Text style={modern.swapLabel}>You receive</Text>
-            <Text style={modern.swapLabel}>{buyCode}</Text>
-          </View>
-          <Text style={modern.swapAmountValue}>{buyAmount}</Text>
-          <TokenPillSelector
-            assets={wallet.visibleAssets}
-            onSelect={value => {
-              setBuyCode(value);
-              setReviewing(false);
-              setQuote(null);
-            }}
-            selectedAssetCode={buyCode}
+          <AssetSelectButton
+            asset={buyAsset}
+            label="You receive"
+            onPress={() => setPickerMode('buy')}
+            valueLabel={`${formatTokenAmount(
+              buyAsset?.balance || '0',
+              { compact: true },
+            )} ${buyCode}`}
           />
+          <Text
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+            numberOfLines={1}
+            style={modern.swapAmountValue}
+          >
+            {formatTokenAmount(buyAmount)}
+          </Text>
         </View>
 
         <View style={modern.rateCard}>
@@ -304,11 +325,11 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
             />
             <InfoLine
               label="Amount"
-              value={`${sellAmount || '0'} ${sellCode}`}
+              value={`${formatTokenAmount(sellAmount || '0')} ${sellCode}`}
             />
             <InfoLine
               label="You receive"
-              value={`≈ ${buyAmount} ${buyCode}`}
+              value={`≈ ${formatTokenAmount(buyAmount)} ${buyCode}`}
             />
             <InfoLine
               label="Destination"
@@ -329,8 +350,8 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
             <InfoLine label="Estimated fee" value="0.00001 XLM" />
             <Text style={modern.reviewModernText}>
               {wallet.isMainnet
-                ? 'Mainnet swap là giao dịch thật. App sẽ yêu cầu biometric trước khi ký bằng Privy.'
-                : 'Swap test sẽ được gửi thật lên Stellar Testnet.'}
+                ? 'This is a real Mainnet swap. The app will ask for biometric confirmation before Privy signs it.'
+                : 'This test swap will be submitted to Stellar Testnet.'}
             </Text>
           </View>
         ) : null}
@@ -352,10 +373,23 @@ export function SwapScreen({ wallet }: { wallet: WalletDemoState }) {
 
         <Text style={modern.emptyModernText}>
           {wallet.isMainnet
-            ? 'Quote được lấy từ Stellar DEX. Giao dịch mainnet là giao dịch thật.'
-            : 'Tỷ giá được cập nhật từ CoinGecko để tham khảo. Giao dịch sẽ xử lý trên Stellar Testnet.'}
+            ? 'Quotes come from Stellar DEX. Mainnet transactions move real assets.'
+            : 'Rates are refreshed from CoinGecko for reference. The transaction runs on Stellar Testnet.'}
         </Text>
       </View>
-    </ScrollView>
+      </ScrollView>
+
+      <AssetPickerModal
+        assets={assets}
+        disabledAssetCodes={pickerMode === 'sell' ? [buyCode] : [sellCode]}
+        onAddTrustline={wallet.addTrustline}
+        onClose={() => setPickerMode(null)}
+        onRemoteSearch={searchPickerAssets}
+        onSelect={asset => selectPickerAsset(asset.assetCode)}
+        selectedAssetCode={pickerMode === 'sell' ? sellCode : buyCode}
+        title={pickerMode === 'sell' ? 'Select asset to pay' : 'Select asset to receive'}
+        visible={pickerMode !== null}
+      />
+    </>
   );
 }

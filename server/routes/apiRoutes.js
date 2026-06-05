@@ -174,14 +174,14 @@ async function requireAccountContext(req, options = {}) {
 
   if (requireAuth && !tokenEmail) {
     const error = new Error(
-      'Phiên Privy chưa sẵn sàng. Hãy đăng xuất rồi đăng nhập lại Privy trước khi thực hiện thao tác bảo mật này.',
+      'Privy session is not ready. Sign out and sign in again before using this security action.',
     );
     error.status = 401;
     throw error;
   }
 
   if (!isEmailLike(email)) {
-    const error = new Error('Email không hợp lệ');
+    const error = new Error('Invalid email');
     error.status = 400;
     throw error;
   }
@@ -189,7 +189,7 @@ async function requireAccountContext(req, options = {}) {
   const account = await getAccountByEmail(email);
 
   if (!account) {
-    const error = new Error('Không tìm thấy tài khoản ví');
+    const error = new Error('Wallet account not found');
     error.status = 404;
     throw error;
   }
@@ -222,13 +222,13 @@ function assertAccountWallet({
   );
 
   if (!wallet) {
-    const error = new Error('Ví không thuộc tài khoản đang đăng nhập');
+    const error = new Error('Wallet does not belong to the signed-in account');
     error.status = 403;
     throw error;
   }
 
   if (requireSigner && !wallet.canSign) {
-    const error = new Error('Ví watch-only không thể ký giao dịch');
+    const error = new Error('Watch-only wallets cannot sign transactions');
     error.status = 403;
     throw error;
   }
@@ -240,7 +240,7 @@ async function requireDemoAccountByEmail(emailValue, network = 'testnet') {
   const email = normalizeEmail(emailValue);
 
   if (!isEmailLike(email)) {
-    const error = new Error('Email không hợp lệ');
+    const error = new Error('Invalid email');
     error.status = 400;
     throw error;
   }
@@ -248,7 +248,7 @@ async function requireDemoAccountByEmail(emailValue, network = 'testnet') {
   const account = await getAccountByEmail(email);
 
   if (!account) {
-    const error = new Error('Không tìm thấy tài khoản demo');
+    const error = new Error('Demo account not found');
     error.status = 404;
     throw error;
   }
@@ -309,7 +309,7 @@ async function getOrCreateSessionAccountByEmail(
   const email = normalizeEmail(emailValue);
 
   if (!isEmailLike(email)) {
-    const error = new Error('Email không hợp lệ');
+    const error = new Error('Invalid email');
     error.status = 400;
     throw error;
   }
@@ -363,7 +363,7 @@ async function buildAccountSession(account, preferredNetwork) {
   const activeWallet = normalizedAccount.wallet;
 
   if (!activeWallet?.address) {
-    const error = new Error('Tài khoản chưa có ví Stellar');
+    const error = new Error('Account does not have a Stellar wallet yet');
     error.status = 500;
     throw error;
   }
@@ -492,20 +492,20 @@ async function handleTrustline(req, res, next, fallbackNetwork = 'testnet') {
     });
 
     if (assetDefinition.isNative) {
-      const error = new Error('XLM không cần add trustline');
+      const error = new Error('XLM does not need a trustline');
       error.status = 400;
       throw error;
     }
 
-    assertStellarAddress(sourceAddress, 'Ví');
+    assertStellarAddress(sourceAddress, 'Wallet');
 
     const sourceAccount = await loadAccount(sourceAddress, network);
 
     if (!sourceAccount) {
       const error = new Error(
         network === 'mainnet'
-          ? 'Ví mainnet chưa active. Hãy deposit XLM thật trước.'
-          : 'Ví chưa có trên Stellar Testnet. Hãy nạp test XLM trước.',
+          ? 'Mainnet wallet is not active. Deposit real XLM first.'
+          : 'Wallet does not exist on Stellar Testnet. Fund test XLM first.',
       );
       error.status = 400;
       throw error;
@@ -583,7 +583,7 @@ async function handleFundAsset(req, res, next, fallbackNetwork = 'testnet') {
     });
     const amount = assertAmount(req.body?.amount || '100');
 
-    assertStellarAddress(destination, 'Ví nhận');
+    assertStellarAddress(destination, 'Recipient wallet');
 
     const submitted = await fundDemoAsset({
       amount,
@@ -645,21 +645,21 @@ async function handleSend(req, res, next, fallbackNetwork = 'testnet') {
     });
 
     if (!sourceWallet.canSign) {
-      const error = new Error('Ví này không thể ký giao dịch');
+      const error = new Error('This wallet cannot sign transactions');
       error.status = 403;
       throw error;
     }
 
-    assertStellarAddress(sourceAddress, 'Ví gửi');
-    assertStellarAddress(destination, 'Ví nhận');
+    assertStellarAddress(sourceAddress, 'Source wallet');
+    assertStellarAddress(destination, 'Recipient wallet');
 
     const sourceAccount = await loadAccount(sourceAddress, network);
 
     if (!sourceAccount) {
       const error = new Error(
         network === 'mainnet'
-          ? 'Ví gửi mainnet chưa active. Hãy deposit XLM thật trước.'
-          : 'Ví gửi chưa có trên Stellar Testnet. Hãy nạp test XLM trước.',
+          ? 'Source Mainnet wallet is not active. Deposit real XLM first.'
+          : 'Source wallet does not exist on Stellar Testnet. Fund test XLM first.',
       );
       error.status = 400;
       throw error;
@@ -671,17 +671,17 @@ async function handleSend(req, res, next, fallbackNetwork = 'testnet') {
       : getAssetForOperation(assetDefinition);
 
     if (!assetDefinition.isNative) {
-      ensureTrustline(sourceAccount, assetDefinition, 'Ví gửi');
+      ensureTrustline(sourceAccount, assetDefinition, 'Source wallet');
 
       if (!destinationAccount) {
         const error = new Error(
-          `Ví nhận chưa active, chưa thể nhận ${assetDefinition.assetCode}`,
+          `Recipient wallet is not active and cannot receive ${assetDefinition.assetCode}`,
         );
         error.status = 400;
         throw error;
       }
 
-      ensureTrustline(destinationAccount, assetDefinition, 'Ví nhận');
+      ensureTrustline(destinationAccount, assetDefinition, 'Recipient wallet');
     }
 
     const { operationType, transaction } = buildPaymentTransaction({
@@ -743,7 +743,7 @@ async function handleSwapQuote(req, res, next, fallbackNetwork = 'testnet') {
   try {
     const sourceAddress = String(req.body?.sourceAddress || '').trim();
 
-    assertStellarAddress(sourceAddress, 'Ví swap');
+    assertStellarAddress(sourceAddress, 'Swap wallet');
 
     if (network === 'testnet') {
       const result = await quoteDemoSwap({
@@ -806,7 +806,7 @@ async function handleSwapExecute(req, res, next, fallbackNetwork = 'testnet') {
       walletId: sourceWalletId,
     });
 
-    assertStellarAddress(sourceAddress, 'Ví swap');
+    assertStellarAddress(sourceAddress, 'Swap wallet');
 
     const result =
       network === 'mainnet'
@@ -898,7 +898,10 @@ router.get('/assets', async (req, res, next) => {
     const network = normalizeNetwork(req.query?.network);
 
     res.json({
-      assets: await getSupportedAssets(network),
+      assets: await getSupportedAssets(network, {
+        limit: req.query?.limit,
+        search: req.query?.search,
+      }),
       network,
     });
   } catch (error) {
@@ -1042,7 +1045,7 @@ router.post('/wallets/import', async (req, res, next) => {
     if (!error.status) {
       error.status = 502;
       error.message =
-        'Privy hiện chưa import được Stellar key trong SDK này. Hãy dùng watch-only hoặc tạo ví Privy mới.';
+        'Privy cannot import Stellar keys with this SDK yet. Use watch-only or create a new Privy wallet.';
     }
 
     next(error);
@@ -1116,7 +1119,7 @@ router.post('/wallets/export', async (req, res, next) => {
     );
 
     if (!wallet) {
-      const error = new Error('Không tìm thấy ví để export');
+      const error = new Error('Wallet not found for export');
       error.status = 404;
       throw error;
     }
@@ -1129,7 +1132,7 @@ router.post('/wallets/export', async (req, res, next) => {
     });
 
     if (confirmation !== 'EXPORT') {
-      const error = new Error('Nhập EXPORT để xác nhận export secret');
+      const error = new Error('Enter EXPORT to confirm secret export');
       error.status = 400;
       throw error;
     }
@@ -1144,7 +1147,7 @@ router.post('/wallets/export', async (req, res, next) => {
   } catch (error) {
     if (!error.status) {
       error.status = 502;
-      error.message = 'Privy không export được secret cho ví này.';
+      error.message = 'Privy could not export the secret for this wallet.';
     }
 
     next(error);
@@ -1207,7 +1210,7 @@ router.post('/demo/auth-session', async (req, res, next) => {
     const identityToken = String(req.body?.identityToken || '').trim();
 
     if (!identityToken) {
-      const error = new Error('Thiếu token đăng nhập Privy');
+      const error = new Error('Missing Privy login token');
       error.status = 401;
       throw error;
     }
@@ -1218,7 +1221,7 @@ router.post('/demo/auth-session', async (req, res, next) => {
     const email = getEmailFromPrivyUser(user);
 
     if (!isEmailLike(email)) {
-      const error = new Error('Tài khoản Privy này chưa có email hợp lệ');
+      const error = new Error('This Privy account does not have a valid email');
       error.status = 400;
       throw error;
     }
@@ -1294,7 +1297,7 @@ router.post('/demo/wallets/select', async (req, res, next) => {
     );
 
     if (!targetWallet) {
-      const error = new Error('Không tìm thấy ví đang hoạt động');
+      const error = new Error('Active wallet not found');
       error.status = 404;
       throw error;
     }
@@ -1326,7 +1329,7 @@ router.post('/demo/wallets/rename', async (req, res, next) => {
     );
 
     if (!targetWallet) {
-      const error = new Error('Không tìm thấy ví để đổi tên');
+      const error = new Error('Wallet not found for rename');
       error.status = 404;
       throw error;
     }
@@ -1367,13 +1370,13 @@ router.post('/demo/wallets/archive', async (req, res, next) => {
     const targetWallet = visibleWallets.find(wallet => wallet.id === walletId);
 
     if (!targetWallet) {
-      const error = new Error('Không tìm thấy ví để ẩn');
+      const error = new Error('Wallet not found for archive');
       error.status = 404;
       throw error;
     }
 
     if (visibleWallets.length <= 1) {
-      const error = new Error('Không thể ẩn ví cuối cùng trong tài khoản');
+      const error = new Error('Cannot archive the last wallet in the account');
       error.status = 400;
       throw error;
     }
@@ -1445,7 +1448,7 @@ router.post('/demo/receiver', async (req, res, next) => {
     }
 
     const contact = await saveContact({
-      label: req.body?.label || 'Người nhận demo',
+      label: req.body?.label || 'Demo recipient',
       wallet,
       funded: true,
     });
@@ -1536,7 +1539,7 @@ router.post('/walletconnect/stellar/review-xdr', async (req, res, next) => {
     const sourceAddress = String(req.body?.sourceAddress || '').trim();
 
     if (sourceAddress) {
-      assertStellarAddress(sourceAddress, 'Ví ký');
+      assertStellarAddress(sourceAddress, 'Signing wallet');
     }
 
     res.json(

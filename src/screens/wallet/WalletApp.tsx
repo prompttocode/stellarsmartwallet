@@ -6,31 +6,30 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
-import { StatusDot } from '../../components/WalletPrimitives';
-import { modern } from '../../components/wallet/ModernWalletUI';
-import { LoadingOverlay } from '../../components/common/LoadingOverlay';
-import { CurrencyProvider } from '../../contexts/CurrencyContext';
-import type { WalletDemoState } from '../../hooks/useWalletDemo';
+import { modern, StatusDot } from '@components/wallet';
+import { LoadingOverlay } from '@components/common/LoadingOverlay';
+import { CurrencyProvider } from '@contexts/CurrencyContext';
+import type { WalletState } from '@hooks/useWallet';
 
-import { PortfolioScreen } from './PortfolioScreen';
-import { ReceiveScreen } from './ReceiveScreen';
-import { SendScreen } from './SendScreen';
-import { SwapScreen } from './SwapScreen';
-import { TopUpScreen } from './TopUpScreen';
-import { AccountScreen } from './AccountScreen';
-import { TransactionDetailScreen } from './TransactionDetailScreen';
-import { TransactionsScreen } from './TransactionsScreen';
-import { ScanScreen } from './ScanScreen';
+import { PortfolioScreen } from '@screens/wallet/PortfolioScreen';
+import { ReceiveScreen } from '@screens/wallet/ReceiveScreen';
+import { SendScreen } from '@screens/wallet/SendScreen';
+import { SwapScreen } from '@screens/wallet/SwapScreen';
+import { FaucetScreen } from '@screens/wallet/FaucetScreen';
+import { AccountScreen } from '@screens/wallet/AccountScreen';
+import { TransactionDetailScreen } from '@screens/wallet/TransactionDetailScreen';
+import { TransactionsScreen } from '@screens/wallet/TransactionsScreen';
+import { ScanScreen } from '@screens/wallet/ScanScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-function MainTabs({ wallet }: { wallet: WalletDemoState }) {
+function MainTabs({ wallet }: { wallet: WalletState }) {
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#3E8FA0',
+        tabBarActiveTintColor: '#00d2fc',
         tabBarInactiveTintColor: '#8A9AA3',
         tabBarStyle: {
           backgroundColor: '#FFFFFF',
@@ -60,9 +59,11 @@ function MainTabs({ wallet }: { wallet: WalletDemoState }) {
               navigation.navigate('Send');
             }}
             onGoToSwap={() => navigation.navigate('SwapTab')}
-            onGoToTopUp={() => navigation.navigate('TopUp')}
+            onGoToFaucet={() => navigation.navigate('Faucet')}
             onGoToWallets={() => navigation.navigate('AccountTab')}
-            onGoToTransaction={(id: string) => navigation.navigate('TransactionDetail', { id })}
+            onGoToTransaction={(id: string) =>
+              navigation.navigate('TransactionDetail', { id })
+            }
             onGoToHistory={() => navigation.navigate('HistoryTab')}
             onGoToScan={() => navigation.navigate('Scan')}
           />
@@ -119,7 +120,7 @@ function MainTabs({ wallet }: { wallet: WalletDemoState }) {
   );
 }
 
-export function WalletApp({ wallet }: { wallet: WalletDemoState }) {
+export function WalletApp({ wallet }: { wallet: WalletState }) {
   const networkStatus = wallet.isMainnet
     ? 'MAINNET · Real assets'
     : 'TESTNET · Demo only';
@@ -133,7 +134,7 @@ export function WalletApp({ wallet }: { wallet: WalletDemoState }) {
         <NavigationContainer>
           <Stack.Navigator screenOptions={{ headerShown: false }}>
             <Stack.Screen name="MainTabs">
-              {(props) => <MainTabs {...props} wallet={wallet} />}
+              {props => <MainTabs {...props} wallet={wallet} />}
             </Stack.Screen>
             <Stack.Screen name="Send">
               {({ route, navigation }: any) => (
@@ -153,9 +154,9 @@ export function WalletApp({ wallet }: { wallet: WalletDemoState }) {
                 />
               )}
             </Stack.Screen>
-            <Stack.Screen name="TopUp">
+            <Stack.Screen name="Faucet">
               {({ navigation }: any) => (
-                <TopUpScreen
+                <FaucetScreen
                   wallet={wallet}
                   onBack={() => navigation.goBack()}
                 />
@@ -163,7 +164,9 @@ export function WalletApp({ wallet }: { wallet: WalletDemoState }) {
             </Stack.Screen>
             <Stack.Screen name="TransactionDetail">
               {({ route, navigation }: any) => {
-                const tx = wallet.transactions.find((t) => t.id === route.params?.id);
+                const tx = wallet.transactions.find(
+                  t => t.id === route.params?.id,
+                );
                 if (!tx) return null;
                 return (
                   <TransactionDetailScreen
@@ -171,7 +174,7 @@ export function WalletApp({ wallet }: { wallet: WalletDemoState }) {
                     transaction={tx}
                     onBack={() => navigation.goBack()}
                   />
-                )
+                );
               }}
             </Stack.Screen>
             <Stack.Screen name="Scan" component={ScanScreen} />

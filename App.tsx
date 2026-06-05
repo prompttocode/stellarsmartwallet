@@ -1,7 +1,7 @@
 import React from 'react';
 import { PrivyProvider } from '@privy-io/expo';
-import { PRIVY_APP_ID, PRIVY_CLIENT_ID } from './src/config';
-import { WalletScreen } from './src/screens/WalletScreen';
+import { PRIVY_APP_ID, PRIVY_CLIENT_ID } from '@config';
+import { WalletScreen } from '@screens/WalletScreen';
 
 function App() {
   return (

@@ -1,20 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, ScrollView, Text, TextInput, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import ReactNativeBiometrics from 'react-native-biometrics';
-import Toast from 'react-native-toast-message';
-import { InfoLine } from '../../components/WalletPrimitives';
 import {
+  AssetPickerModal,
+  AssetSelectButton,
+  getModernAssets,
+  InfoLine,
   ModernScreenHeader,
   PressScale,
   SectionHeader,
-  TokenPillSelector,
   modern,
   useSafeScreenInsetStyle,
-} from '../../components/wallet/ModernWalletUI';
-import type { WalletDemoState } from '../../hooks/useWalletDemo';
-import type { SendResult } from '../../types';
-import { shortAddress } from '../../utils/format';
+} from '@components/wallet';
+import type { WalletState } from '@hooks/useWallet';
+import type { SendResult } from '@app-types';
+import { formatTokenAmount, shortAddress } from '@utils/format';
 
 type SendStep = 'compose' | 'review' | 'success';
 
@@ -27,12 +28,17 @@ export function SendScreen({
   onBack?: () => void;
   onGoToScan?: () => void;
   route?: any;
-  wallet: WalletDemoState;
+  wallet: WalletState;
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
   const [step, setStep] = useState<SendStep>('compose');
+  const [assetPickerVisible, setAssetPickerVisible] = useState(false);
   const [lastResult, setLastResult] = useState<SendResult | null>(null);
   const { setRecipient } = wallet;
+  const assets = getModernAssets(wallet.balances, wallet.visibleAssets);
+  const selectedAsset = assets.find(
+    asset => asset.assetCode === wallet.selectedAssetCode,
+  );
 
   useEffect(() => {
     if (route?.params?.prefilledAddress) {
@@ -56,24 +62,16 @@ export function SendScreen({
     if (available) {
       try {
         const { success } = await rnBiometrics.simplePrompt({
-          promptMessage: 'Xác thực để gửi giao dịch',
-          cancelButtonText: 'Hủy',
+          promptMessage: 'Confirm to send this transaction',
+          cancelButtonText: 'Cancel',
         });
 
         if (!success) {
-          Toast.show({
-            type: 'error',
-            text1: 'Xác thực thất bại',
-            text2: 'Không thể gửi giao dịch',
-          });
+          Alert.alert('Authentication failed', 'Could not send the transaction.');
           return;
         }
       } catch {
-        Toast.show({
-          type: 'error',
-          text1: 'Lỗi xác thực',
-          text2: 'Vui lòng thử lại',
-        });
+        Alert.alert('Authentication error', 'Please try again.');
         return;
       }
     }
@@ -83,14 +81,13 @@ export function SendScreen({
     if (result) {
       setLastResult(result);
       setStep('success');
-      Toast.show({ type: 'success', text1: 'Giao dịch thành công!' });
-    } else {
-      Toast.show({
-        type: 'error',
-        text1: 'Giao dịch thất bại',
-        text2: wallet.message,
-      });
     }
+  }
+
+  async function searchPickerAssets(query: string) {
+    const result = await wallet.searchAssets(query);
+
+    return getModernAssets(wallet.balances, result);
   }
 
   if (step === 'success' && lastResult) {
@@ -101,7 +98,7 @@ export function SendScreen({
       >
         <ModernScreenHeader
           onBack={onBack}
-          subtitle={`Giao dịch đã gửi lên Stellar ${
+          subtitle={`Transaction submitted to Stellar ${
             wallet.network === 'mainnet' ? 'Mainnet' : 'Testnet'
           }.`}
           title="Payment sent"
@@ -112,7 +109,8 @@ export function SendScreen({
           </View>
           <Text style={modern.successModernTitle}>Payment sent</Text>
           <Text style={modern.successModernText}>
-            {wallet.amount} {lastResult.assetCode} → {recipientLabel}
+            {formatTokenAmount(wallet.amount)} {lastResult.assetCode} →{' '}
+            {recipientLabel}
           </Text>
           <PressScale
             onPress={() => wallet.openUrl(lastResult.transaction.explorerUrl)}
@@ -148,8 +146,8 @@ export function SendScreen({
           onBack={() => setStep('compose')}
           subtitle={
             wallet.isMainnet
-              ? 'Kiểm tra kỹ. Mainnet transaction là giao dịch thật.'
-              : 'Kiểm tra kỹ trước khi gửi token test.'
+              ? 'Review carefully. Mainnet transactions move real assets.'
+              : 'Review carefully before sending test tokens.'
           }
           title="Review payment"
         />
@@ -163,7 +161,7 @@ export function SendScreen({
           />
           <InfoLine
             label="Amount"
-            value={`${wallet.amount || '0'} ${wallet.selectedAssetCode}`}
+            value={`${formatTokenAmount(wallet.amount || '0')} ${wallet.selectedAssetCode}`}
           />
           <InfoLine
             label="Destination"
@@ -178,8 +176,8 @@ export function SendScreen({
           <InfoLine label="Estimated fee" value="0.00001 XLM" />
           <Text style={modern.emptyModernText}>
             {wallet.isMainnet
-              ? 'Mainnet transaction là giao dịch thật. App sẽ yêu cầu biometric trước khi ký bằng Privy.'
-              : 'Sau khi bấm Send, giao dịch test sẽ được gửi thật lên Stellar Testnet.'}
+              ? 'This is a real Mainnet transaction. The app will ask for biometric confirmation before Privy signs it.'
+              : 'After you press Send, this test transaction will be submitted to Stellar Testnet.'}
           </Text>
           <PressScale
             disabled={wallet.isBusy || !canSubmit}
@@ -197,25 +195,27 @@ export function SendScreen({
   }
 
   return (
-    <ScrollView
-      contentContainerStyle={screenInsetStyle}
-      showsVerticalScrollIndicator={false}
-    >
-      <ModernScreenHeader
-        onBack={onBack}
-        subtitle={
-          wallet.isMainnet
-            ? 'Gửi/withdraw token thật qua Stellar Mainnet.'
-            : 'Gửi XLM, USDC hoặc USDT demo qua Stellar Testnet.'
-        }
-        title="Send"
-      />
+    <>
+      <ScrollView
+        contentContainerStyle={screenInsetStyle}
+        showsVerticalScrollIndicator={false}
+      >
+        <ModernScreenHeader
+          onBack={onBack}
+          subtitle={
+            wallet.isMainnet
+              ? 'Send or withdraw real tokens on Stellar Mainnet.'
+              : 'Send demo XLM, USDC, or USDT on Stellar Testnet.'
+          }
+          title="Send"
+        />
 
       {!wallet.walletCanSign ? (
         <View style={modern.sectionCard}>
           <Text style={modern.emptyModernTitle}>Watch-only wallet</Text>
           <Text style={modern.emptyModernText}>
-            Ví này chỉ xem được balance/QR, không thể ký send/swap/export.
+            This wallet can only view balances and QR codes. It cannot sign
+            sends, swaps, or exports.
           </Text>
         </View>
       ) : null}
@@ -224,23 +224,28 @@ export function SendScreen({
         <View style={modern.sectionCard}>
           <Text style={modern.emptyModernTitle}>Wallet inactive</Text>
           <Text style={modern.emptyModernText}>
-            Deposit XLM thật vào ví trước khi gửi giao dịch mainnet.
+            Deposit real XLM into this wallet before sending Mainnet
+            transactions.
           </Text>
         </View>
       ) : null}
 
-      <View style={modern.formCard}>
-        <SectionHeader title="Asset" />
-        <TokenPillSelector
-          assets={wallet.visibleAssets}
-          onSelect={wallet.setSelectedAssetCode}
-          selectedAssetCode={wallet.selectedAssetCode}
-        />
-        <Text style={modern.emptyModernText}>
-          Available: {wallet.selectedBalance?.balance || '0'}{' '}
-          {wallet.selectedAssetCode}
-        </Text>
-      </View>
+        <View style={modern.formCard}>
+          <SectionHeader title="Asset" />
+          <AssetSelectButton
+            asset={selectedAsset}
+            label="Sending asset"
+            onPress={() => setAssetPickerVisible(true)}
+            valueLabel={`${formatTokenAmount(
+              wallet.selectedBalance?.balance || selectedAsset?.balance || '0',
+              { compact: true },
+            )} ${wallet.selectedAssetCode}`}
+          />
+          <Text style={modern.emptyModernText}>
+            Search and choose from available Stellar assets without stretching
+            this form.
+          </Text>
+        </View>
 
       <View style={modern.formCard}>
         <SectionHeader
@@ -291,6 +296,18 @@ export function SendScreen({
           <Text style={modern.modernButtonText}>Review payment</Text>
         </PressScale>
       </View>
-    </ScrollView>
+      </ScrollView>
+
+      <AssetPickerModal
+        assets={assets}
+        onAddTrustline={wallet.addTrustline}
+        onClose={() => setAssetPickerVisible(false)}
+        onRemoteSearch={searchPickerAssets}
+        onSelect={asset => wallet.setSelectedAssetCode(asset.assetCode)}
+        selectedAssetCode={wallet.selectedAssetCode}
+        title="Select asset to send"
+        visible={assetPickerVisible}
+      />
+    </>
   );
 }

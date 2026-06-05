@@ -6,7 +6,7 @@ interface LoadingOverlayProps {
   message?: string;
 }
 
-export function LoadingOverlay({ visible, message = 'Đang tải...' }: LoadingOverlayProps) {
+export function LoadingOverlay({ visible, message = 'Loading...' }: LoadingOverlayProps) {
   return (
     <Modal visible={visible} transparent animationType="fade">
       <View style={styles.container}>

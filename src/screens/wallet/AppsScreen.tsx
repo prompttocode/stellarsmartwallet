@@ -1,18 +1,18 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ActionButton, SectionHeading } from '../../components/WalletPrimitives';
-import type { WalletDemoState } from '../../hooks/useWalletDemo';
-import { styles } from '../../styles/walletStyles';
+import { ActionButton, SectionHeading } from '@components/wallet';
+import type { WalletState } from '@hooks/useWallet';
+import { styles } from '@styles/walletStyles';
 
-type DemoDapp = {
+type FeaturedDapp = {
   category: string;
   icon: string;
   name: string;
   url: string;
 };
 
-const demoDapps: DemoDapp[] = [
+const featuredDapps: FeaturedDapp[] = [
   {
     category: 'Swap',
     icon: 'A',
@@ -33,21 +33,21 @@ const demoDapps: DemoDapp[] = [
   },
 ];
 
-export function AppsScreen({ wallet }: { wallet: WalletDemoState }) {
+export function AppsScreen({ wallet }: { wallet: WalletState }) {
   const insets = useSafeAreaInsets();
   const screenContentStyle = useMemo(
     () => [styles.screenContent, { paddingTop: insets.top + 18 }],
     [insets.top],
   );
-  const [request, setRequest] = useState<DemoDapp | null>(null);
+  const [request, setRequest] = useState<FeaturedDapp | null>(null);
 
-  function connectDemo() {
+  function connectPreview() {
     if (!request) {
       return;
     }
 
     wallet.setMessage(
-      `Đã mô phỏng kết nối ${request.name}. App chưa cấp quyền thật cho dApp.`,
+      `Preview connection for ${request.name}. The app has not granted real dApp permissions.`,
     );
     setRequest(null);
   }
@@ -71,7 +71,7 @@ export function AppsScreen({ wallet }: { wallet: WalletDemoState }) {
           </View>
           <View style={styles.txBody}>
             <Text style={styles.txTitle}>Active connections</Text>
-            <Text style={styles.txMeta}>Demo UI, chưa có quyền dApp thật</Text>
+            <Text style={styles.txMeta}>Demo UI, no real dApp permissions</Text>
           </View>
           <Text style={styles.linkText}>›</Text>
         </View>
@@ -79,7 +79,7 @@ export function AppsScreen({ wallet }: { wallet: WalletDemoState }) {
 
       <View style={styles.panel}>
         <SectionHeading title="Popular Stellar dApps" />
-        {demoDapps.map(dapp => (
+        {featuredDapps.map(dapp => (
           <View key={dapp.name} style={styles.appRow}>
             <View style={styles.appIcon}>
               <Text style={styles.appIconText}>{dapp.icon}</Text>
@@ -113,8 +113,8 @@ export function AppsScreen({ wallet }: { wallet: WalletDemoState }) {
             </View>
           </View>
           <Text style={styles.helper}>
-            {request.name} muốn kết nối ví Stellar demo để xem số dư và yêu cầu
-            giao dịch. Đây chỉ là mô phỏng giao diện.
+            {request.name} wants to connect to your Stellar wallet preview to
+            view balances and request transactions. This is only a UI preview.
           </Text>
           <View style={styles.buttonPair}>
             <ActionButton
@@ -122,7 +122,7 @@ export function AppsScreen({ wallet }: { wallet: WalletDemoState }) {
               onPress={() => setRequest(null)}
               variant="secondary"
             />
-            <ActionButton label="Connect" onPress={connectDemo} />
+            <ActionButton label="Connect" onPress={connectPreview} />
           </View>
         </View>
       ) : null}

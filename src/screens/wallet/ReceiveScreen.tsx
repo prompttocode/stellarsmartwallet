@@ -10,15 +10,16 @@ import {
   getModernAssets,
   modern,
   useSafeScreenInsetStyle,
-} from '../../components/wallet/ModernWalletUI';
-import type { WalletDemoState } from '../../hooks/useWalletDemo';
+} from '@components/wallet';
+import type { WalletState } from '@hooks/useWallet';
+import { formatTokenAmount } from '@utils/format';
 
 export function ReceiveScreen({
   onBack,
   wallet,
 }: {
   onBack: () => void;
-  wallet: WalletDemoState;
+  wallet: WalletState;
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
   const assets = getModernAssets(wallet.balances, wallet.visibleAssets);
@@ -47,8 +48,8 @@ export function ReceiveScreen({
         onBack={onBack}
         subtitle={
           wallet.isMainnet
-            ? 'Dùng địa chỉ này để deposit XLM/token thật trên Stellar Mainnet.'
-            : 'Dùng địa chỉ này để nhận token test trên Stellar Testnet.'
+            ? 'Use this address to deposit real XLM or tokens on Stellar Mainnet.'
+            : 'Use this address to receive test tokens on Stellar Testnet.'
         }
         title="Receive"
       />
@@ -76,20 +77,21 @@ export function ReceiveScreen({
           <View style={modern.reviewModernBox}>
             <Text style={modern.reviewModernTitle}>Activate wallet</Text>
             <Text style={modern.reviewModernText}>
-              Deposit XLM to start using this Mainnet wallet. Stellar sẽ tạo
-              account trên ledger sau khoản nạp XLM đầu tiên.
+              Deposit XLM to start using this Mainnet wallet. Stellar creates
+              the account on ledger after the first XLM deposit.
             </Text>
           </View>
         ) : null}
         <View style={modern.infoBlock}>
           <Text selectable style={modern.infoValue}>
-            {address || 'Chưa có ví'}
+            {address || 'No wallet yet'}
           </Text>
         </View>
         {wallet.isMainnet ? (
           <Text style={modern.emptyModernText}>
-            Nếu deposit từ exchange, hãy kiểm tra memo theo hướng dẫn của
-            exchange. Khi gửi vào ví cá nhân này thường chỉ cần address.
+            If you deposit from an exchange, check that exchange's memo
+            instructions. Personal wallet deposits usually only need the
+            address.
           </Text>
         ) : null}
         <View style={modern.walletButtons}>
@@ -122,14 +124,16 @@ export function ReceiveScreen({
           return (
             <View
               key={`${asset.assetCode}:${asset.assetIssuer || 'native'}`}
-              style={modern.topUpRow}
+              style={modern.faucetRow}
             >
               <TokenIcon assetCode={asset.assetCode} imageUrl={asset.image} />
               <View style={modern.assetModernBody}>
                 <Text style={modern.assetModernName}>{asset.assetCode}</Text>
                 <Text style={modern.assetModernMeta}>
                   {canReceive
-                    ? `Ready to receive · ${asset.balance}`
+                    ? `Ready to receive · ${formatTokenAmount(asset.balance, {
+                        compact: true,
+                      })}`
                     : 'Add trustline before receiving'}
                 </Text>
               </View>

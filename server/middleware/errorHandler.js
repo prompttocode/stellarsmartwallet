@@ -4,7 +4,7 @@ function errorHandler(error, req, res, _next) {
   const status = error.status || 500;
 
   res.status(status).json({
-    error: error.message || 'Có lỗi không rõ',
+    error: error.message || 'Unknown error',
     details: error.details || error.response?.data || null,
   });
 }

@@ -3,10 +3,10 @@ import { Pressable, Text, View } from 'react-native';
 import {
   getTransactionIcon,
   getTransactionTitle,
-} from '../../hooks/useWalletDemo';
-import { styles } from '../../styles/walletStyles';
-import type { AssetItem, BalanceItem, TransactionItem } from '../../types';
-import { formatDate, shortAddress } from '../../utils/format';
+} from '@hooks/useWallet';
+import { styles } from '@styles/walletStyles';
+import type { AssetItem, BalanceItem, TransactionItem } from '@app-types';
+import { formatDate, formatTokenAmount, shortAddress } from '@utils/format';
 
 export function TokenBadge({ assetCode }: { assetCode: string }) {
   return (
@@ -55,22 +55,22 @@ export function AssetRow({
   asset,
   disabled,
   onAddTrustline,
-  onFundDemo,
+  onFundTestAsset,
   onSend,
 }: {
   asset: BalanceItem;
   disabled?: boolean;
   onAddTrustline: (assetCode: string) => void;
-  onFundDemo: (assetCode: string) => void;
+  onFundTestAsset: (assetCode: string) => void;
   onSend: (assetCode: string) => void;
 }) {
   const canAddTrustline = !asset.isNative && !asset.trusted;
-  const canFundDemo = !asset.isNative && asset.trusted;
+  const canFundTestAsset = !asset.isNative && asset.trusted;
   const statusText = asset.isNative
-    ? 'Coin gốc của Stellar'
+    ? 'Native Stellar coin'
     : asset.trusted
-      ? 'Token demo đã thêm'
-      : 'Chưa thêm vào ví';
+      ? 'Demo token added'
+      : 'Not added to wallet';
 
   return (
     <View style={styles.assetRow}>
@@ -82,7 +82,9 @@ export function AssetRow({
       </View>
       <View style={styles.assetRight}>
         <Text style={styles.assetBalance}>
-          {asset.trusted || asset.isNative ? asset.balance : 'Chưa thêm'}
+          {asset.trusted || asset.isNative
+            ? formatTokenAmount(asset.balance, { compact: true })
+            : 'Not added'}
         </Text>
         {canAddTrustline ? (
           <Pressable
@@ -90,16 +92,16 @@ export function AssetRow({
             onPress={() => onAddTrustline(asset.assetCode)}
             style={styles.inlineButton}
           >
-            <Text style={styles.inlineButtonText}>Thêm token</Text>
+            <Text style={styles.inlineButtonText}>Add token</Text>
           </Pressable>
         ) : null}
-        {canFundDemo ? (
+        {canFundTestAsset ? (
           <Pressable
             disabled={disabled}
-            onPress={() => onFundDemo(asset.assetCode)}
+            onPress={() => onFundTestAsset(asset.assetCode)}
             style={styles.inlineButton}
           >
-            <Text style={styles.inlineButtonText}>Nạp demo</Text>
+            <Text style={styles.inlineButtonText}>Faucet</Text>
           </Pressable>
         ) : null}
         {(asset.isNative || asset.trusted) && Number(asset.balance) > 0 ? (
@@ -108,7 +110,7 @@ export function AssetRow({
             onPress={() => onSend(asset.assetCode)}
             style={styles.inlineGhostButton}
           >
-            <Text style={styles.inlineGhostButtonText}>Gửi</Text>
+            <Text style={styles.inlineGhostButtonText}>Send</Text>
           </Pressable>
         ) : null}
       </View>
@@ -128,7 +130,9 @@ export function TransactionRow({
   const amountPrefix = isTrustline ? '' : isReceived ? '+' : '-';
   const amountText = isTrustline
     ? 'Trustline'
-    : `${amountPrefix}${transaction.amount} ${transaction.assetCode}`;
+    : `${amountPrefix}${formatTokenAmount(transaction.amount, {
+        compact: true,
+      })} ${transaction.assetCode}`;
 
   return (
     <Pressable onPress={onPress} style={styles.transactionRow}>

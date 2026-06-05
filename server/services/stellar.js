@@ -47,11 +47,11 @@ function getStellarServer(network = 'testnet') {
   return servers.get(config.network);
 }
 
-function assertStellarAddress(address, field = 'Địa chỉ ví') {
+function assertStellarAddress(address, field = 'Wallet address') {
   try {
     Keypair.fromPublicKey(address);
   } catch {
-    const error = new Error(`${field} không phải địa chỉ Stellar hợp lệ`);
+    const error = new Error(`${field} is not a valid Stellar address`);
     error.status = 400;
     throw error;
   }
@@ -61,17 +61,17 @@ function assertSecretKey(secret, field = 'Secret key') {
   try {
     return Keypair.fromSecret(String(secret || '').trim());
   } catch {
-    const error = new Error(`${field} không hợp lệ`);
+    const error = new Error(`${field} is invalid`);
     error.status = 400;
     throw error;
   }
 }
 
-function assertAmount(amount, label = 'Số lượng') {
+function assertAmount(amount, label = 'Amount') {
   const value = String(amount || '').trim();
 
   if (!/^\d+(\.\d{1,7})?$/.test(value) || Number(value) <= 0) {
-    const error = new Error(`${label} phải lớn hơn 0 và tối đa 7 số lẻ`);
+    const error = new Error(`${label} must be greater than 0 with up to 7 decimal places`);
     error.status = 400;
     throw error;
   }
@@ -83,7 +83,7 @@ function formatStellarAmount(amount) {
   const floored = Math.floor(amount * 10000000) / 10000000;
 
   if (!Number.isFinite(floored) || floored <= 0) {
-    const error = new Error('Số token nhận sau swap phải lớn hơn 0');
+    const error = new Error('Swap output amount must be greater than 0');
     error.status = 400;
     throw error;
   }
@@ -102,7 +102,7 @@ function assertSupportedAssetCode(assetCode, network = 'testnet') {
   );
 
   if (!supported) {
-    const error = new Error('Token chưa được hỗ trợ');
+    const error = new Error('Token is not supported');
     error.status = 400;
     throw error;
   }
@@ -115,7 +115,7 @@ function getDemoSwapRate(fromAssetCode, toAssetCode) {
   const to = assertSupportedAssetCode(toAssetCode, 'testnet');
 
   if (from === to) {
-    const error = new Error('Chọn 2 token khác nhau để swap');
+    const error = new Error('Choose two different tokens to swap');
     error.status = 400;
     throw error;
   }
@@ -187,7 +187,7 @@ function getBalanceItems(account, assetDefinitions) {
   });
 }
 
-function ensureTrustline(account, assetDefinition, field = 'Ví nhận') {
+function ensureTrustline(account, assetDefinition, field = 'Recipient wallet') {
   if (assetDefinition.isNative) {
     return;
   }
@@ -200,7 +200,7 @@ function ensureTrustline(account, assetDefinition, field = 'Ví nhận') {
     )
   ) {
     const error = new Error(
-      `${field} chưa thêm token ${assetDefinition.assetCode}. Hãy add trustline trước.`,
+      `${field} has not added ${assetDefinition.assetCode}. Add the trustline first.`,
     );
     error.status = 400;
     throw error;
@@ -217,7 +217,7 @@ function getIssuedAsset(assetCodeOrDefinition, issuerAddress) {
         };
 
   if (!assetDefinition.assetIssuer) {
-    const error = new Error('Token issued thiếu issuer');
+    const error = new Error('Issued token is missing an issuer');
     error.status = 400;
     throw error;
   }
@@ -306,7 +306,7 @@ async function signStellarTransaction(walletId, transaction) {
   const signature = result?.signature;
 
   if (!signature || typeof signature !== 'string') {
-    const error = new Error('Privy không trả về chữ ký giao dịch Stellar');
+    const error = new Error('Privy did not return a Stellar transaction signature');
     error.status = 502;
     error.details = result;
     throw error;
@@ -339,7 +339,7 @@ async function friendbotFund(address, network = 'testnet') {
 
   if (!config.supportsFriendbot || !config.friendbotUrl) {
     const error = new Error(
-      'Mainnet không có Friendbot. Hãy deposit XLM thật để active ví.',
+      'Mainnet does not have Friendbot. Deposit real XLM to activate this wallet.',
     );
     error.status = 400;
     throw error;
@@ -349,7 +349,7 @@ async function friendbotFund(address, network = 'testnet') {
   const text = await response.text();
 
   if (!response.ok) {
-    const error = new Error(text || 'Friendbot không nạp được test XLM');
+    const error = new Error(text || 'Friendbot could not fund test XLM');
     error.status = response.status;
     throw error;
   }
@@ -362,7 +362,7 @@ async function ensureDemoAssetIssuer(assetCode, network = 'testnet') {
   const normalized = assertSupportedAssetCode(assetCode, normalizedNetwork);
 
   if (normalizedNetwork !== 'testnet') {
-    const error = new Error('Demo issuer chỉ dùng cho Testnet');
+    const error = new Error('Demo issuers are only available on Testnet');
     error.status = 400;
     throw error;
   }
@@ -409,13 +409,43 @@ async function ensureDemoAssetIssuers(network = 'testnet') {
   return issuers;
 }
 
-async function getSupportedAssets(network = 'testnet') {
+function filterAssetsBySearch(assets, search) {
+  const query = String(search || '').trim().toLowerCase();
+
+  if (!query) {
+    return assets;
+  }
+
+  return assets.filter(asset =>
+    [
+      asset.assetCode,
+      asset.displayName,
+      asset.homeDomain,
+      asset.assetIssuer,
+    ]
+      .filter(Boolean)
+      .some(value => String(value).toLowerCase().includes(query)),
+  );
+}
+
+async function getSupportedAssets(network = 'testnet', options = {}) {
   const normalizedNetwork = normalizeNetwork(network);
+  const limit = Math.min(Math.max(Number(options.limit) || 40, 1), 100);
+  const search = String(options.search || '').trim();
 
   if (normalizedNetwork === 'mainnet') {
     try {
+      const params = new URLSearchParams({
+        limit: String(limit),
+        sort: 'rating',
+      });
+
+      if (search) {
+        params.set('search', search);
+      }
+
       const response = await fetch(
-        'https://api.stellar.expert/explorer/public/asset?limit=40&sort=rating',
+        `https://api.stellar.expert/explorer/public/asset?${params.toString()}`,
         { signal: AbortSignal.timeout(4000) }
       );
 
@@ -450,12 +480,15 @@ async function getSupportedAssets(network = 'testnet') {
       console.warn('Failed to fetch dynamic assets from Stellar Expert, falling back to static list:', error.message);
     }
 
-    return getKnownAssetDefinitions('mainnet');
+    return filterAssetsBySearch(getKnownAssetDefinitions('mainnet'), search);
   }
 
   const issuers = await ensureDemoAssetIssuers(normalizedNetwork);
 
-  return getKnownAssetDefinitions(normalizedNetwork, issuers);
+  return filterAssetsBySearch(
+    getKnownAssetDefinitions(normalizedNetwork, issuers),
+    search,
+  );
 }
 
 async function getSupportedAsset({
@@ -492,7 +525,7 @@ async function getSupportedAsset({
     };
   }
 
-  const error = new Error('Token chưa được hỗ trợ');
+  const error = new Error('Token is not supported');
   error.status = 400;
   throw error;
 }
@@ -530,13 +563,13 @@ async function fundDemoAsset({
   });
 
   if (normalizedNetwork !== 'testnet') {
-    const error = new Error('Mainnet không hỗ trợ nạp token demo');
+    const error = new Error('Mainnet does not support demo token funding');
     error.status = 400;
     throw error;
   }
 
   if (assetDefinition.isNative) {
-    const error = new Error('XLM test dùng endpoint nạp XLM riêng');
+    const error = new Error('Test XLM uses the dedicated XLM funding endpoint');
     error.status = 400;
     throw error;
   }
@@ -544,12 +577,12 @@ async function fundDemoAsset({
   const destinationAccount = await loadAccount(destination, normalizedNetwork);
 
   if (!destinationAccount) {
-    const error = new Error('Ví nhận chưa có trên Stellar Testnet');
+    const error = new Error('Recipient wallet does not exist on Stellar Testnet');
     error.status = 400;
     throw error;
   }
 
-  ensureTrustline(destinationAccount, assetDefinition, 'Ví nhận');
+  ensureTrustline(destinationAccount, assetDefinition, 'Recipient wallet');
 
   const issuer = await ensureDemoAssetIssuer(normalized, normalizedNetwork);
   const issuerAccount = await loadAccount(issuer.publicKey, normalizedNetwork);
@@ -591,7 +624,7 @@ async function swapDemoAsset({
   const toAmount = formatStellarAmount(Number(fromAmount) * rate);
 
   if (!sourceWalletId) {
-    const error = new Error('Thiếu Privy wallet id của ví swap');
+    const error = new Error('Missing Privy wallet id for swap');
     error.status = 400;
     throw error;
   }
@@ -600,14 +633,14 @@ async function swapDemoAsset({
 
   if (!sourceAccount) {
     const error = new Error(
-      'Ví chưa có trên Stellar Testnet. Hãy nạp test XLM trước.',
+      'Wallet does not exist on Stellar Testnet. Fund test XLM first.',
     );
     error.status = 400;
     throw error;
   }
 
-  ensureTrustline(sourceAccount, fromDefinition, 'Ví gửi');
-  ensureTrustline(sourceAccount, toDefinition, 'Ví nhận');
+  ensureTrustline(sourceAccount, fromDefinition, 'Source wallet');
+  ensureTrustline(sourceAccount, toDefinition, 'Recipient wallet');
 
   const payoutIssuer = toDefinition.isNative
     ? await ensureDemoAssetIssuer(
@@ -713,7 +746,7 @@ async function quoteMainnetSwap({
 
   if (!sourceAccount) {
     const error = new Error(
-      'Ví mainnet chưa active. Hãy deposit XLM thật trước khi swap.',
+      'Mainnet wallet is not active. Deposit real XLM before swapping.',
     );
     error.status = 400;
     throw error;
@@ -731,13 +764,13 @@ async function quoteMainnetSwap({
   });
 
   if (fromDefinition.assetCode === toDefinition.assetCode) {
-    const error = new Error('Chọn 2 token khác nhau để swap');
+    const error = new Error('Choose two different tokens to swap');
     error.status = 400;
     throw error;
   }
 
-  ensureTrustline(sourceAccount, fromDefinition, 'Ví gửi');
-  ensureTrustline(sourceAccount, toDefinition, 'Ví nhận');
+  ensureTrustline(sourceAccount, fromDefinition, 'Source wallet');
+  ensureTrustline(sourceAccount, toDefinition, 'Recipient wallet');
 
   const records = await getStellarServer(network)
     .strictSendPaths(
@@ -749,7 +782,7 @@ async function quoteMainnetSwap({
   const bestPath = records?.records?.[0];
 
   if (!bestPath) {
-    const error = new Error('Không tìm thấy path swap trên Stellar DEX');
+    const error = new Error('No swap path found on Stellar DEX');
     error.status = 400;
     throw error;
   }
@@ -780,7 +813,7 @@ async function executeMainnetSwap({
   toAssetIssuer,
 }) {
   if (!sourceWalletId) {
-    const error = new Error('Thiếu Privy wallet id của ví swap');
+    const error = new Error('Missing Privy wallet id for swap');
     error.status = 400;
     throw error;
   }
@@ -842,7 +875,7 @@ function parseStellarXdr(xdr, network = 'testnet') {
   try {
     return TransactionBuilder.fromXDR(String(xdr || '').trim(), config.passphrase);
   } catch {
-    const error = new Error('XDR Stellar không hợp lệ hoặc sai network passphrase');
+    const error = new Error('Stellar XDR is invalid or uses the wrong network passphrase');
     error.status = 400;
     throw error;
   }
@@ -869,7 +902,7 @@ function reviewStellarXdr({ network = 'testnet', sourceAddress, xdr }) {
   const transaction = parseStellarXdr(xdr, network);
 
   if (sourceAddress && transaction.source !== sourceAddress) {
-    const error = new Error('XDR không dùng đúng source ví đang chọn');
+    const error = new Error('XDR does not use the selected wallet as source');
     error.status = 403;
     throw error;
   }
@@ -927,7 +960,7 @@ async function fetchAccountOperations(address, network = 'testnet', limit = 30) 
   const body = await response.json();
 
   if (!response.ok) {
-    const error = new Error(body?.detail || 'Không lấy được lịch sử Stellar');
+    const error = new Error(body?.detail || 'Could not load Stellar history');
     error.status = response.status;
     error.details = body;
     throw error;
@@ -1025,10 +1058,10 @@ function getHorizonErrorMessage(error, network = 'testnet') {
   const config = getNetworkConfig(network);
 
   if (resultCodes) {
-    return `${config.label} từ chối giao dịch: ${JSON.stringify(resultCodes)}`;
+    return `${config.label} rejected the transaction: ${JSON.stringify(resultCodes)}`;
   }
 
-  return error.message || `${config.label} trả lỗi không rõ`;
+  return error.message || `${config.label} returned an unknown error`;
 }
 
 module.exports = {

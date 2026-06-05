@@ -5,6 +5,19 @@ const { normalizeNetwork } = require('./networks');
 
 const NATIVE_ASSET_CODE = 'XLM';
 const DEMO_ASSET_CODES = ['USDC', 'USDT'];
+const KNOWN_ASSET_CASES = new Map(
+  [
+    'AQUA',
+    'EURC',
+    'PYUSD',
+    'USDC',
+    'USDT',
+    'XLM',
+  ].map(code => [code.toLowerCase(), code]),
+);
+
+KNOWN_ASSET_CASES.set('yxlm', 'yXLM');
+KNOWN_ASSET_CASES.set('yusdc', 'yUSDC');
 
 const MAINNET_ASSETS = [
   {
@@ -81,16 +94,9 @@ const MAINNET_ASSETS = [
 
 function normalizeAssetCode(assetCode) {
   const value = String(assetCode || NATIVE_ASSET_CODE).trim();
+  const knownCase = KNOWN_ASSET_CASES.get(value.toLowerCase());
 
-  if (value.toLowerCase() === 'yxlm') {
-    return 'yXLM';
-  }
-
-  if (value.toLowerCase() === 'yusdc') {
-    return 'yUSDC';
-  }
-
-  return value.toUpperCase();
+  return knownCase || value;
 }
 
 function getTestnetAssetDefinitions(issuers = {}) {
@@ -194,21 +200,31 @@ function mergeKnownAndDiscoveredAssets(knownAssets, account, network) {
 
 function mapStellarExpertRecordToAsset(record, network) {
   const isXlm = record.asset === 'XLM';
+  const ratingAverage =
+    typeof record.rating?.average === 'number' ? record.rating.average : null;
+  const priceUsd = typeof record.price === 'number' ? record.price : null;
+  const volume7d =
+    typeof record.volume7d === 'number' ? record.volume7d : null;
+
   if (isXlm) {
     return {
       assetCode: 'XLM',
       assetIssuer: null,
+      demo: false,
       displayName: 'Lumens',
       homeDomain: 'stellar.org',
       iconKey: 'xlm',
       isNative: true,
       network: network,
+      priceUsd,
+      rating: ratingAverage,
       trustLevel: 'verified',
+      volume7d,
       image: 'https://stellar.org/images/lumens.svg',
     };
   }
 
-  const toml = record.tomlInfo || {};
+  const toml = record.tomlInfo || record.toml_info || {};
   let code = toml.code;
   if (!code) {
     const parts = record.asset.split('-');
@@ -229,12 +245,16 @@ function mapStellarExpertRecordToAsset(record, network) {
   return {
     assetCode: code,
     assetIssuer: issuer,
+    demo: false,
     displayName: displayName,
     homeDomain: homeDomain,
     iconKey: code.toLowerCase(),
     isNative: false,
     network: network,
+    priceUsd,
+    rating: ratingAverage,
     trustLevel: 'verified',
+    volume7d,
     image: image,
   };
 }

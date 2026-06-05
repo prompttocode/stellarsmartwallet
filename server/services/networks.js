@@ -42,7 +42,7 @@ function assertNetwork(value) {
   const network = normalizeNetwork(value, '');
 
   if (!network || !STELLAR_NETWORKS[network]) {
-    const error = new Error('Mạng Stellar không hợp lệ');
+    const error = new Error('Invalid Stellar network');
     error.status = 400;
     throw error;
   }
@@ -78,4 +78,3 @@ module.exports = {
   normalizeNetwork,
   STELLAR_NETWORKS,
 };
-

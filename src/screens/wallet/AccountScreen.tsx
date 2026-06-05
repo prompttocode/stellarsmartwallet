@@ -9,7 +9,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import Clipboard from '@react-native-clipboard/clipboard';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
   ModernScreenHeader,
@@ -17,14 +16,13 @@ import {
   SectionHeader,
   modern,
   useSafeScreenInsetStyle,
-} from '../../components/wallet/ModernWalletUI';
-import type { WalletDemoState } from '../../hooks/useWalletDemo';
-import { shortAddress } from '../../utils/format';
+} from '@components/wallet';
+import type { WalletState } from '@hooks/useWallet';
+import { shortAddress } from '@utils/format';
 import {
   SupportedCurrency,
   useCurrencyConfig,
-} from '../../contexts/CurrencyContext';
-import type { ExportWalletResult } from '../../types';
+} from '@contexts/CurrencyContext';
 
 const CURRENCIES: { code: SupportedCurrency; name: string; symbol: string }[] =
   [
@@ -35,24 +33,19 @@ const CURRENCIES: { code: SupportedCurrency; name: string; symbol: string }[] =
     { code: 'GBP', name: 'British Pound', symbol: '£' },
   ];
 
-type ToolMode = 'import' | 'watch' | 'export-key' | null;
+type ToolMode = 'import' | 'watch' | null;
 
-export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
+export function AccountScreen({ wallet }: { wallet: WalletState }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
   const { selectedCurrency, setSelectedCurrency } = useCurrencyConfig();
   const [isCurrencyModalVisible, setIsCurrencyModalVisible] = useState(false);
   const [toolMode, setToolMode] = useState<ToolMode>(null);
   const [toolValue, setToolValue] = useState('');
   const [toolName, setToolName] = useState('');
-  const [confirmation, setConfirmation] = useState('');
-  const [exportResult, setExportResult] = useState<ExportWalletResult | null>(
-    null,
-  );
 
   const activeWallet =
     wallet.wallets.find(item => item.id === wallet.activeWalletId) ||
     wallet.wallet;
-  const activeWalletCanSign = Boolean(activeWallet?.canSign);
   const canOpenExplorer =
     Boolean(wallet.explorerAddressUrl) &&
     (!wallet.isMainnet || wallet.walletActive);
@@ -61,7 +54,6 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
     setToolMode(null);
     setToolValue('');
     setToolName('');
-    setConfirmation('');
   }
 
   async function requirePrivyToolSession() {
@@ -69,8 +61,8 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
 
     if (!hasPrivyToken) {
       Alert.alert(
-        'Cần đăng nhập lại Privy',
-        'Import/export private key cần phiên Privy thật. Hãy đăng xuất rồi đăng nhập lại bằng email OTP hoặc Google.',
+        'Privy sign-in required',
+        'Importing a Stellar secret key needs an active Privy session. Please sign out and sign in again with email OTP or Google.',
       );
       closeToolModal();
       return false;
@@ -79,22 +71,8 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
     return true;
   }
 
-  async function checkPrivyTokenStatus() {
-    const hasPrivyToken = await wallet.refreshPrivySecuritySession();
-
-    Alert.alert(
-      hasPrivyToken ? 'Privy token OK' : 'Chưa có Privy token',
-      hasPrivyToken
-        ? 'getIdentityToken() đã trả token. Import/export có thể tiếp tục kiểm tra biometric.'
-        : 'getIdentityToken() chưa trả token. Hãy đăng xuất rồi đăng nhập lại bằng email OTP hoặc Google, sau đó bấm Check lại.',
-    );
-  }
-
   async function openTool(mode: ToolMode) {
-    if (
-      (mode === 'import' || mode === 'export-key') &&
-      !(await requirePrivyToolSession())
-    ) {
+    if (mode === 'import' && !(await requirePrivyToolSession())) {
       return;
     }
 
@@ -102,10 +80,7 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
   }
 
   async function submitTool() {
-    if (
-      (toolMode === 'import' || toolMode === 'export-key') &&
-      !(await requirePrivyToolSession())
-    ) {
+    if (toolMode === 'import' && !(await requirePrivyToolSession())) {
       return;
     }
 
@@ -128,40 +103,13 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
 
       return;
     }
-
-    if (toolMode === 'export-key') {
-      const result = await wallet.exportWalletSecret(
-        'private_key',
-        confirmation,
-      );
-
-      if (result?.secret) {
-        closeToolModal();
-        setExportResult(result);
-      }
-    }
-  }
-
-  async function copySecret() {
-    if (!exportResult?.secret) {
-      return;
-    }
-
-    Clipboard.setString(exportResult.secret);
-    Alert.alert(
-      'Đã copy',
-      'Secret đã copy vào clipboard. Xóa clipboard sau khi dùng xong.',
-    );
   }
 
   function renderToolModal() {
-    const isExport = toolMode === 'export-key';
     const title =
       toolMode === 'import'
         ? 'Import wallet'
-        : toolMode === 'watch'
-        ? 'Add watch-only'
-        : 'Export private key';
+        : 'Add watch-only';
 
     if (!toolMode) {
       return null;
@@ -172,61 +120,42 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
             <Text style={styles.modalTitle}>{title}</Text>
-            {isExport ? (
-              <>
-                <Text style={styles.modalDesc}>
-                  Secret sẽ chỉ hiển thị một lần. Ai có secret có thể lấy toàn
-                  bộ tiền trong ví. Nhập EXPORT để xác nhận.
-                </Text>
-                <TextInput
-                  autoCapitalize="characters"
-                  onChangeText={setConfirmation}
-                  placeholder="EXPORT"
-                  placeholderTextColor="#8A9AA3"
-                  style={styles.promptInput}
-                  value={confirmation}
-                />
-              </>
-            ) : (
-              <>
-                <Text style={styles.modalDesc}>
-                  {toolMode === 'import'
-                    ? 'Import Stellar secret key (S...). App gửi lên server để import vào Privy, không lưu local.'
-                    : 'Track public address (G...) để xem balance/QR mà không ký giao dịch.'}
-                </Text>
-                <TextInput
-                  autoCapitalize="none"
-                  onChangeText={setToolName}
-                  placeholder="Tên ví (optional)"
-                  placeholderTextColor="#8A9AA3"
-                  style={styles.promptInput}
-                  value={toolName}
-                />
-                <TextInput
-                  autoCapitalize="characters"
-                  multiline
-                  onChangeText={setToolValue}
-                  placeholder={toolMode === 'import' ? 'S...' : 'G...'}
-                  placeholderTextColor="#8A9AA3"
-                  style={[styles.promptInput, styles.secretInput]}
-                  value={toolValue}
-                />
-              </>
-            )}
+            <>
+              <Text style={styles.modalDesc}>
+                {toolMode === 'import'
+                  ? 'Import a Stellar secret key (S...). The app sends it to the server to import into Privy and does not store it locally.'
+                  : 'Track a public address (G...) to view balances and QR codes without signing transactions.'}
+              </Text>
+              <TextInput
+                autoCapitalize="none"
+                onChangeText={setToolName}
+                placeholder="Wallet name (optional)"
+                placeholderTextColor="#8A9AA3"
+                style={styles.promptInput}
+                value={toolName}
+              />
+              <TextInput
+                autoCapitalize="characters"
+                multiline
+                onChangeText={setToolValue}
+                placeholder={toolMode === 'import' ? 'S...' : 'G...'}
+                placeholderTextColor="#8A9AA3"
+                style={[styles.promptInput, styles.secretInput]}
+                value={toolValue}
+              />
+            </>
             <View style={styles.promptActions}>
               <TouchableOpacity
                 style={styles.promptBtn}
                 onPress={closeToolModal}
               >
-                <Text style={styles.promptBtnText}>Hủy</Text>
+                <Text style={styles.promptBtnText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.promptBtnPrimary}
                 onPress={submitTool}
               >
-                <Text style={styles.promptBtnPrimaryText}>
-                  {isExport ? 'Export' : 'Lưu'}
-                </Text>
+                <Text style={styles.promptBtnPrimaryText}>Save</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -242,7 +171,7 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
     >
       <ModernScreenHeader
         title="Account"
-        subtitle="Quản lý tài khoản, ví, bảo mật và kết nối dApp."
+        subtitle="Manage your account, wallets, security, and dApp connections."
       />
 
       <View style={modern.sectionCard}>
@@ -331,9 +260,9 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
           </View>
         ) : (
           <View style={modern.emptyModern}>
-            <Text style={modern.emptyModernTitle}>Chưa có ví</Text>
+            <Text style={modern.emptyModernTitle}>No wallet yet</Text>
             <Text style={modern.emptyModernText}>
-              Tạo ví đầu tiên để bắt đầu dùng Stellar.
+              Create your first wallet to start using Stellar.
             </Text>
           </View>
         )}
@@ -346,38 +275,19 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
           <Text
             style={[modern.modernButtonText, modern.secondaryModernButtonText]}
           >
-            Mở trên Stellar Expert
+            Open on Stellar Expert
           </Text>
         </PressScale>
         {wallet.isMainnet && !wallet.walletActive ? (
           <Text style={modern.emptyModernText}>
-            Explorer sẽ mở được sau khi ví nhận XLM mainnet đầu tiên.
+            Explorer opens after this wallet receives its first Mainnet XLM
+            deposit.
           </Text>
         ) : null}
       </View>
 
       <View style={modern.sectionCard}>
         <SectionHeader title="Advanced wallet tools" />
-        <View style={styles.tokenStatusBox}>
-          <View style={styles.tokenStatusCopy}>
-            <Text style={styles.tokenStatusLabel}>Privy identity token</Text>
-            <Text
-              style={[
-                styles.tokenStatusValue,
-                wallet.privySessionReady && styles.tokenStatusReady,
-              ]}
-            >
-              {wallet.privySessionReady ? 'Ready' : 'Not ready'}
-            </Text>
-          </View>
-          <PressScale
-            disabled={wallet.isBusy}
-            onPress={checkPrivyTokenStatus}
-            style={styles.tokenCheckButton}
-          >
-            <Text style={styles.tokenCheckText}>Check</Text>
-          </PressScale>
-        </View>
         <View style={styles.toolGrid}>
           <PressScale
             disabled={wallet.isBusy}
@@ -398,16 +308,6 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
             <Text style={styles.toolText}>Track public address (G...)</Text>
           </PressScale>
           <PressScale
-            disabled={wallet.isBusy || !activeWalletCanSign}
-            onPress={() => openTool('export-key')}
-            style={[styles.toolButton, styles.toolButtonDanger]}
-          >
-            <Ionicons color="#C01048" name="key-outline" size={22} />
-            <Text style={[styles.toolText, styles.toolTextDanger]}>
-              Export private key
-            </Text>
-          </PressScale>
-          <PressScale
             disabled
             style={[styles.toolButton, styles.toolButtonDisabled]}
           >
@@ -419,12 +319,8 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
         </View>
         <Text style={modern.emptyModernText}>
           {wallet.isBusy
-            ? `Đang xử lý: ${wallet.busy}`
-            : !activeWalletCanSign
-            ? 'Export bị khóa vì ví đang chọn là watch-only hoặc chưa có quyền ký. Import và watch-only vẫn dùng được.'
-            : wallet.privySessionReady
-            ? 'Import/export dùng Privy token và biometric. Watch-only chỉ theo dõi địa chỉ, không thể ký giao dịch.'
-            : 'Import/export sẽ kiểm tra Privy token khi bấm. Nếu phiên hết hạn, hãy đăng xuất rồi đăng nhập lại Privy.'}
+            ? `Processing: ${wallet.busy}`
+            : 'Import a Stellar secret key to use a signing wallet. Watch-only wallets only track addresses and cannot send funds.'}
         </Text>
       </View>
 
@@ -439,8 +335,9 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
           </Text>
         </View>
         <Text style={modern.emptyModernText}>
-          Wallet-mode adapter đã sẵn sàng để cấu hình. Khi có Reown projectId,
-          dApp request sẽ đi qua review, parse XDR và biometric trước khi ký.
+          The wallet-mode adapter is ready to configure. With a Reown
+          projectId, dApp requests can go through review, XDR parsing, and
+          biometric confirmation before signing.
         </Text>
       </View>
 
@@ -454,15 +351,11 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
           <Text style={modern.infoLabel}>Secret storage</Text>
           <Text style={modern.infoRowValue}>Privy custody</Text>
         </View>
-        <View style={modern.infoRow}>
-          <Text style={modern.infoLabel}>Export</Text>
-          <Text style={modern.infoRowValue}>Show once</Text>
-        </View>
       </View>
 
       <View style={modern.sectionCard}>
         <PressScale onPress={wallet.logout} style={modern.signOutButton}>
-          <Text style={modern.signOutText}>Đăng xuất (Sign out)</Text>
+          <Text style={modern.signOutText}>Sign out</Text>
         </PressScale>
       </View>
 
@@ -513,38 +406,6 @@ export function AccountScreen({ wallet }: { wallet: WalletDemoState }) {
       </Modal>
 
       {renderToolModal()}
-
-      <Modal
-        transparent
-        visible={Boolean(exportResult)}
-        animationType="fade"
-        onRequestClose={() => setExportResult(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Secret show-once</Text>
-            <Text style={styles.modalDesc}>
-              Lưu lại nếu bạn thật sự cần. Đóng modal này sẽ xóa secret khỏi UI.
-            </Text>
-            <View style={styles.secretBox}>
-              <Text selectable style={styles.secretText}>
-                {exportResult?.secret}
-              </Text>
-            </View>
-            <View style={styles.promptActions}>
-              <TouchableOpacity style={styles.promptBtn} onPress={copySecret}>
-                <Text style={styles.promptBtnText}>Copy</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setExportResult(null)}
-                style={styles.promptBtnPrimary}
-              >
-                <Text style={styles.promptBtnPrimaryText}>Done</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </ScrollView>
   );
 }
@@ -620,53 +481,8 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     padding: 12,
   },
-  secretBox: {
-    backgroundColor: '#0F172A',
-    borderColor: '#334155',
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 16,
-    padding: 14,
-  },
   secretInput: { minHeight: 86, textAlignVertical: 'top' },
-  secretText: { color: '#FFF', fontSize: 14, lineHeight: 20 },
   settingsRow: { alignItems: 'center' },
-  tokenCheckButton: {
-    alignItems: 'center',
-    backgroundColor: '#E8F7FA',
-    borderRadius: 999,
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-  },
-  tokenCheckText: {
-    color: '#0F8EA3',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  tokenStatusBox: {
-    alignItems: 'center',
-    backgroundColor: '#F6FAFB',
-    borderRadius: 16,
-    flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'space-between',
-    marginBottom: 12,
-    padding: 14,
-  },
-  tokenStatusCopy: { flex: 1, gap: 4 },
-  tokenStatusLabel: {
-    color: '#667985',
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  tokenStatusReady: { color: '#0F8EA3' },
-  tokenStatusValue: {
-    color: '#C01048',
-    fontSize: 15,
-    fontWeight: '900',
-  },
   toolButton: {
     alignItems: 'center',
     backgroundColor: '#EEF7F9',
@@ -676,11 +492,6 @@ const styles = StyleSheet.create({
     minHeight: 76,
     padding: 14,
     width: '100%',
-  },
-  toolButtonDanger: {
-    backgroundColor: '#FFF1F3',
-    borderColor: '#FFD0DA',
-    borderWidth: 1,
   },
   toolButtonDisabled: {
     backgroundColor: '#F1F4F6',
@@ -697,6 +508,5 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textAlign: 'center',
   },
-  toolTextDanger: { color: '#C01048' },
   toolTextDisabled: { color: '#667985' },
 });

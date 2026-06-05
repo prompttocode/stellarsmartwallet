@@ -1,3 +1,4 @@
+const path = require('path');
 const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
 
 /**
@@ -8,8 +9,43 @@ const { getDefaultConfig, mergeConfig } = require('@react-native/metro-config');
  */
 const config = {};
 const defaultConfig = getDefaultConfig(__dirname);
+const aliases = {
+  '@api': path.resolve(__dirname, 'src/api'),
+  '@app-types': path.resolve(__dirname, 'src/types'),
+  '@assets': path.resolve(__dirname, 'src/assets'),
+  '@components': path.resolve(__dirname, 'src/components'),
+  '@config': path.resolve(__dirname, 'src/config'),
+  '@contexts': path.resolve(__dirname, 'src/contexts'),
+  '@hooks': path.resolve(__dirname, 'src/hooks'),
+  '@screens': path.resolve(__dirname, 'src/screens'),
+  '@styles': path.resolve(__dirname, 'src/styles'),
+  '@utils': path.resolve(__dirname, 'src/utils'),
+};
+
+const resolveAlias = (context, moduleName, platform) => {
+  const alias = Object.keys(aliases).find(
+    item => moduleName === item || moduleName.startsWith(`${item}/`),
+  );
+
+  if (!alias) {
+    return null;
+  }
+
+  const target =
+    moduleName === alias
+      ? aliases[alias]
+      : path.join(aliases[alias], moduleName.slice(alias.length + 1));
+
+  return context.resolveRequest(context, target, platform);
+};
 
 const resolveRequestWithPackageExports = (context, moduleName, platform) => {
+  const aliasResolution = resolveAlias(context, moduleName, platform);
+
+  if (aliasResolution) {
+    return aliasResolution;
+  }
+
   if (moduleName === 'isows') {
     const ctx = {
       ...context,

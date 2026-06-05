@@ -14,10 +14,10 @@ import DraggableFlatList, {
 } from 'react-native-draggable-flatlist';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { PressScale } from './ModernWalletUI';
-import { shortAddress } from '../../utils/format';
-import type { WalletDemoState } from '../../hooks/useWalletDemo';
-import type { Wallet } from '../../types';
+import { PressScale } from './ui/primitives';
+import { shortAddress } from '@utils/format';
+import type { WalletState } from '@hooks/useWallet';
+import type { Wallet } from '@app-types';
 
 export function WalletManagerModal({
   visible,
@@ -26,7 +26,7 @@ export function WalletManagerModal({
 }: {
   visible: boolean;
   onClose: () => void;
-  walletState: WalletDemoState;
+  walletState: WalletState;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [data, setData] = useState<Wallet[]>([]);
@@ -195,14 +195,14 @@ export function WalletManagerModal({
         <Modal transparent visible animationType="fade">
           <View style={styles.promptOverlay}>
             <View style={styles.promptBox}>
-              <Text style={styles.promptTitle}>Đổi tên ví</Text>
-              <Text style={styles.promptDesc}>Nhập tên mới cho ví này</Text>
+              <Text style={styles.promptTitle}>Rename wallet</Text>
+              <Text style={styles.promptDesc}>Enter a new name for this wallet</Text>
               <TextInput
                 style={styles.promptInput}
                 value={renameValue}
                 onChangeText={setRenameValue}
                 autoFocus
-                placeholder="Ví dụ: Ví Tiết Kiệm"
+                placeholder="Example: Savings Wallet"
                 placeholderTextColor="#8A9AA3"
               />
               <View style={styles.promptActions}>
@@ -210,13 +210,13 @@ export function WalletManagerModal({
                   style={styles.promptBtn}
                   onPress={() => setRenamingWallet(null)}
                 >
-                  <Text style={styles.promptBtnText}>Hủy</Text>
+                  <Text style={styles.promptBtnText}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.promptBtnPrimary}
                   onPress={submitRename}
                 >
-                  <Text style={styles.promptBtnPrimaryText}>Lưu</Text>
+                  <Text style={styles.promptBtnPrimaryText}>Save</Text>
                 </TouchableOpacity>
               </View>
             </View>

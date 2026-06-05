@@ -14,7 +14,7 @@ let privyClient;
 function requirePrivyConfig() {
   if (!PRIVY_APP_ID || !PRIVY_APP_SECRET) {
     const error = new Error(
-      'Thiếu PRIVY_APP_ID hoặc PRIVY_APP_SECRET trong .env',
+      'Missing PRIVY_APP_ID or PRIVY_APP_SECRET in .env',
     );
     error.status = 500;
     throw error;
@@ -155,12 +155,12 @@ function getEmailFromPrivyUser(user) {
 
 function getPrivyErrorMessage(body, status) {
   if (body && typeof body === 'object') {
-    return body.message || body.error || `Privy trả lỗi ${status}`;
+    return body.message || body.error || `Privy returned error ${status}`;
   }
 
   return typeof body === 'string' && body.trim()
     ? body
-    : `Privy trả lỗi ${status}`;
+    : `Privy returned error ${status}`;
 }
 
 function normalizeWallet(wallet, overrides = {}) {

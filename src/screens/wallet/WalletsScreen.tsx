@@ -7,10 +7,10 @@ import {
   SectionHeader,
   modern,
   useSafeScreenInsetStyle,
-} from '../../components/wallet/ModernWalletUI';
-import type { WalletDemoState } from '../../hooks/useWalletDemo';
-import type { Wallet } from '../../types';
-import { shortAddress } from '../../utils/format';
+} from '@components/wallet';
+import type { WalletState } from '@hooks/useWallet';
+import type { Wallet } from '@app-types';
+import { shortAddress } from '@utils/format';
 
 function getWalletName(wallet: Wallet, index: number) {
   return wallet.displayName || `Stellar Wallet ${index + 1}`;
@@ -21,7 +21,7 @@ export function WalletsScreen({
   wallet,
 }: {
   onBack: () => void;
-  wallet: WalletDemoState;
+  wallet: WalletState;
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
   const [draftNames, setDraftNames] = useState<Record<string, string>>({});
@@ -52,8 +52,8 @@ export function WalletsScreen({
 
   function confirmArchive(item: Wallet) {
     Alert.alert(
-      'Ẩn ví khỏi danh sách?',
-      'Ví vẫn tồn tại trên Privy/Stellar. App chỉ ẩn ví này khỏi danh sách demo local.',
+      'Archive this wallet?',
+      'The wallet still exists in Privy/Stellar. The app only hides it from the local wallet list.',
       [
         { style: 'cancel', text: 'Cancel' },
         {
@@ -95,9 +95,9 @@ export function WalletsScreen({
           </View>
         ) : (
           <View style={modern.emptyModern}>
-            <Text style={modern.emptyModernTitle}>Chưa có ví</Text>
+            <Text style={modern.emptyModernTitle}>No wallet yet</Text>
             <Text style={modern.emptyModernText}>
-              Tạo ví đầu tiên để bắt đầu dùng Stellar Testnet.
+              Create your first wallet to start using Stellar Testnet.
             </Text>
           </View>
         )}

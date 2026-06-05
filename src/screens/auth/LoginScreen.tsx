@@ -11,11 +11,11 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import type { WalletDemoState } from '../../hooks/useWalletDemo';
+import type { WalletState } from '@hooks/useWallet';
 import { loginStyles as styles } from './loginStyles';
 
 const OTP_LENGTH = 6;
-const loginHeroImage = require('../../assets/images/background/backstellar.png');
+const loginHeroImage = require('@assets/images/background/backstellar.png');
 
 function sanitizeOtp(value: string) {
   return value.replace(/\D/g, '').slice(0, OTP_LENGTH);
@@ -90,7 +90,7 @@ function GoogleButton({
       ]}
     >
       <Image
-        source={require('../../assets/images/social/google.png')}
+        source={require('@assets/images/social/google.png')}
         style={styles.googleIcon}
       />
       <Text style={[styles.googleText, disabled ? styles.disabledText : null]}>
@@ -170,7 +170,7 @@ function OtpInput({
   );
 }
 
-function LoginHero({ wallet }: { wallet: WalletDemoState }) {
+function LoginHero({ wallet }: { wallet: WalletState }) {
   const serverReady = Boolean(wallet.health?.ok);
 
   return (
@@ -178,7 +178,7 @@ function LoginHero({ wallet }: { wallet: WalletDemoState }) {
       <View style={styles.brandRow}>
         <View style={styles.brandMark}>
           <Image
-            source={require('../../assets/images/coin/xlm.png')}
+            source={require('@assets/images/coin/xlm.png')}
             style={styles.brandImage}
           />
         </View>
@@ -210,8 +210,8 @@ function LoginHero({ wallet }: { wallet: WalletDemoState }) {
   );
 }
 
-function EmailLoginStep({ wallet }: { wallet: WalletDemoState }) {
-  const googleBusy = wallet.busy === 'Đăng nhập Google';
+function EmailLoginStep({ wallet }: { wallet: WalletState }) {
+  const googleBusy = wallet.busy === 'Sign in with Google';
 
   return (
     <View style={styles.sheet}>
@@ -263,7 +263,7 @@ function EmailLoginStep({ wallet }: { wallet: WalletDemoState }) {
   );
 }
 
-function OtpLoginStep({ wallet }: { wallet: WalletDemoState }) {
+function OtpLoginStep({ wallet }: { wallet: WalletState }) {
   const otpReady = wallet.code.length === OTP_LENGTH;
 
   return (
@@ -318,7 +318,7 @@ function OtpLoginStep({ wallet }: { wallet: WalletDemoState }) {
   );
 }
 
-function LoginMessage({ wallet }: { wallet: WalletDemoState }) {
+function LoginMessage({ wallet }: { wallet: WalletState }) {
   return (
     <View style={styles.messageBox}>
       <Text style={styles.messageText}>{wallet.message}</Text>
@@ -329,7 +329,7 @@ function LoginMessage({ wallet }: { wallet: WalletDemoState }) {
   );
 }
 
-export function LoginScreen({ wallet }: { wallet: WalletDemoState }) {
+export function LoginScreen({ wallet }: { wallet: WalletState }) {
   return (
     <ImageBackground
       imageStyle={styles.backgroundImage}

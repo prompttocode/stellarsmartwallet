@@ -8,9 +8,9 @@ import {
   TransactionListItem,
   modern,
   useSafeScreenInsetStyle,
-} from '../../components/wallet/ModernWalletUI';
-import type { WalletDemoState } from '../../hooks/useWalletDemo';
-import type { TransactionItem } from '../../types';
+} from '@components/wallet';
+import type { WalletState } from '@hooks/useWallet';
+import type { TransactionItem } from '@app-types';
 
 type TransactionFilter = 'all' | 'received' | 'sent';
 
@@ -36,7 +36,7 @@ export function TransactionsScreen({
   wallet,
 }: {
   onGoToTransaction: (id: string) => void;
-  wallet: WalletDemoState;
+  wallet: WalletState;
 }) {
   const [filter, setFilter] = useState<TransactionFilter>('all');
   const screenInsetStyle = useSafeScreenInsetStyle();
@@ -51,7 +51,7 @@ export function TransactionsScreen({
       showsVerticalScrollIndicator={false}
     >
       <ModernScreenHeader
-        subtitle="Lịch sử lấy trực tiếp từ Stellar Horizon."
+        subtitle="History is loaded directly from Stellar Horizon."
         title="History"
       />
 
@@ -84,9 +84,10 @@ export function TransactionsScreen({
           })
         ) : (
           <View style={modern.emptyModern}>
-            <Text style={modern.emptyModernTitle}>Chưa có giao dịch</Text>
+            <Text style={modern.emptyModernTitle}>No transactions yet</Text>
             <Text style={modern.emptyModernText}>
-              Khi bạn nạp, gửi hoặc swap token test, lịch sử sẽ hiện ở đây.
+              Deposits, sends, and swaps will appear here after they are
+              submitted to Stellar.
             </Text>
           </View>
         )}
