@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "d1:apply:local": "wrangler d1 execute privy_stellar_db --local --file=./schema.sql",
     "d1:apply:remote": "wrangler d1 execute privy_stellar_db --remote --file=./schema.sql"
@@ -18,6 +19,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260603.0",
     "typescript": "^5.8.3",
+    "vitest": "^3.2.6",
     "wrangler": "^4.50.0"
   },
   "engines": {

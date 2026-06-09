@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
   ModernScreenHeader,
   PressScale,
@@ -10,14 +11,25 @@ import {
   useSafeScreenInsetStyle,
 } from '@components/wallet';
 import type { WalletState } from '@hooks/useWallet';
-import type { TransactionItem } from '@app-types';
+import type { RampOrder, TransactionItem } from '@app-types';
+import {
+  getRampOrderStatus,
+  rampTimestampToMs,
+} from '@utils/ramp';
+import { formatTokenAmount } from '@utils/format';
 
 type TransactionFilter = 'all' | 'received' | 'sent';
+type HistoryKind = 'orders' | 'stellar';
 
 const filters: { label: string; value: TransactionFilter }[] = [
   { label: 'All', value: 'all' },
   { label: 'Sent', value: 'sent' },
   { label: 'Received', value: 'received' },
+];
+
+const historyKinds: { label: string; value: HistoryKind }[] = [
+  { label: 'Stellar', value: 'stellar' },
+  { label: 'Buy/Sell', value: 'orders' },
 ];
 
 function filterTransactions(
@@ -31,13 +43,95 @@ function filterTransactions(
   return transactions.filter(transaction => transaction.direction === filter);
 }
 
+function formatOrderDate(order: RampOrder) {
+  const timestamp = rampTimestampToMs(order.created_at);
+
+  if (!timestamp) {
+    return 'Date unavailable';
+  }
+
+  return new Date(timestamp).toLocaleString('en-US', {
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
+function FiatOrderRow({
+  onPress,
+  order,
+}: {
+  onPress: () => void;
+  order: RampOrder;
+}) {
+  const terminal = [3, 4, 5].includes(Number(order.state));
+  const completed = Number(order.state) === 3;
+
+  return (
+    <PressScale onPress={onPress} style={styles.orderRow}>
+      <View
+        style={[
+          styles.orderIcon,
+          completed
+            ? styles.orderIconCompleted
+            : terminal
+            ? styles.orderIconClosed
+            : null,
+        ]}
+      >
+        <Ionicons
+          color={completed ? '#0ABF73' : terminal ? '#D84C5F' : '#3867D6'}
+          name={
+            completed
+              ? 'checkmark'
+              : terminal
+              ? 'close'
+              : 'time-outline'
+          }
+          size={22}
+        />
+      </View>
+      <View style={styles.orderBody}>
+        <Text style={styles.orderTitle}>
+          {order.order_type === 'sell' ? 'Sell' : 'Buy'}{' '}
+          {formatTokenAmount(String(order.amount))} {order.asset_code}
+        </Text>
+        <Text numberOfLines={1} style={styles.orderMeta}>
+          {order.code} · {formatOrderDate(order)}
+        </Text>
+      </View>
+      <View style={styles.orderRight}>
+        <Text
+          numberOfLines={2}
+          style={[
+            styles.orderStatus,
+            completed
+              ? styles.orderStatusCompleted
+              : terminal
+              ? styles.orderStatusClosed
+              : null,
+          ]}
+        >
+          {getRampOrderStatus(order)}
+        </Text>
+        <Ionicons color="#A1ADB5" name="chevron-forward" size={18} />
+      </View>
+    </PressScale>
+  );
+}
+
 export function TransactionsScreen({
+  onGoToRampOrder,
   onGoToTransaction,
   wallet,
 }: {
+  onGoToRampOrder: (order: RampOrder) => void;
   onGoToTransaction: (id: string) => void;
   wallet: WalletState;
 }) {
+  const [historyKind, setHistoryKind] = useState<HistoryKind>('stellar');
   const [filter, setFilter] = useState<TransactionFilter>('all');
   const screenInsetStyle = useSafeScreenInsetStyle();
   const visibleTransactions = useMemo(
@@ -51,43 +145,88 @@ export function TransactionsScreen({
       showsVerticalScrollIndicator={false}
     >
       <ModernScreenHeader
-        subtitle="History is loaded directly from Stellar Horizon."
+        subtitle="Stellar transactions and VND payment orders in one place."
         title="History"
       />
 
       <View style={modern.sectionCard}>
+        <SegmentedFilter
+          active={historyKind}
+          onChange={setHistoryKind}
+          options={historyKinds}
+        />
+      </View>
+
+      <View style={modern.sectionCard}>
         <SectionHeader
           action={
-            <PressScale onPress={wallet.refreshSession}>
+            <PressScale
+              onPress={
+                historyKind === 'stellar'
+                  ? wallet.refreshSession
+                  : wallet.refreshRampOrderHistory
+              }
+            >
               <Text style={modern.sectionActionText}>↻</Text>
             </PressScale>
           }
-          title="Transactions"
+          title={
+            historyKind === 'stellar'
+              ? 'Stellar transactions'
+              : 'VND orders'
+          }
         />
-        <SegmentedFilter
-          active={filter}
-          onChange={setFilter}
-          options={filters}
-        />
-        {visibleTransactions.length > 0 ? (
-          visibleTransactions.map(transaction => {
-            const asset = wallet.balances.find(item => item.assetCode === transaction.assetCode) ||
-                          wallet.visibleAssets.find(item => item.assetCode === transaction.assetCode);
-            return (
-              <TransactionListItem
-                key={transaction.id}
-                onPress={() => onGoToTransaction(transaction.id)}
-                transaction={transaction}
-                imageUrl={asset?.image}
-              />
-            );
-          })
+        {historyKind === 'stellar' ? (
+          <>
+            <SegmentedFilter
+              active={filter}
+              onChange={setFilter}
+              options={filters}
+            />
+            {visibleTransactions.length > 0 ? (
+              visibleTransactions.map(transaction => {
+                const asset =
+                  wallet.balances.find(
+                    item => item.assetCode === transaction.assetCode,
+                  ) ||
+                  wallet.visibleAssets.find(
+                    item => item.assetCode === transaction.assetCode,
+                  );
+                return (
+                  <TransactionListItem
+                    key={transaction.id}
+                    onPress={() => onGoToTransaction(transaction.id)}
+                    transaction={transaction}
+                    imageUrl={asset?.image}
+                  />
+                );
+              })
+            ) : (
+              <View style={modern.emptyModern}>
+                <Text style={modern.emptyModernTitle}>
+                  No transactions yet
+                </Text>
+                <Text style={modern.emptyModernText}>
+                  Deposits, sends, and swaps appear here after they are
+                  submitted to Stellar.
+                </Text>
+              </View>
+            )}
+          </>
+        ) : wallet.rampOrderHistory.length > 0 ? (
+          wallet.rampOrderHistory.map(order => (
+            <FiatOrderRow
+              key={`${order.code || order.id}:${order.state}:${order.processing_state}`}
+              onPress={() => onGoToRampOrder(order)}
+              order={order}
+            />
+          ))
         ) : (
           <View style={modern.emptyModern}>
-            <Text style={modern.emptyModernTitle}>No transactions yet</Text>
+            <Text style={modern.emptyModernTitle}>No VND orders yet</Text>
             <Text style={modern.emptyModernText}>
-              Deposits, sends, and swaps will appear here after they are
-              submitted to Stellar.
+              Buy and Sell orders created for this wallet and network will
+              appear here.
             </Text>
           </View>
         )}
@@ -95,3 +234,61 @@ export function TransactionsScreen({
     </ScrollView>
   );
 }
+
+const styles = StyleSheet.create({
+  orderBody: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  orderIcon: {
+    alignItems: 'center',
+    backgroundColor: '#EEF4FF',
+    borderRadius: 18,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  orderIconClosed: {
+    backgroundColor: '#FFF0F2',
+  },
+  orderIconCompleted: {
+    backgroundColor: '#E7F9F1',
+  },
+  orderMeta: {
+    color: '#8A9AA3',
+    fontSize: 12,
+  },
+  orderRight: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
+    maxWidth: 116,
+  },
+  orderRow: {
+    alignItems: 'center',
+    borderBottomColor: '#EDF2F4',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    paddingVertical: 14,
+  },
+  orderStatus: {
+    color: '#3867D6',
+    flexShrink: 1,
+    fontSize: 11,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  orderStatusClosed: {
+    color: '#D84C5F',
+  },
+  orderStatusCompleted: {
+    color: '#0ABF73',
+  },
+  orderTitle: {
+    color: '#24495A',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+});

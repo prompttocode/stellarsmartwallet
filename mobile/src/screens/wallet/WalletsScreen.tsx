@@ -25,6 +25,7 @@ export function WalletsScreen({
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
   const [draftNames, setDraftNames] = useState<Record<string, string>>({});
+  const networkLabel = wallet.isMainnet ? 'Mainnet' : 'Testnet';
   const wallets =
     wallet.wallets.length > 0
       ? wallet.wallets
@@ -72,8 +73,8 @@ export function WalletsScreen({
     >
       <ModernScreenHeader
         onBack={onBack}
-        subtitle="Create, switch, rename, and archive Privy managed Stellar wallets."
-        title="Wallets"
+        subtitle={`Create, switch, rename, and archive ${networkLabel} wallets only.`}
+        title={`${networkLabel} wallets`}
       />
 
       <View style={modern.sectionCard}>
@@ -97,7 +98,7 @@ export function WalletsScreen({
           <View style={modern.emptyModern}>
             <Text style={modern.emptyModernTitle}>No wallet yet</Text>
             <Text style={modern.emptyModernText}>
-              Create your first wallet to start using Stellar Testnet.
+              Create your first wallet to start using Stellar {networkLabel}.
             </Text>
           </View>
         )}
@@ -107,13 +108,13 @@ export function WalletsScreen({
           style={modern.primaryModernButton}
         >
           <Text style={modern.modernButtonText}>
-            {wallet.busy || 'Create new wallet'}
+            {wallet.busy || `Create ${networkLabel} wallet`}
           </Text>
         </PressScale>
       </View>
 
       <View style={modern.sectionCard}>
-        <SectionHeader title="All wallets" />
+        <SectionHeader title={`${networkLabel} wallets`} />
         {wallets.map((item, index) => {
           const isActive = item.id === activeWallet?.id;
           const name = getWalletName(item, index);

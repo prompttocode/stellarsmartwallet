@@ -62,6 +62,7 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
   app.get('/api/assets', async c => {
     const network = normalizeNetwork(c.req.query('network'));
     const assets = await getSupportedAssets(c.env, network, {
+      limit: c.req.query('limit'),
       search: c.req.query('search'),
     });
 

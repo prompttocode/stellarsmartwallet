@@ -18,6 +18,7 @@ export function AssetListItem({
   onAdd,
   onSend,
   onFaucet,
+  onPress,
 }: {
   asset: BalanceItem;
   disabled?: boolean;
@@ -25,17 +26,27 @@ export function AssetListItem({
   onAdd: (assetCode: string, assetIssuer?: string | null) => void;
   onSend: (assetCode: string) => void;
   onFaucet: (assetCode: string, assetIssuer?: string | null) => void;
+  onPress?: (asset: BalanceItem) => void;
 }) {
   const canUse = asset.isNative || asset.trusted;
   const needsTrustline = !asset.isNative && !asset.trusted;
-  const buttonLabel = canUse
-    ? asset.network === 'mainnet'
-      ? 'Deposit'
-      : 'Faucet'
-    : asset.network === 'mainnet'
+  const pressAction = onPress
+    ? () => onPress(asset)
+    : canUse
+    ? () => onSend(asset.assetCode)
+    : undefined;
+  const buttonLabel = needsTrustline
     ? 'Enable'
-    : 'Faucet';
-  const buttonAction = canUse || asset.network === 'testnet' ? onFaucet : onAdd;
+    : asset.isNative && asset.network === 'testnet'
+    ? 'Faucet'
+    : !asset.isNative && asset.network === 'testnet'
+    ? 'Buy/Sell'
+    : asset.isNative
+    ? 'Deposit'
+    : 'Manage';
+  const buttonAction = needsTrustline
+    ? onAdd
+    : onFaucet;
   const badgeLabel = needsTrustline
     ? 'Trustline needed'
     : asset.demo
@@ -47,9 +58,7 @@ export function AssetListItem({
     ? 'Lumens · Native Stellar coin'
     : asset.trusted
     ? `${asset.displayName} · ${asset.homeDomain || asset.trustLevel}`
-    : asset.network === 'mainnet'
-    ? `${asset.displayName} · enable receiving first`
-    : `${asset.displayName} · auto-enables before faucet`;
+    : `${asset.displayName} · enable receiving first`;
 
   return (
     <Animated.View
@@ -57,8 +66,8 @@ export function AssetListItem({
       style={modern.assetModernRow}
     >
       <PressScale
-        disabled={!canUse}
-        onPress={() => canUse && onSend(asset.assetCode)}
+        disabled={!pressAction}
+        onPress={pressAction}
         style={modern.assetPressArea}
       >
         <TokenIcon assetCode={asset.assetCode} imageUrl={asset.image} />
@@ -114,7 +123,11 @@ export function AssetListItem({
       <PressScale
         disabled={disabled}
         onPress={() => buttonAction(asset.assetCode, asset.assetIssuer)}
-        style={canUse ? modern.assetFaucetButton : modern.assetAddButton}
+        style={
+          needsTrustline
+            ? modern.assetAddButton
+            : modern.assetFaucetButton
+        }
       >
         <Text style={modern.assetButtonText}>{buttonLabel}</Text>
       </PressScale>

@@ -627,7 +627,7 @@ GET /api/landing/p2p-history?days=7
 ### Bypass Buy Payment
 
 ```
-POST /api/bypass/bypass-payment
+POST /bypass-payment
 ```
 
 **Body:**
@@ -655,7 +655,7 @@ Possible errors: `INVALID_ADMIN_CODE`, `ORDER_NOT_FOUND`, `NOT_BUY_ORDER`, `ORDE
 ### Bypass Sell Payment
 
 ```
-POST /api/bypass/bypass-sell-payment
+POST /bypass-sell-payment
 ```
 
 **Body:**

@@ -205,7 +205,7 @@ export function SendScreen({
           subtitle={
             wallet.isMainnet
               ? 'Send or withdraw real tokens on Stellar Mainnet.'
-              : 'Send demo XLM, USDC, or USDT on Stellar Testnet.'
+              : 'Send Stellar Testnet XLM or Payment API USDC.'
           }
           title="Send"
         />

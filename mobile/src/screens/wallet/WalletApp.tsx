@@ -1,12 +1,12 @@
 import React from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
-import { modern, StatusDot } from '@components/wallet';
+import { modern } from '@components/wallet';
 import { LoadingOverlay } from '@components/common/LoadingOverlay';
 import { CurrencyProvider } from '@contexts/CurrencyContext';
 import type { WalletState } from '@hooks/useWallet';
@@ -16,15 +16,27 @@ import { ReceiveScreen } from '@screens/wallet/ReceiveScreen';
 import { SendScreen } from '@screens/wallet/SendScreen';
 import { SwapScreen } from '@screens/wallet/SwapScreen';
 import { FaucetScreen } from '@screens/wallet/FaucetScreen';
+import { RampScreen } from '@screens/wallet/RampScreen';
 import { AccountScreen } from '@screens/wallet/AccountScreen';
+import { AssetDetailScreen } from '@screens/wallet/AssetDetailScreen';
+import { AssetSearchScreen } from '@screens/wallet/AssetSearchScreen';
 import { TransactionDetailScreen } from '@screens/wallet/TransactionDetailScreen';
 import { TransactionsScreen } from '@screens/wallet/TransactionsScreen';
 import { ScanScreen } from '@screens/wallet/ScanScreen';
+import type { BalanceItem, RampOrder } from '@app-types';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 function MainTabs({ wallet }: { wallet: WalletState }) {
+  function getAssetParams(asset: BalanceItem) {
+    return {
+      asset,
+      assetCode: asset.assetCode,
+      assetIssuer: asset.assetIssuer || null,
+    };
+  }
+
   return (
     <Tab.Navigator
       screenOptions={{
@@ -60,6 +72,11 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
             }}
             onGoToSwap={() => navigation.navigate('SwapTab')}
             onGoToFaucet={() => navigation.navigate('Faucet')}
+            onGoToRamp={() => navigation.navigate('Ramp')}
+            onGoToAssetSearch={() => navigation.navigate('AssetSearch')}
+            onGoToAssetDetail={(asset: BalanceItem) =>
+              navigation.navigate('AssetDetail', getAssetParams(asset))
+            }
             onGoToWallets={() => navigation.navigate('AccountTab')}
             onGoToTransaction={(id: string) =>
               navigation.navigate('TransactionDetail', { id })
@@ -82,6 +99,10 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
         {({ navigation }: any) => (
           <TransactionsScreen
             wallet={wallet}
+            onGoToRampOrder={(order: RampOrder) => {
+              wallet.openRampOrder(order);
+              navigation.navigate('Ramp');
+            }}
             onGoToTransaction={(id: string) =>
               navigation.navigate('TransactionDetail', { id })
             }
@@ -159,6 +180,62 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                 <FaucetScreen
                   wallet={wallet}
                   onBack={() => navigation.goBack()}
+                  onGoToRamp={() => navigation.navigate('Ramp')}
+                />
+              )}
+            </Stack.Screen>
+            <Stack.Screen name="Ramp">
+              {({ navigation }: any) => (
+                <RampScreen
+                  wallet={wallet}
+                  onBack={() => navigation.goBack()}
+                  onFinish={() =>
+                    navigation.reset({
+                      index: 0,
+                      routes: [
+                        {
+                          name: 'MainTabs',
+                          params: { screen: 'HomeTab' },
+                        },
+                      ],
+                    })
+                  }
+                />
+              )}
+            </Stack.Screen>
+            <Stack.Screen name="AssetSearch">
+              {({ navigation }: any) => (
+                <AssetSearchScreen
+                  wallet={wallet}
+                  onBack={() => navigation.goBack()}
+                  onGoToFaucet={() => navigation.navigate('Faucet')}
+                  onGoToRamp={() => navigation.navigate('Ramp')}
+                  onGoToSend={(assetCode?: string) => {
+                    if (assetCode) wallet.setSelectedAssetCode(assetCode);
+                    navigation.navigate('Send');
+                  }}
+                  onGoToAssetDetail={(asset: BalanceItem) =>
+                    navigation.navigate('AssetDetail', {
+                      asset,
+                      assetCode: asset.assetCode,
+                      assetIssuer: asset.assetIssuer || null,
+                    })
+                  }
+                />
+              )}
+            </Stack.Screen>
+            <Stack.Screen name="AssetDetail">
+              {({ route, navigation }: any) => (
+                <AssetDetailScreen
+                  wallet={wallet}
+                  route={route}
+                  onBack={() => navigation.goBack()}
+                  onGoToReceive={() => navigation.navigate('Receive')}
+                  onGoToRamp={() => navigation.navigate('Ramp')}
+                  onGoToSend={(assetCode?: string) => {
+                    if (assetCode) wallet.setSelectedAssetCode(assetCode);
+                    navigation.navigate('Send');
+                  }}
                 />
               )}
             </Stack.Screen>
@@ -181,12 +258,6 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
           </Stack.Navigator>
         </NavigationContainer>
 
-        <View style={modern.appStatus}>
-          <StatusDot active={Boolean(wallet.health?.ok)} />
-          <Text numberOfLines={1} style={modern.statusText}>
-            {statusText}
-          </Text>
-        </View>
         <LoadingOverlay visible={wallet.isBusy} message={statusText} />
       </View>
     </CurrencyProvider>

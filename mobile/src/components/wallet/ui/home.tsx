@@ -274,8 +274,8 @@ export function PromoCarousel({
       subtitle:
         network === 'mainnet'
           ? 'Receive real XLM with QR or on-chain deposit'
-          : 'Fund demo USDC/USDT after enabling receiving',
-      title: network === 'mainnet' ? 'On-chain deposit' : 'Demo token faucet',
+          : 'Friendbot funds XLM; buy or receive official Testnet USDC',
+      title: network === 'mainnet' ? 'On-chain deposit' : 'Testnet assets',
     },
     {
       accent: '#8A2BE2',
@@ -284,7 +284,7 @@ export function PromoCarousel({
       subtitle:
         network === 'mainnet'
           ? 'Swap through Stellar DEX/path payment'
-          : 'Swap test tokens through the demo swap desk',
+          : 'Swap XLM and USDC through Stellar Testnet paths',
       title: network === 'mainnet' ? 'Stellar DEX swap' : 'Swap test assets',
     },
   ];

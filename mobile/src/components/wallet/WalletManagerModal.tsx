@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Platform,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import DraggableFlatList, {
   RenderItemParams,
@@ -32,6 +33,10 @@ export function WalletManagerModal({
   const [data, setData] = useState<Wallet[]>([]);
   const [renamingWallet, setRenamingWallet] = useState<Wallet | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const isCreatingWallet = Boolean(
+    walletState.busy?.startsWith('Creating'),
+  );
+  const networkLabel = walletState.isMainnet ? 'Mainnet' : 'Testnet';
 
   // sync data from state when modal opens or state updates
   useEffect(() => {
@@ -41,8 +46,8 @@ export function WalletManagerModal({
         : walletState.wallet
         ? [walletState.wallet]
         : [];
-    setData(list);
-  }, [walletState.wallets, walletState.wallet, visible]);
+    setData(list.filter(item => item.network === walletState.network));
+  }, [walletState.network, walletState.wallets, walletState.wallet, visible]);
 
   // Handle close edit mode
   useEffect(() => {
@@ -66,7 +71,7 @@ export function WalletManagerModal({
   };
 
   const handleAdd = () => {
-    if (walletState.createWallet) {
+    if (!isCreatingWallet && walletState.createWallet) {
       walletState.createWallet();
     }
   };
@@ -163,7 +168,7 @@ export function WalletManagerModal({
                 </Text>
               </View>
             </TouchableOpacity>
-            <Text style={styles.title}>Wallets list</Text>
+            <Text style={styles.title}>{networkLabel} wallets</Text>
             <TouchableOpacity onPress={onClose} style={styles.headerBtnRight}>
               <View style={styles.closeBtn}>
                 <Ionicons name="close" size={20} color="#FFF" />
@@ -172,19 +177,38 @@ export function WalletManagerModal({
           </View>
 
           <View style={styles.listContainer}>
-            <DraggableFlatList
-              data={data}
-              onDragEnd={({ data }) => setData(data)}
-              keyExtractor={item => item.id}
-              renderItem={renderItem}
-              contentContainerStyle={styles.list}
-              scrollEnabled={!isEditing}
-            />
+            {data.length > 0 ? (
+              <DraggableFlatList
+                data={data}
+                onDragEnd={({ data: nextData }) => setData(nextData)}
+                keyExtractor={item => item.id}
+                renderItem={renderItem}
+                contentContainerStyle={styles.list}
+                scrollEnabled={!isEditing}
+              />
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="wallet-outline" size={28} color="#8A9AA3" />
+                <Text style={styles.emptyTitle}>No {networkLabel} wallet</Text>
+                <Text style={styles.emptyText}>
+                  Create a wallet for this network to keep balances separate.
+                </Text>
+              </View>
+            )}
           </View>
 
           <View style={styles.footer}>
-            <PressScale onPress={handleAdd} style={styles.addButton}>
-              <Text style={styles.addButtonText}>Add Wallet</Text>
+            <PressScale
+              disabled={isCreatingWallet}
+              onPress={handleAdd}
+              style={styles.addButton}
+            >
+              {isCreatingWallet ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : null}
+              <Text style={styles.addButtonText}>
+                {isCreatingWallet ? 'Creating wallet...' : `Add ${networkLabel} Wallet`}
+              </Text>
             </PressScale>
           </View>
         </GestureHandlerRootView>
@@ -268,6 +292,23 @@ const styles = StyleSheet.create({
   title: { color: '#FFF', fontSize: 20, fontWeight: '700' },
   listContainer: { maxHeight: 400 },
   list: { paddingHorizontal: 20 },
+  emptyState: {
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+  },
+  emptyTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  emptyText: {
+    color: '#8A9AA3',
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
   item: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -301,9 +342,12 @@ const styles = StyleSheet.create({
   footer: { paddingHorizontal: 24, paddingTop: 16 },
   addButton: {
     backgroundColor: '#1E293B',
+    flexDirection: 'row',
+    gap: 8,
     padding: 16,
     borderRadius: 24,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   addButtonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
   promptOverlay: {

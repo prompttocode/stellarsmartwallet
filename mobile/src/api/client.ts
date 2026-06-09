@@ -14,10 +14,21 @@ export async function api<T>(
     headers,
   });
   const text = await response.text();
-  const body = text ? JSON.parse(text) : null;
+  let body: any = null;
+
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = null;
+  }
 
   if (!response.ok) {
-    throw new Error(body?.error || `HTTP error ${response.status}`);
+    throw new Error(
+      body?.error?.message ||
+        body?.error ||
+        body?.message ||
+        `HTTP error ${response.status}`,
+    );
   }
 
   return body as T;

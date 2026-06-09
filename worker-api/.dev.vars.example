@@ -1,4 +1,6 @@
 ALLOWED_ORIGINS=*
 PRIVY_APP_ID=your_privy_app_id
 PRIVY_APP_SECRET=your_privy_app_secret
+PAYMENT_PARTNER_APP_KEY=your_payment_partner_app_key
+ADMIN_BOOTSTRAP_PASSWORD=your_payment_admin_bootstrap_password
 WALLETCONNECT_PROJECT_ID=

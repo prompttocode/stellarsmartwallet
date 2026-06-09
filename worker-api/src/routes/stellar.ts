@@ -2,14 +2,14 @@ import type { Context, Hono } from 'hono';
 import {
   assertAccountWallet,
   assertAmount,
+  assertSufficientBalance,
   assertStellarAddress,
   buildPaymentTransaction,
   buildSubmittedTransactionItem,
   buildTrustlineTransaction,
-  executeMainnetSwap,
+  executeStellarSwap,
   findIssuedBalance,
   friendbotFund,
-  fundDemoAsset,
   getAccountBalances,
   getAccountHistory,
   getAssetForOperation,
@@ -18,13 +18,11 @@ import {
   loadAccount,
   makeError,
   normalizeNetwork,
-  quoteDemoSwap,
-  quoteMainnetSwap,
+  quoteStellarSwap,
   readJsonBody,
   requireAccountContext,
   shouldRequireMainnetAuth,
   submitPrivySignedTransaction,
-  swapDemoAsset,
   ensureTrustline,
   type StellarNetwork,
   type WorkerBindings,
@@ -157,48 +155,6 @@ async function handleTrustline(
   });
 }
 
-async function handleFundAsset(
-  c: Context<WorkerBindings>,
-  fallbackNetwork: StellarNetwork = 'testnet',
-) {
-  const body = await readJsonBody(c);
-  const network = normalizeNetwork(c.req.param('network'), fallbackNetwork);
-  const destination = String(body.address || '').trim();
-  assertStellarAddress(destination, 'Recipient wallet');
-  const assetDefinition = await getSupportedAsset(c.env, {
-    assetCode: body.assetCode,
-    assetIssuer: body.assetIssuer,
-    network,
-  });
-  const amount = assertAmount(body.amount || '100');
-  const submitted = await fundDemoAsset({
-    amount,
-    assetCode: assetDefinition.assetCode,
-    destination,
-    env: c.env,
-    network,
-  });
-  const balanceResult = await getAccountBalances(c.env, destination, network);
-
-  return c.json({
-    balances: balanceResult.balances,
-    network,
-    transaction: buildSubmittedTransactionItem({
-      amount,
-      assetCode: assetDefinition.assetCode,
-      assetIssuer: assetDefinition.assetIssuer,
-      direction: 'received',
-      env: c.env,
-      from: assetDefinition.assetIssuer || '',
-      network,
-      operation: 'payment',
-      submitted,
-      to: destination,
-    }),
-    transactions: await getAccountHistory(c.env, destination, network),
-  });
-}
-
 async function handleSend(
   c: Context<WorkerBindings>,
   fallbackNetwork: StellarNetwork = 'testnet',
@@ -259,6 +215,7 @@ async function handleSend(
 
     ensureTrustline(destinationAccount, assetDefinition, 'Recipient wallet');
   }
+  assertSufficientBalance(sourceAccount, assetDefinition, amount);
 
   const { operationType, transaction } = buildPaymentTransaction({
     amount,
@@ -266,6 +223,7 @@ async function handleSend(
     destination,
     destinationAccount,
     env: c.env,
+    memo: String(body.memo || ''),
     network,
     sourceAccount,
   });
@@ -317,29 +275,11 @@ async function handleSwapQuote(
   const sourceAddress = String(body.sourceAddress || '').trim();
   assertStellarAddress(sourceAddress, 'Swap wallet');
 
-  if (network === 'testnet') {
-    const result = await quoteDemoSwap(c.env, {
-      amount: body.amount,
-      fromAssetCode: body.fromAssetCode,
-      toAssetCode: body.toAssetCode,
-    });
-
-    return c.json({
-      destMin: result.toAmount,
-      fromAmount: result.fromAmount,
-      fromAssetCode: result.fromAssetCode,
-      network,
-      rate: result.rate,
-      simulated: true,
-      toAmount: result.toAmount,
-      toAssetCode: result.toAssetCode,
-    });
-  }
-
-  const result = await quoteMainnetSwap(c.env, {
+  const result = await quoteStellarSwap(c.env, {
     amount: body.amount,
     fromAssetCode: body.fromAssetCode,
     fromAssetIssuer: body.fromAssetIssuer,
+    network,
     sourceAddress,
     toAssetCode: body.toAssetCode,
     toAssetIssuer: body.toAssetIssuer,
@@ -369,24 +309,16 @@ async function handleSwapExecute(c: Context<WorkerBindings>, fallbackNetwork?: S
   });
   assertStellarAddress(sourceAddress, 'Swap wallet');
 
-  const result =
-    network === 'mainnet'
-      ? await executeMainnetSwap(c.env, {
-          amount: body.amount,
-          fromAssetCode: body.fromAssetCode,
-          fromAssetIssuer: body.fromAssetIssuer,
-          sourceAddress,
-          sourceWalletId,
-          toAssetCode: body.toAssetCode,
-          toAssetIssuer: body.toAssetIssuer,
-        })
-      : await swapDemoAsset(c.env, {
-          amount: body.amount,
-          fromAssetCode: body.fromAssetCode,
-          sourceAddress,
-          sourceWalletId,
-          toAssetCode: body.toAssetCode,
-        });
+  const result = await executeStellarSwap(c.env, {
+    amount: body.amount,
+    fromAssetCode: body.fromAssetCode,
+    fromAssetIssuer: body.fromAssetIssuer,
+    network,
+    sourceAddress,
+    sourceWalletId,
+    toAssetCode: body.toAssetCode,
+    toAssetIssuer: body.toAssetIssuer,
+  });
   const refreshedSource = await getAccountBalances(c.env, sourceAddress, network);
   const transactionItem = buildSubmittedTransactionItem({
     amount: result.fromAmount,
@@ -396,7 +328,7 @@ async function handleSwapExecute(c: Context<WorkerBindings>, fallbackNetwork?: S
     env: c.env,
     from: sourceAddress,
     network,
-    operation: network === 'mainnet' ? 'path_payment_strict_send' : 'payment',
+    operation: 'path_payment_strict_send',
     submitted: result.submitted,
     to: result.payoutAddress,
   });
@@ -422,7 +354,6 @@ export function registerStellarRoutes(app: Hono<WorkerBindings>) {
   app.get('/api/stellar/:network/:address', c => handleStellarLookup(c));
   app.post('/api/stellar/:network/fund', c => handleFund(c));
   app.post('/api/stellar/:network/trustline', c => handleTrustline(c));
-  app.post('/api/stellar/:network/fund-asset', c => handleFundAsset(c));
   app.post('/api/stellar/:network/send', c => handleSend(c));
   app.post('/api/stellar/:network/swap/quote', c => handleSwapQuote(c));
   app.post('/api/stellar/:network/swap/execute', c => handleSwapExecute(c));
@@ -431,7 +362,6 @@ export function registerStellarRoutes(app: Hono<WorkerBindings>) {
   app.get('/api/stellar/:address', c => handleStellarLookup(c, 'testnet'));
   app.post('/api/stellar/fund', c => handleFund(c, 'testnet'));
   app.post('/api/stellar/trustline', c => handleTrustline(c, 'testnet'));
-  app.post('/api/stellar/fund-asset', c => handleFundAsset(c, 'testnet'));
   app.post('/api/stellar/send', c => handleSend(c, 'testnet'));
   app.post('/api/stellar/swap/quote', c => handleSwapQuote(c, 'testnet'));
   app.post('/api/stellar/swap/execute', c => handleSwapExecute(c, 'testnet'));

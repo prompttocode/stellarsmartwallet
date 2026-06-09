@@ -1,12 +1,9 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   ImageBackground,
-  LayoutAnimation,
-  Platform,
+  RefreshControl,
   ScrollView,
   Text,
-  TextInput,
-  UIManager,
   View,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -26,6 +23,7 @@ import {
 } from '@components/wallet';
 import { WalletManagerModal } from '@components/wallet';
 import { useCurrencyConfig } from '@contexts/CurrencyContext';
+import type { BalanceItem } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
 
 const portfolioBackground = require('@assets/images/background/backstellar.png');
@@ -35,7 +33,10 @@ export function PortfolioScreen({
   onGoToSend,
   onGoToSwap,
   onGoToFaucet,
-  onGoToWallets,
+  onGoToRamp,
+  onGoToAssetSearch,
+  onGoToAssetDetail,
+  onGoToWallets: _onGoToWallets,
   onGoToTransaction,
   onGoToHistory,
   onGoToScan,
@@ -45,6 +46,9 @@ export function PortfolioScreen({
   onGoToSend: (assetCode?: string) => void;
   onGoToSwap: () => void;
   onGoToFaucet: () => void;
+  onGoToRamp: () => void;
+  onGoToAssetSearch: () => void;
+  onGoToAssetDetail: (asset: BalanceItem) => void;
   onGoToWallets: () => void;
   onGoToTransaction: (id: string) => void;
   onGoToHistory: () => void;
@@ -52,25 +56,9 @@ export function PortfolioScreen({
   wallet: WalletState;
 }) {
   const [hidden, setHidden] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
   const [isWalletModalVisible, setIsWalletModalVisible] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const { selectedCurrency, convertFromUSD, loading } = useCurrencyConfig();
-
-  useEffect(() => {
-    if (
-      Platform.OS === 'android' &&
-      UIManager.setLayoutAnimationEnabledExperimental
-    ) {
-      UIManager.setLayoutAnimationEnabledExperimental(true);
-    }
-  }, []);
-
-  const toggleSearch = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setIsSearching(!isSearching);
-    if (isSearching) setSearchQuery('');
-  };
 
   const baseUsdValue = calculateTotalUsdValue(wallet.balances);
   const convertedValue = convertFromUSD(baseUsdValue);
@@ -96,28 +84,6 @@ export function PortfolioScreen({
 
   const assets = getModernAssets(wallet.balances, wallet.visibleAssets);
 
-  const filteredAssets = useMemo(() => {
-    if (!searchQuery) return assets;
-    const q = searchQuery.toLowerCase();
-    return assets.filter(
-      asset =>
-        asset.assetCode.toLowerCase().includes(q) || asset.balance.includes(q),
-    );
-  }, [assets, searchQuery]);
-
-  const filteredTransactions = useMemo(() => {
-    if (!searchQuery) return wallet.transactions;
-    const q = searchQuery.toLowerCase();
-    return wallet.transactions.filter(
-      transaction =>
-        transaction.id.toLowerCase().includes(q) ||
-        transaction.operation.toLowerCase().includes(q) ||
-        transaction.direction.toLowerCase().includes(q) ||
-        (transaction.assetCode &&
-          transaction.assetCode.toLowerCase().includes(q)),
-    );
-  }, [wallet.transactions, searchQuery]);
-
   function faucetAsset(assetCode: string) {
     if (wallet.isMainnet) {
       onGoToFaucet();
@@ -129,7 +95,21 @@ export function PortfolioScreen({
       return;
     }
 
-    wallet.fundTestAsset(assetCode);
+    onGoToRamp();
+  }
+
+  async function refreshPortfolio() {
+    if (isRefreshing) {
+      return;
+    }
+
+    setIsRefreshing(true);
+
+    try {
+      await wallet.refreshSession();
+    } finally {
+      setIsRefreshing(false);
+    }
   }
 
   return (
@@ -140,7 +120,16 @@ export function PortfolioScreen({
       style={modern.portfolioRoot}
     >
       <ScrollView
+        alwaysBounceVertical
         contentContainerStyle={modern.screen}
+        refreshControl={
+          <RefreshControl
+            colors={['#3867D6']}
+            onRefresh={refreshPortfolio}
+            refreshing={isRefreshing}
+            tintColor="#3867D6"
+          />
+        }
         showsVerticalScrollIndicator={false}
       >
         <WalletHero
@@ -154,7 +143,7 @@ export function PortfolioScreen({
             )
           }
           onScan={onGoToScan}
-          onSearch={toggleSearch}
+          onSearch={onGoToAssetSearch}
           onWalletPress={() => setIsWalletModalVisible(true)}
           network={wallet.network}
           portfolioValue={portfolioValue}
@@ -219,30 +208,16 @@ export function PortfolioScreen({
               action={
                 <View style={modern.sectionHeaderActions}>
                   <PressScale
-                    onPress={toggleSearch}
+                    onPress={onGoToAssetSearch}
                     style={modern.sectionIconButton}
                   >
-                    <Ionicons
-                      color={isSearching ? '#3867D6' : '#7E8BA3'}
-                      name="search"
-                      size={18}
-                    />
+                    <Ionicons color="#3867D6" name="search" size={18} />
                   </PressScale>
                 </View>
               }
               title="My assets"
             />
-            {isSearching && (
-              <TextInput
-                style={[modern.modernInput, modern.assetSearchInput]}
-                placeholder="Search assets or transactions..."
-                placeholderTextColor="#A7B3BA"
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                autoFocus
-              />
-            )}
-            {filteredAssets.map((asset, index) => (
+            {assets.map((asset, index) => (
               <AssetListItem
                 asset={asset}
                 disabled={wallet.isBusy}
@@ -251,6 +226,7 @@ export function PortfolioScreen({
                 onAdd={wallet.addTrustline}
                 onSend={onGoToSend}
                 onFaucet={faucetAsset}
+                onPress={onGoToAssetDetail}
               />
             ))}
           </View>
@@ -263,10 +239,7 @@ export function PortfolioScreen({
               </Text>
             ) : wallet.collectibles.length > 0 ? (
               wallet.collectibles.map(collectible => (
-                <View
-                  key={collectible.id}
-                  style={modern.assetModernRow}
-                >
+                <View key={collectible.id} style={modern.assetModernRow}>
                   <TokenIcon assetCode={collectible.assetCode} />
                   <View style={modern.assetModernBody}>
                     <Text numberOfLines={1} style={modern.assetModernName}>
@@ -317,7 +290,7 @@ export function PortfolioScreen({
           <View style={modern.sectionCard}>
             <SectionHeader
               action={
-                filteredTransactions.length > 5 ? (
+                wallet.transactions.length > 5 ? (
                   <PressScale onPress={onGoToHistory}>
                     <Text style={modern.sectionActionText}>View all</Text>
                   </PressScale>
@@ -325,8 +298,10 @@ export function PortfolioScreen({
               }
               title="Recent Transactions"
             />
-            {filteredTransactions.slice(0, 5).map(transaction => {
-              const assetItem = assets.find(item => item.assetCode === transaction.assetCode);
+            {wallet.transactions.slice(0, 5).map(transaction => {
+              const assetItem = assets.find(
+                item => item.assetCode === transaction.assetCode,
+              );
               return (
                 <TransactionListItem
                   key={transaction.id}
@@ -336,12 +311,8 @@ export function PortfolioScreen({
                 />
               );
             })}
-            {filteredTransactions.length === 0 && (
-              <Text style={modern.emptyModernText}>
-                {searchQuery
-                  ? 'No matching results found.'
-                  : 'No transactions yet.'}
-              </Text>
+            {wallet.transactions.length === 0 && (
+              <Text style={modern.emptyModernText}>No transactions yet.</Text>
             )}
           </View>
         </View>

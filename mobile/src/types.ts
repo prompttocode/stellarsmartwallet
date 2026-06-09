@@ -161,13 +161,6 @@ export type TrustlineResult = {
   transactions: TransactionItem[];
 };
 
-export type FundAssetResult = {
-  balances: BalanceItem[];
-  network?: StellarNetwork;
-  transaction: TransactionItem;
-  transactions: TransactionItem[];
-};
-
 export type FundNftResult = {
   alreadyClaimed: boolean;
   balances: BalanceItem[];
@@ -218,6 +211,91 @@ export type RampProvider = {
 
 export type RampProvidersResponse = {
   providers: RampProvider[];
+};
+
+export type RampDirection = 'buy' | 'sell';
+export type RampAssetCode = 'XLM' | 'USDC';
+
+export type RampQuote = {
+  amount: string;
+  asset_code: RampAssetCode;
+  created_at: string;
+  direction: RampDirection;
+  fee_rate: number;
+  fee_vnd: number;
+  gross_vnd: number;
+  max_order_amount: number | null;
+  min_fee_vnd: number;
+  min_order_amount: number;
+  rate: number;
+  source: string;
+  total_vnd: number;
+};
+
+export type RampBankInfo = {
+  bankAccountName: string;
+  bankAccountNumber: string;
+  bankName: string;
+  transferContent: string;
+  vaAmount: number;
+};
+
+export type RampTimestamp =
+  | string
+  | {
+      nanos?: number;
+      seconds: number;
+    };
+
+export type RampOrder = {
+  amount: number | string;
+  asset_code: RampAssetCode;
+  body?: {
+    bankInfo?: RampBankInfo;
+    qr_link?: string;
+  };
+  chain_id: number;
+  code: string;
+  created_at?: RampTimestamp;
+  currency?: string;
+  expired_at?: RampTimestamp;
+  id: string;
+  order_type: RampDirection;
+  pay_data?: {
+    address?: string;
+  };
+  payment_info?: {
+    account_number?: string;
+    account_type?: number;
+    bank_account_name?: string;
+    bank_account_no?: string;
+    bank_id?: string;
+    full_name?: string;
+  };
+  processing_state: number;
+  provider?: string;
+  rate?: number;
+  sell_transaction_hash?: string;
+  state: number;
+  token_address?: string;
+  total_fee_vnd?: number;
+  transaction_hash?: string | null;
+};
+
+export type RampApiResponse<T> = {
+  data: T;
+  success: boolean;
+};
+
+export type RampOrderHistoryResponse = RampApiResponse<{
+  orders: RampOrder[];
+}>;
+
+export type RampPaymentInfo = {
+  accountNumber: string;
+  accountType: 0 | 1 | 2;
+  bankId: string;
+  fullName: string;
 };
 
 export type WalletConnectConfig = {
