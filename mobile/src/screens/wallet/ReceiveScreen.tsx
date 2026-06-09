@@ -119,7 +119,10 @@ export function ReceiveScreen({
       <View style={modern.sectionCard}>
         <SectionHeader title="Receivable assets" />
         {assets.map(asset => {
-          const canReceive = asset.isNative || asset.trusted;
+          const needsTrustline = !asset.isNative && !asset.trusted;
+          const canReceive = !needsTrustline;
+          const enableDisabled =
+            wallet.isBusy || (wallet.isMainnet && !wallet.walletActive);
 
           return (
             <View
@@ -134,16 +137,20 @@ export function ReceiveScreen({
                     ? `Ready to receive · ${formatTokenAmount(asset.balance, {
                         compact: true,
                       })}`
-                    : 'Add trustline before receiving'}
+                    : wallet.isMainnet && !wallet.walletActive
+                    ? 'Deposit XLM first, then enable receiving'
+                    : 'Enable receiving before deposits'}
                 </Text>
               </View>
-              {!canReceive ? (
+              {needsTrustline ? (
                 <PressScale
-                  disabled={wallet.isBusy}
-                  onPress={() => wallet.addTrustline(asset.assetCode)}
+                  disabled={enableDisabled}
+                  onPress={() =>
+                    wallet.addTrustline(asset.assetCode, asset.assetIssuer)
+                  }
                   style={modern.assetAddButton}
                 >
-                  <Text style={modern.assetButtonText}>Add</Text>
+                  <Text style={modern.assetButtonText}>Enable</Text>
                 </PressScale>
               ) : null}
             </View>

@@ -14,7 +14,8 @@ Backend sẽ:
 - Tạo/khôi phục ví Stellar theo tài khoản.
 - Đọc balance, token list, lịch sử giao dịch từ Stellar Horizon.
 - Ký và gửi giao dịch Stellar qua ví Privy.
-- Cung cấp helper cho testnet demo như Friendbot, token demo, receiver demo.
+- Cung cấp helper cho testnet demo như Friendbot, token demo, NFT demo,
+  receiver demo.
 
 Mobile app không được gọi Privy secret API hoặc giữ `PRIVY_APP_SECRET`.
 
@@ -114,6 +115,7 @@ Status lỗi hay gặp:
 | `GET /api/health` | Kiểm tra backend sống và config public. | `200 { ok, privyAppId, networks, walletConnectConfigured }` | `500` nếu server lỗi. |
 | `GET /api/networks` | Lấy danh sách `testnet/mainnet` app có thể switch. | `200 { networks }` | `500` nếu server lỗi. |
 | `GET /api/assets?network=testnet` | Lấy token list theo network. | `200 { network, assets }` | `400` network sai, `500` lỗi asset service. |
+| `GET /api/collectibles?network=testnet&address=G...` | Lấy danh sách NFT/collectible demo theo ví. | `200 { network, collectibles }` | `400` address sai, `500/502` lỗi issuer/Horizon. |
 
 ## Session APIs
 
@@ -190,6 +192,7 @@ Body demo wallet thường dùng:
 | `POST /api/stellar/:network/fund-asset` | Nạp token demo testnet như USDC/USDT demo. | `200 { balances, transaction, transactions }` | `400` asset/amount/address sai, ví nhận chưa active hoặc thiếu trustline. |
 | `POST /api/stellar/:network/trustline` | Thêm trustline cho token không phải XLM. | `200 { alreadyTrusted, transaction, balances, transactions }` | `400` ví chưa active/asset sai, `401` mainnet thiếu token, `403` ví không thuộc account/watch-only. |
 | `POST /api/stellar/:network/send` | Gửi XLM hoặc token Stellar. | `200 { hash, ledger, transaction, sourceBalances, destinationBalances, transactions }` | `400` amount/address/asset sai, ví chưa active, ví nhận thiếu trustline; `401` mainnet thiếu token; `403` ví không thuộc account/watch-only. |
+| `POST /api/stellar/:network/fund-nft` | Claim NFT demo Testnet `SOWNFT`. Backend tự thêm trustline nếu cần rồi gửi supply `1`. | `200 { alreadyClaimed, balances, collectibles, transaction, trustlineTransaction, transactions }` | `400` chỉ hỗ trợ testnet/ví chưa active, `403` ví không thuộc account/watch-only, `502` Horizon/Privy lỗi. |
 | `POST /api/stellar/:network/swap/quote` | Xem trước tỷ giá swap. | `200 { fromAmount, toAmount, rate, destMin, network }` | `400` address/amount/asset sai hoặc mainnet không tìm được path. |
 | `POST /api/stellar/:network/swap/execute` | Thực thi swap. `POST /api/stellar/:network/swap` là alias. | `200 { hash, ledger, transaction, balances, transactions }` | `400` swap invalid/thiếu balance/trustline/path, `401` mainnet thiếu token, `403` ví không thuộc account/watch-only. |
 
@@ -215,6 +218,7 @@ Route cũ không có `:network` vẫn tồn tại và luôn chạy như testnet:
 GET /api/stellar/:address
 POST /api/stellar/fund
 POST /api/stellar/fund-asset
+POST /api/stellar/fund-nft
 POST /api/stellar/trustline
 POST /api/stellar/send
 POST /api/stellar/swap/quote

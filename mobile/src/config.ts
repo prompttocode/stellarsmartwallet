@@ -2,7 +2,7 @@
 // API_BASE_URL is your backend server URL, not Stellar Horizon.
 // For local device testing, use your computer LAN IP, e.g. http://192.168.x.x:8787.
 // For production, use your deployed backend URL, e.g. https://api.your-domain.com.
-export const API_BASE_URL = 'http://192.168.21.229:8787';
+export const API_BASE_URL = 'https://privy-stellar-api.namvu3121.workers.dev';
 
 // Privy public app identifiers from https://dashboard.privy.io.
 // Do not put PRIVY_APP_SECRET in the mobile app. It belongs in be/.env only.

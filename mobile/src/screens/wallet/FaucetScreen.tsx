@@ -145,7 +145,41 @@ export function FaucetScreen({
       <View style={modern.sectionCard}>
         <SectionHeader title={wallet.isMainnet ? 'Assets' : 'Choose asset'} />
         {assets.map(asset => {
-          const canUseFaucet = asset.isNative || asset.trusted;
+          const needsTrustline = !asset.isNative && !asset.trusted;
+          const canUseTestnetFaucet =
+            !wallet.isMainnet && (asset.isNative || wallet.walletActive);
+          const actionDisabled = wallet.isBusy
+            || (wallet.isMainnet
+              ? needsTrustline
+                ? !wallet.walletActive
+                : !canOpenExplorer
+              : !canUseTestnetFaucet);
+          const actionLabel = wallet.isMainnet
+            ? needsTrustline
+              ? 'Enable'
+              : wallet.walletActive
+              ? 'Explorer'
+              : 'Inactive'
+            : asset.isNative
+            ? 'Faucet'
+            : wallet.walletActive
+            ? 'Faucet'
+            : 'Fund XLM first';
+          const metaText = wallet.isMainnet
+            ? needsTrustline
+              ? wallet.walletActive
+                ? 'Enable receiving before deposits'
+                : 'Deposit XLM first, then enable receiving'
+              : `Current balance ${formatTokenAmount(asset.balance, {
+                  compact: true,
+                })}`
+            : needsTrustline
+            ? wallet.walletActive
+              ? 'Auto-enables receiving before faucet'
+              : 'Fund XLM first, then faucet this token'
+            : `Current balance ${formatTokenAmount(asset.balance, {
+                compact: true,
+              })}`;
 
           return (
             <View
@@ -156,38 +190,24 @@ export function FaucetScreen({
               <View style={modern.assetModernBody}>
                 <Text style={modern.assetModernName}>{asset.assetCode}</Text>
                 <Text style={modern.assetModernMeta}>
-                  {canUseFaucet
-                    ? wallet.isMainnet
-                      ? `Current balance ${formatTokenAmount(asset.balance, {
-                          compact: true,
-                        })}`
-                      : `Current balance ${formatTokenAmount(asset.balance, {
-                          compact: true,
-                        })}`
-                    : 'Add trustline before faucet'}
+                  {metaText}
                 </Text>
               </View>
               <PressScale
-                disabled={wallet.isBusy || (wallet.isMainnet && !canOpenExplorer)}
+                disabled={actionDisabled}
                 onPress={() =>
                   wallet.isMainnet
-                    ? wallet.openUrl(wallet.explorerAddressUrl)
-                    : canUseFaucet
-                    ? handleFaucet(asset.assetCode)
-                    : wallet.addTrustline(asset.assetCode)
+                    ? needsTrustline
+                      ? wallet.addTrustline(asset.assetCode, asset.assetIssuer)
+                      : wallet.openUrl(wallet.explorerAddressUrl)
+                    : handleFaucet(asset.assetCode)
                 }
                 style={
-                  canUseFaucet ? modern.assetFaucetButton : modern.assetAddButton
+                  !needsTrustline ? modern.assetFaucetButton : modern.assetAddButton
                 }
               >
                 <Text style={modern.assetButtonText}>
-                  {wallet.isMainnet
-                    ? wallet.walletActive
-                      ? 'Explorer'
-                      : 'Inactive'
-                    : canUseFaucet
-                    ? 'Faucet'
-                    : 'Add'}
+                  {actionLabel}
                 </Text>
               </PressScale>
             </View>

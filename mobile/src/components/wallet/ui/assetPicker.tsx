@@ -13,7 +13,7 @@ type AssetFilter = 'all' | 'available' | 'needsTrustline';
 const filters: { label: string; value: AssetFilter }[] = [
   { label: 'All', value: 'all' },
   { label: 'Available', value: 'available' },
-  { label: 'Needs trustline', value: 'needsTrustline' },
+  { label: 'Needs enable', value: 'needsTrustline' },
 ];
 
 function getPickerAssetKey(asset: AssetItem) {
@@ -372,7 +372,7 @@ export function AssetPickerModal({
                                 : modern.assetBadgeTextTrustline,
                             ]}
                           >
-                            {available ? 'Available' : 'Trustline'}
+                            {available ? 'Available' : 'Enable'}
                           </Text>
                         </View>
                       </View>
@@ -413,7 +413,7 @@ export function AssetPickerModal({
                         }
                         style={modern.assetPickerAddButton}
                       >
-                        <Text style={modern.assetPickerAddText}>Add</Text>
+                        <Text style={modern.assetPickerAddText}>Enable</Text>
                       </PressScale>
                     ) : null}
                   </View>

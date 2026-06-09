@@ -60,7 +60,7 @@ export function AssetRow({
 }: {
   asset: BalanceItem;
   disabled?: boolean;
-  onAddTrustline: (assetCode: string) => void;
+  onAddTrustline: (assetCode: string, assetIssuer?: string | null) => void;
   onFundTestAsset: (assetCode: string) => void;
   onSend: (assetCode: string) => void;
 }) {
@@ -69,8 +69,8 @@ export function AssetRow({
   const statusText = asset.isNative
     ? 'Native Stellar coin'
     : asset.trusted
-      ? 'Demo token added'
-      : 'Not added to wallet';
+      ? 'Receiving enabled'
+      : 'Not enabled';
 
   return (
     <View style={styles.assetRow}>
@@ -84,15 +84,15 @@ export function AssetRow({
         <Text style={styles.assetBalance}>
           {asset.trusted || asset.isNative
             ? formatTokenAmount(asset.balance, { compact: true })
-            : 'Not added'}
+            : 'Not enabled'}
         </Text>
         {canAddTrustline ? (
           <Pressable
             disabled={disabled}
-            onPress={() => onAddTrustline(asset.assetCode)}
+            onPress={() => onAddTrustline(asset.assetCode, asset.assetIssuer)}
             style={styles.inlineButton}
           >
-            <Text style={styles.inlineButtonText}>Add token</Text>
+            <Text style={styles.inlineButtonText}>Enable</Text>
           </Pressable>
         ) : null}
         {canFundTestAsset ? (

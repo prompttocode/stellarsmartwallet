@@ -14,10 +14,13 @@ import type {
   AssetsResponse,
   Balance,
   BalanceItem,
+  CollectibleItem,
+  CollectiblesResponse,
   Contact,
   WalletAccount,
   ExportWalletResult,
   FundAssetResult,
+  FundNftResult,
   Health,
   RampProvider,
   RampProvidersResponse,
@@ -139,6 +142,7 @@ export function useWallet() {
   const [network, setNetwork] = useState<StellarNetwork>('testnet');
   const [networks, setNetworks] = useState<StellarNetworkInfo[]>([]);
   const [assets, setAssets] = useState<AssetItem[]>([]);
+  const [collectibles, setCollectibles] = useState<CollectibleItem[]>([]);
   const [account, setAccount] = useState<WalletAccount | null>(null);
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [activeWalletId, setActiveWalletId] = useState<string | null>(null);
@@ -274,11 +278,30 @@ export function useWallet() {
     setRecipientBalances([]);
   }
 
+  async function loadCollectibles(
+    walletAddress: string | undefined,
+    targetNetwork: StellarNetwork,
+  ) {
+    if (!walletAddress) {
+      setCollectibles([]);
+      return [];
+    }
+
+    const result = await api<CollectiblesResponse>(
+      `/api/collectibles?network=${targetNetwork}&address=${walletAddress}`,
+    );
+
+    setCollectibles(result.collectibles || []);
+
+    return result.collectibles || [];
+  }
+
   function clearWalletSession(nextMessage?: string) {
     setAccount(null);
     setWallets([]);
     setActiveWalletId(null);
     setBalances([]);
+    setCollectibles([]);
     resetRecipientState();
     setTransactions([]);
     setCode('');
@@ -315,6 +338,33 @@ export function useWallet() {
     setTransactions(session.transactions);
     setMessage(nextMessage);
   }, [network]);
+
+  useEffect(() => {
+    if (!wallet?.address) {
+      setCollectibles([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    api<CollectiblesResponse>(
+      `/api/collectibles?network=${network}&address=${wallet.address}`,
+    )
+      .then(result => {
+        if (!cancelled) {
+          setCollectibles(result.collectibles || []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCollectibles([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [network, wallet?.address]);
 
   const refreshPrivySecuritySession = useCallback(async () => {
     if (!isReady || !user) {
@@ -686,8 +736,91 @@ export function useWallet() {
 
       setBalances(result.balances || []);
       setTransactions(current => result.transactions || current);
+      await loadCollectibles(wallet.address, network);
       setMessage('Test XLM funded from Stellar Testnet Friendbot.');
     });
+  }
+
+  async function ensureWalletTrustline(
+    assetCode: string,
+    assetIssuer?: string | null,
+    options: { confirmMainnet?: boolean } = {},
+  ) {
+    if (!account || !wallet) {
+      throw new Error('Create or select a wallet first.');
+    }
+
+    const assetDefinition =
+      visibleAssets.find(
+        asset =>
+          asset.assetCode === assetCode &&
+          (!assetIssuer || asset.assetIssuer === assetIssuer),
+      ) || visibleAssets.find(asset => asset.assetCode === assetCode);
+
+    if (!assetDefinition) {
+      throw new Error(`${assetCode} is not available on Stellar ${network}.`);
+    }
+
+    if (assetDefinition.isNative) {
+      return {
+        alreadyTrusted: true,
+        balances,
+        network,
+        transaction: null,
+        transactions,
+      } satisfies TrustlineResult;
+    }
+
+    const existingBalance = balances.find(
+      balance =>
+        balance.assetCode === assetDefinition.assetCode &&
+        (balance.assetIssuer || null) === (assetDefinition.assetIssuer || null),
+    );
+
+    if (existingBalance?.trusted) {
+      return {
+        alreadyTrusted: true,
+        balances,
+        network,
+        transaction: null,
+        transactions,
+      } satisfies TrustlineResult;
+    }
+
+    if (isMainnet && !walletActive) {
+      throw new Error(
+        'Deposit real XLM into this Mainnet wallet before enabling token receiving.',
+      );
+    }
+
+    if (isMainnet && options.confirmMainnet) {
+      await requireBiometric(
+        `Confirm to enable receiving ${assetDefinition.assetCode} on Mainnet`,
+      );
+    }
+
+    const headers = await getAuthHeaders(isMainnet);
+    const result = await api<TrustlineResult>(
+      `/api/stellar/${network}/trustline`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          accountId: account.id,
+          assetCode: assetDefinition.assetCode,
+          assetIssuer: assetIssuer || assetDefinition.assetIssuer || null,
+          email: account.email,
+          sourceAddress: wallet.address,
+          sourceWalletId: wallet.id,
+        }),
+      },
+    );
+
+    setBalances(result.balances);
+    setTransactions(result.transactions);
+    await loadCollectibles(wallet.address, network);
+
+    return result;
   }
 
   async function addTrustline(assetCode: string, assetIssuer?: string | null) {
@@ -695,40 +828,15 @@ export function useWallet() {
       return;
     }
 
-    await run(`Adding ${assetCode}`, async () => {
-      if (isMainnet) {
-        await requireBiometric('Confirm to add a Mainnet trustline');
-      }
+    await run(`Enabling ${assetCode}`, async () => {
+      const result = await ensureWalletTrustline(assetCode, assetIssuer, {
+        confirmMainnet: true,
+      });
 
-      const assetDefinition =
-        visibleAssets.find(
-          asset =>
-            asset.assetCode === assetCode &&
-            (!assetIssuer || asset.assetIssuer === assetIssuer),
-        ) || visibleAssets.find(asset => asset.assetCode === assetCode);
-      const headers = await getAuthHeaders(isMainnet);
-      const result = await api<TrustlineResult>(
-        `/api/stellar/${network}/trustline`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            accountId: account?.id,
-            assetCode,
-            assetIssuer: assetIssuer || assetDefinition?.assetIssuer || null,
-            email: account?.email,
-            sourceAddress: wallet.address,
-            sourceWalletId: wallet.id,
-          }),
-        },
-      );
-
-      setBalances(result.balances);
-      setTransactions(result.transactions);
       setMessage(
         result.alreadyTrusted
-          ? `Wallet already has a ${assetCode} trustline.`
-          : `${assetCode} trustline added.`,
+          ? `${assetCode} receiving is already enabled.`
+          : `${assetCode} receiving enabled.`,
       );
     });
   }
@@ -745,6 +853,7 @@ export function useWallet() {
         );
       }
 
+      const trustlineResult = await ensureWalletTrustline(assetCode);
       const result = await api<FundAssetResult>(
         `/api/stellar/${network}/fund-asset`,
         {
@@ -759,7 +868,61 @@ export function useWallet() {
 
       setBalances(result.balances);
       setTransactions(result.transactions);
-      setMessage(`Funded 100 demo ${assetCode}.`);
+      await loadCollectibles(wallet.address, network);
+      setMessage(
+        trustlineResult.alreadyTrusted
+          ? `Funded 100 demo ${assetCode}.`
+          : `${assetCode} receiving enabled and funded with 100 demo ${assetCode}.`,
+      );
+    });
+  }
+
+  async function refreshCollectibles() {
+    if (!wallet) {
+      setCollectibles([]);
+      return [];
+    }
+
+    return run(
+      'Refreshing collectibles',
+      () => loadCollectibles(wallet.address, network),
+      { showAlert: false },
+    );
+  }
+
+  async function claimDemoNft() {
+    if (!account || !wallet) {
+      return null;
+    }
+
+    return run('Claiming demo NFT', async () => {
+      if (isMainnet) {
+        throw new Error('Demo NFT claiming is only available on Stellar Testnet.');
+      }
+
+      const result = await api<FundNftResult>(
+        `/api/stellar/${network}/fund-nft`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            accountId: account.id,
+            email: account.email,
+            sourceAddress: wallet.address,
+            sourceWalletId: wallet.id,
+          }),
+        },
+      );
+
+      setBalances(result.balances);
+      setCollectibles(result.collectibles);
+      setTransactions(result.transactions);
+      setMessage(
+        result.alreadyClaimed
+          ? 'Demo NFT already claimed.'
+          : 'Demo NFT claimed on Stellar Testnet.',
+      );
+
+      return result;
     });
   }
 
@@ -801,6 +964,13 @@ export function useWallet() {
     }
 
     return run(`Sending ${selectedAssetCode}`, async () => {
+      if (!isMainnet && selectedAssetCode !== 'XLM') {
+        await ensureWalletTrustline(
+          selectedAssetCode,
+          selectedAsset?.assetIssuer || null,
+        );
+      }
+
       const headers = await getAuthHeaders(isMainnet);
       const result = await api<SendResult>(`/api/stellar/${network}/send`, {
         method: 'POST',
@@ -968,6 +1138,7 @@ export function useWallet() {
 
       if (!account) {
         setBalances([]);
+        setCollectibles([]);
         setTransactions([]);
         setMessage(
           nextNetwork === 'mainnet'
@@ -990,6 +1161,7 @@ export function useWallet() {
           ? 'Switched to Mainnet. Deposit real XLM to activate this wallet.'
           : 'Switched to Testnet.',
       );
+      await loadCollectibles(session.account.wallet?.address, nextNetwork);
 
       return session;
     });
@@ -1089,8 +1261,10 @@ export function useWallet() {
     assets,
     balances,
     busy,
+    claimDemoNft,
     code,
     codeSent,
+    collectibles,
     createTestReceiver,
     createWallet,
     email,
@@ -1119,6 +1293,7 @@ export function useWallet() {
     recipientContact,
     recipientSelectedBalance,
     refreshPrivySecuritySession,
+    refreshCollectibles,
     refreshSession,
     renameWallet,
     resetLoginCode,

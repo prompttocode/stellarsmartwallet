@@ -1,0 +1,16 @@
+name = "privy-stellar-api"
+main = "src/index.ts"
+compatibility_date = "2026-06-08"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ALLOWED_ORIGINS = "*"
+HORIZON_TESTNET_URL = "https://horizon-testnet.stellar.org"
+HORIZON_MAINNET_URL = "https://horizon.stellar.org"
+FRIENDBOT_URL = "https://friendbot.stellar.org"
+WALLETCONNECT_PROJECT_ID = ""
+
+[[d1_databases]]
+binding = "DB"
+database_name = "privy_stellar_db"
+database_id = "582ba8ad-9a77-4330-a5f1-9b15afae4401"

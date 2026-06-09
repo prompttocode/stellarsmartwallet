@@ -22,6 +22,7 @@ import {
   modern,
   PressScale,
   TransactionListItem,
+  TokenIcon,
 } from '@components/wallet';
 import { WalletManagerModal } from '@components/wallet';
 import { useCurrencyConfig } from '@contexts/CurrencyContext';
@@ -252,6 +253,65 @@ export function PortfolioScreen({
                 onFaucet={faucetAsset}
               />
             ))}
+          </View>
+
+          <View style={modern.sectionCard}>
+            <SectionHeader title="Collectibles" />
+            {wallet.isMainnet ? (
+              <Text style={modern.emptyModernText}>
+                Demo collectibles are available on Stellar Testnet only.
+              </Text>
+            ) : wallet.collectibles.length > 0 ? (
+              wallet.collectibles.map(collectible => (
+                <View
+                  key={collectible.id}
+                  style={modern.assetModernRow}
+                >
+                  <TokenIcon assetCode={collectible.assetCode} />
+                  <View style={modern.assetModernBody}>
+                    <Text numberOfLines={1} style={modern.assetModernName}>
+                      {collectible.displayName}
+                    </Text>
+                    <Text numberOfLines={2} style={modern.assetModernMeta}>
+                      {collectible.claimed
+                        ? `${collectible.assetCode} claimed · supply ${collectible.supply}`
+                        : `${collectible.assetCode} demo NFT · claim on Testnet`}
+                    </Text>
+                  </View>
+                  <PressScale
+                    disabled={wallet.isBusy}
+                    onPress={() =>
+                      collectible.claimed
+                        ? wallet.openUrl(collectible.explorerUrl)
+                        : wallet.claimDemoNft()
+                    }
+                    style={
+                      collectible.claimed
+                        ? modern.assetFaucetButton
+                        : modern.assetAddButton
+                    }
+                  >
+                    <Text style={modern.assetButtonText}>
+                      {collectible.claimed ? 'View' : 'Claim'}
+                    </Text>
+                  </PressScale>
+                </View>
+              ))
+            ) : (
+              <>
+                <Text style={modern.emptyModernText}>
+                  No collectibles loaded yet. Claim the SOW demo NFT after your
+                  wallet has Testnet XLM.
+                </Text>
+                <PressScale
+                  disabled={wallet.isBusy || !wallet.walletActive}
+                  onPress={wallet.claimDemoNft}
+                  style={modern.primaryModernButton}
+                >
+                  <Text style={modern.modernButtonText}>Claim demo NFT</Text>
+                </PressScale>
+              </>
+            )}
           </View>
 
           <View style={modern.sectionCard}>

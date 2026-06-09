@@ -1,0 +1,33 @@
+Ghi chú tình trạng app hiện tại
+
+Hiện tại app đã hoàn thành phần lõi của ví Stellar. Backend đã live trên
+Cloudflare Worker, dữ liệu dùng Cloudflare D1, mobile đã kết nối với backend
+public.
+
+Các chức năng đã có:
+
+- Đăng nhập bằng Privy email OTP và Google/social login.
+- Tạo, load và quản lý ví Stellar.
+- Chọn ví, đổi tên ví, archive ví.
+- Hỗ trợ ví Privy managed, ví import và ví watch-only.
+- Chuyển đổi giữa Testnet và Mainnet.
+- Hiển thị balance và danh sách asset.
+- Testnet có XLM faucet và demo token USDC/USDT.
+- Nhận token bằng QR code, address và share address.
+- Gửi XLM/token, có màn review trước khi gửi.
+- Có biometric confirm cho thao tác nhạy cảm.
+- Có transaction history, transaction detail, hash và link Stellar Expert.
+- Testnet tự enable receiving/trustline khi faucet hoặc gửi token demo.
+- Mainnet cho phép enable receiving token nhưng yêu cầu user xác nhận.
+- Có Collectibles section và demo NFT Instawards Completion NFT / SOWNFT.
+- Có Mainnet readiness: address, balance, deposit QR và cảnh báo real assets.
+- Có swap, WalletConnect nền và ramp placeholder.
+- Có tài liệu API, deploy Cloudflare và checklist/evidence cho SOW.
+
+Ghi chú:
+
+- Testnet flow đã sẵn sàng để demo và lấy evidence.
+- Mainnet đã sẵn sàng cho MVP testing. Nếu muốn xác nhận giao dịch thật thì cần
+  nạp một lượng XLM nhỏ vào ví Mainnet và test với amount nhỏ.
+- Search asset Mainnet hiện đang lọc trong danh sách asset verified có sẵn, chưa
+  search toàn bộ asset registry để tránh user chọn nhầm token giả mạo.

@@ -1,0 +1,26 @@
+{
+  "name": "privy-stellar-worker-api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "d1:apply:local": "wrangler d1 execute privy_stellar_db --local --file=./schema.sql",
+    "d1:apply:remote": "wrangler d1 execute privy_stellar_db --remote --file=./schema.sql"
+  },
+  "dependencies": {
+    "@privy-io/node": "^0.19.0",
+    "@stellar/stellar-sdk": "^15.0.0",
+    "hono": "^4.10.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260603.0",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.50.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -22,18 +22,21 @@ export function AssetListItem({
   asset: BalanceItem;
   disabled?: boolean;
   index: number;
-  onAdd: (assetCode: string) => void;
+  onAdd: (assetCode: string, assetIssuer?: string | null) => void;
   onSend: (assetCode: string) => void;
-  onFaucet: (assetCode: string) => void;
+  onFaucet: (assetCode: string, assetIssuer?: string | null) => void;
 }) {
   const canUse = asset.isNative || asset.trusted;
+  const needsTrustline = !asset.isNative && !asset.trusted;
   const buttonLabel = canUse
     ? asset.network === 'mainnet'
       ? 'Deposit'
       : 'Faucet'
-    : 'Add';
-  const buttonAction = canUse ? onFaucet : onAdd;
-  const badgeLabel = !canUse
+    : asset.network === 'mainnet'
+    ? 'Enable'
+    : 'Faucet';
+  const buttonAction = canUse || asset.network === 'testnet' ? onFaucet : onAdd;
+  const badgeLabel = needsTrustline
     ? 'Trustline needed'
     : asset.demo
     ? 'Demo'
@@ -44,7 +47,9 @@ export function AssetListItem({
     ? 'Lumens · Native Stellar coin'
     : asset.trusted
     ? `${asset.displayName} · ${asset.homeDomain || asset.trustLevel}`
-    : `${asset.displayName} · add trustline first`;
+    : asset.network === 'mainnet'
+    ? `${asset.displayName} · enable receiving first`
+    : `${asset.displayName} · auto-enables before faucet`;
 
   return (
     <Animated.View
@@ -101,14 +106,14 @@ export function AssetListItem({
             numberOfLines={1}
             style={modern.assetModernBalance}
           >
-            {canUse ? formatTokenAmount(asset.balance, { compact: true }) : 'Not added'}
+            {canUse ? formatTokenAmount(asset.balance, { compact: true }) : 'Not enabled'}
           </Text>
           <Text style={modern.assetModernCode}>{asset.assetCode}</Text>
         </View>
       </PressScale>
       <PressScale
         disabled={disabled}
-        onPress={() => buttonAction(asset.assetCode)}
+        onPress={() => buttonAction(asset.assetCode, asset.assetIssuer)}
         style={canUse ? modern.assetFaucetButton : modern.assetAddButton}
       >
         <Text style={modern.assetButtonText}>{buttonLabel}</Text>

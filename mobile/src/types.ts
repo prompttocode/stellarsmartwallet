@@ -61,6 +61,20 @@ export type AssetsResponse = {
   network?: StellarNetwork;
 };
 
+export type CollectibleItem = AssetItem & {
+  balance: string;
+  claimed: boolean;
+  description: string;
+  explorerUrl: string | null;
+  id: string;
+  supply: string;
+};
+
+export type CollectiblesResponse = {
+  collectibles: CollectibleItem[];
+  network?: StellarNetwork;
+};
+
 export type BalanceItem = AssetItem & {
   balance: string;
   exists: boolean;
@@ -152,6 +166,16 @@ export type FundAssetResult = {
   network?: StellarNetwork;
   transaction: TransactionItem;
   transactions: TransactionItem[];
+};
+
+export type FundNftResult = {
+  alreadyClaimed: boolean;
+  balances: BalanceItem[];
+  collectibles: CollectibleItem[];
+  network?: StellarNetwork;
+  transaction: TransactionItem | null;
+  transactions: TransactionItem[];
+  trustlineTransaction?: TransactionItem | null;
 };
 
 export type SwapQuoteResult = {

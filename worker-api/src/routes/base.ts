@@ -1,0 +1,553 @@
+import type { Hono } from 'hono';
+import {
+  assertAccountWallet,
+  assertSecretKey,
+  assertStellarAddress,
+  buildAccountSession,
+  buildTrustlineTransaction,
+  createPrivyUser,
+  createSignableStellarWallet,
+  exportStellarWalletSecret,
+  findPrivyUserByEmail,
+  friendbotFund,
+  getAccountBalances,
+  getAccountHistory,
+  getEmailFromPrivyUser,
+  getIssuedAsset,
+  getOrCreateSessionAccountByEmail,
+  getPrivyClient,
+  getSupportedAssets,
+  getVisibleWallets,
+  importStellarWallet,
+  isEmailLike,
+  listNetworks,
+  loadAccount,
+  makeError,
+  normalizeAccountWallets,
+  normalizeEmail,
+  normalizeNetwork,
+  normalizeWallet,
+  nowIso,
+  privyRequest,
+  readJsonBody,
+  requireAccountContext,
+  requireDemoAccountByEmail,
+  sanitizeWalletName,
+  saveAccount,
+  saveContact,
+  shouldRequireMainnetAuth,
+  submitPrivySignedTransaction,
+  type StellarNetwork,
+  type WorkerBindings,
+} from '../core';
+
+export function registerBaseRoutes(app: Hono<WorkerBindings>) {
+  app.get('/api/health', c =>
+    c.json({
+      ok: true,
+      network: 'Stellar Testnet + Mainnet',
+      networks: listNetworks(c.env),
+      privyAppId: c.env.PRIVY_APP_ID || null,
+      runtime: 'cloudflare-workers',
+      walletConnectConfigured: Boolean(c.env.WALLETCONNECT_PROJECT_ID),
+    }),
+  );
+
+  app.get('/api/networks', c =>
+    c.json({
+      networks: listNetworks(c.env),
+    }),
+  );
+
+  app.get('/api/assets', async c => {
+    const network = normalizeNetwork(c.req.query('network'));
+    const assets = await getSupportedAssets(c.env, network, {
+      search: c.req.query('search'),
+    });
+
+    return c.json({
+      assets,
+      network,
+    });
+  });
+
+  app.get('/api/wallets', async c => {
+    const result = await privyRequest<{ data?: unknown[] }>(
+      c.env,
+      '/wallets?chain_type=stellar&limit=20',
+    );
+    const wallets = Array.isArray(result?.data) ? result.data : [];
+
+    return c.json({
+      wallets: wallets.map(wallet =>
+        normalizeWallet(wallet as Parameters<typeof normalizeWallet>[0]),
+      ),
+    });
+  });
+
+  app.post('/api/session', async c => {
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const identityToken = String(body.identityToken || '').trim();
+
+    if (identityToken) {
+      const user = await getPrivyClient(c.env).users().get({
+        id_token: identityToken,
+      });
+      const email = getEmailFromPrivyUser(user);
+
+      if (!isEmailLike(email)) {
+        throw makeError('This Privy account does not have a valid email', 400);
+      }
+
+      const account = await getOrCreateSessionAccountByEmail(
+        c.env,
+        email,
+        network,
+        String((user as { id?: string })?.id || ''),
+      );
+
+      return c.json(await buildAccountSession(c.env, account, network));
+    }
+
+    const account = await getOrCreateSessionAccountByEmail(c.env, body.email, network);
+
+    return c.json(await buildAccountSession(c.env, account, network));
+  });
+
+  app.post('/api/demo/session', async c => {
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const account = await getOrCreateSessionAccountByEmail(c.env, body.email, network);
+
+    return c.json(await buildAccountSession(c.env, account, network));
+  });
+
+  app.post('/api/demo/auth-session', async c => {
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const identityToken = String(body.identityToken || '').trim();
+
+    if (!identityToken) {
+      throw makeError('Missing Privy login token', 401);
+    }
+
+    const user = await getPrivyClient(c.env).users().get({
+      id_token: identityToken,
+    });
+    const email = getEmailFromPrivyUser(user);
+
+    if (!isEmailLike(email)) {
+      throw makeError('This Privy account does not have a valid email', 400);
+    }
+
+    const account = await getOrCreateSessionAccountByEmail(
+      c.env,
+      email,
+      network,
+      String((user as { id?: string })?.id || ''),
+    );
+
+    return c.json(await buildAccountSession(c.env, account, network));
+  });
+
+  app.post('/api/demo/account', async c => {
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const email =
+      normalizeEmail(body.email) || `stellar-demo-${Date.now()}@example.com`;
+
+    if (!isEmailLike(email)) {
+      throw makeError('Invalid email', 400);
+    }
+
+    const user =
+      ((await findPrivyUserByEmail(c.env, email)) as { id?: string } | null) ||
+      (await createPrivyUser(c.env, email));
+    const wallet = normalizeWallet(
+      await createSignableStellarWallet(c.env, email, `Stellar ${network} 1`),
+      {
+        canSign: true,
+        kind: 'privy',
+        network,
+      },
+    );
+    const account = await saveAccount(
+      c.env,
+      normalizeAccountWallets(
+        {
+          id: user?.id,
+          email,
+          wallet,
+          wallets: [wallet],
+        },
+        network,
+      ),
+    );
+
+    return c.json({ account }, 201);
+  });
+
+  app.post('/api/wallets', async c => {
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const account = await requireAccountContext(c.env, c.req.header('authorization'), body, {
+      network,
+      requireAuth: shouldRequireMainnetAuth(network),
+    });
+    const nextWalletNumber = (account.wallets || []).length + 1;
+    const displayName =
+      String(body.displayName || '').trim().slice(0, 42) ||
+      `Stellar ${network} ${nextWalletNumber}`;
+    const wallet = normalizeWallet(
+      await createSignableStellarWallet(c.env, account.email, displayName),
+      {
+        archived: false,
+        canSign: true,
+        displayName,
+        kind: 'privy',
+        network,
+      },
+    );
+
+    if (network === 'testnet' && body.fund !== false) {
+      await friendbotFund(c.env, wallet.address, network);
+    }
+
+    const nextAccount = await saveAccount(
+      c.env,
+      normalizeAccountWallets(
+        {
+          ...account,
+          activeWalletId: wallet.id,
+          wallet,
+          wallets: [...(account.wallets || []), wallet],
+        },
+        network,
+      ),
+    );
+
+    return c.json(await buildAccountSession(c.env, nextAccount, network), 201);
+  });
+
+  app.post('/api/wallets/import', async c => {
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const account = await requireAccountContext(c.env, c.req.header('authorization'), body, {
+      network,
+      requireAuth: true,
+    });
+    const keypair = assertSecretKey(body.secret, 'Stellar secret key');
+    const displayName = sanitizeWalletName(body.displayName, `Imported ${network} wallet`);
+    const imported = await importStellarWallet({
+      displayName,
+      env: c.env,
+      keypair,
+      network,
+    });
+    const wallet = normalizeWallet(imported, {
+      canSign: true,
+      kind: 'imported_privy',
+      network,
+    });
+    const nextAccount = await saveAccount(
+      c.env,
+      normalizeAccountWallets(
+        {
+          ...account,
+          activeWalletId: wallet.id,
+          wallet,
+          wallets: [...(account.wallets || []), wallet],
+        },
+        network,
+      ),
+    );
+
+    return c.json(await buildAccountSession(c.env, nextAccount, network), 201);
+  });
+
+  app.post('/api/wallets/watch-only', async c => {
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const account = await requireAccountContext(c.env, c.req.header('authorization'), body, {
+      network,
+      requireAuth: shouldRequireMainnetAuth(network),
+    });
+    const address = String(body.address || '').trim();
+    assertStellarAddress(address);
+    const displayName =
+      String(body.displayName || '').trim().slice(0, 42) || `Watch ${address.slice(0, 6)}`;
+    const wallet = normalizeWallet(
+      {
+        address,
+        chain_type: 'stellar',
+        display_name: displayName,
+        id: `watch_${network}_${address}`,
+        public_key: address,
+      },
+      {
+        canSign: false,
+        kind: 'watch_only',
+        network,
+      },
+    );
+    const nextAccount = await saveAccount(
+      c.env,
+      normalizeAccountWallets(
+        {
+          ...account,
+          activeWalletId: wallet.id,
+          wallet,
+          wallets: [
+            ...(account.wallets || []).filter(
+              item => !(item.id === wallet.id && item.network === network),
+            ),
+            wallet,
+          ],
+        },
+        network,
+      ),
+    );
+
+    return c.json(await buildAccountSession(c.env, nextAccount, network), 201);
+  });
+
+  app.post('/api/wallets/export', async c => {
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const sourceWalletId = String(body.walletId || '').trim();
+    const confirmation = String(body.confirmation || '').trim();
+    const exportType =
+      body.type === 'seed_phrase' ? 'seed_phrase' : 'private_key';
+    const account = await requireAccountContext(c.env, c.req.header('authorization'), body, {
+      network,
+      requireAuth: true,
+    });
+    const wallet = (account.wallets || []).find(
+      item => item.id === sourceWalletId && item.network === network,
+    );
+
+    if (!wallet) {
+      throw makeError('Wallet not found for export', 404);
+    }
+
+    assertAccountWallet({
+      account,
+      address: wallet.address,
+      network,
+      walletId: sourceWalletId,
+    });
+
+    if (confirmation !== 'EXPORT') {
+      throw makeError('Enter EXPORT to confirm secret export', 400);
+    }
+
+    const result = await exportStellarWalletSecret(c.env, sourceWalletId, exportType);
+
+    return c.json({
+      network,
+      secret: result.secret,
+      type: exportType,
+    });
+  });
+
+  app.post('/api/demo/wallets', async c => {
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const account = await requireDemoAccountByEmail(c.env, body.email, network);
+    const nextWalletNumber = (account.wallets || []).length + 1;
+    const displayName = sanitizeWalletName(
+      body.displayName,
+      `Stellar ${network} ${nextWalletNumber}`,
+    );
+    const wallet = normalizeWallet(
+      await createSignableStellarWallet(c.env, account.email, displayName),
+      {
+        archived: false,
+        canSign: true,
+        displayName,
+        kind: 'privy',
+        network,
+      },
+    );
+
+    if (network === 'testnet' && body.fund !== false) {
+      await friendbotFund(c.env, wallet.address, network);
+    }
+
+    const nextAccount = await saveAccount(
+      c.env,
+      normalizeAccountWallets(
+        {
+          ...account,
+          activeWalletId: wallet.id,
+          wallet,
+          wallets: [...(account.wallets || []), wallet],
+        },
+        network,
+      ),
+    );
+
+    return c.json(await buildAccountSession(c.env, nextAccount, network), 201);
+  });
+
+  app.post('/api/demo/wallets/select', async c => {
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const account = await requireDemoAccountByEmail(c.env, body.email, network);
+    const walletId = String(body.walletId || '').trim();
+    const targetWallet = getVisibleWallets(account).find(wallet => wallet.id === walletId);
+
+    if (!targetWallet) {
+      throw makeError('Active wallet not found', 404);
+    }
+
+    const nextAccount = await saveAccount(
+      c.env,
+      normalizeAccountWallets(
+        {
+          ...account,
+          activeWalletId: targetWallet.id,
+          wallet: targetWallet,
+        },
+        targetWallet.network,
+      ),
+    );
+
+    return c.json(await buildAccountSession(c.env, nextAccount, targetWallet.network));
+  });
+
+  app.post('/api/demo/wallets/rename', async c => {
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const account = await requireDemoAccountByEmail(c.env, body.email, network);
+    const walletId = String(body.walletId || '').trim();
+    const targetWallet = getVisibleWallets(account).find(wallet => wallet.id === walletId);
+
+    if (!targetWallet) {
+      throw makeError('Wallet not found for rename', 404);
+    }
+
+    const displayName = sanitizeWalletName(body.displayName, targetWallet.displayName || 'Wallet');
+    const wallets = (account.wallets || []).map(wallet =>
+      wallet.id === walletId ? { ...wallet, displayName } : wallet,
+    );
+    const nextAccount = await saveAccount(
+      c.env,
+      normalizeAccountWallets(
+        {
+          ...account,
+          wallet:
+            account.wallet?.id === walletId
+              ? { ...account.wallet, displayName }
+              : account.wallet,
+          wallets,
+        },
+        targetWallet.network,
+      ),
+    );
+
+    return c.json(await buildAccountSession(c.env, nextAccount, targetWallet.network));
+  });
+
+  app.post('/api/demo/wallets/archive', async c => {
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const account = await requireDemoAccountByEmail(c.env, body.email, network);
+    const walletId = String(body.walletId || '').trim();
+    const visibleWallets = getVisibleWallets(account);
+    const targetWallet = visibleWallets.find(wallet => wallet.id === walletId);
+
+    if (!targetWallet) {
+      throw makeError('Wallet not found for archive', 404);
+    }
+
+    if (visibleWallets.length <= 1) {
+      throw makeError('Cannot archive the last wallet in the account', 400);
+    }
+
+    const remainingWallets = visibleWallets.filter(wallet => wallet.id !== walletId);
+    const activeWallet =
+      remainingWallets.find(wallet => wallet.network === targetWallet.network) ||
+      remainingWallets[0];
+    const wallets = (account.wallets || []).map(wallet =>
+      wallet.id === walletId
+        ? { ...wallet, archived: true, archivedAt: nowIso() }
+        : wallet,
+    );
+    const nextAccount = await saveAccount(
+      c.env,
+      normalizeAccountWallets(
+        {
+          ...account,
+          activeWalletId: activeWallet.id,
+          wallet: activeWallet,
+          wallets,
+        },
+        activeWallet.network,
+      ),
+    );
+
+    return c.json(await buildAccountSession(c.env, nextAccount, activeWallet.network));
+  });
+
+  app.post('/api/demo/receiver', async c => {
+    const body = await readJsonBody(c);
+    const network: StellarNetwork = 'testnet';
+    const wallet = normalizeWallet(
+      await createSignableStellarWallet(
+        c.env,
+        `receiver-${Date.now()}@demo.local`,
+        String(body.displayName || 'Demo recipient'),
+      ),
+      {
+        canSign: true,
+        kind: 'privy',
+        network,
+      },
+    );
+
+    await friendbotFund(c.env, wallet.address, network);
+
+    const assets = await getSupportedAssets(c.env, network);
+
+    for (const assetDefinition of assets.filter(asset => !asset.isNative)) {
+      const sourceAccount = await loadAccount(c.env, wallet.address, network);
+
+      if (!sourceAccount) {
+        throw makeError('Demo receiver is not active yet', 500);
+      }
+
+      const transaction = buildTrustlineTransaction({
+        asset: getIssuedAsset(assetDefinition),
+        env: c.env,
+        network,
+        sourceAccount,
+      });
+
+      await submitPrivySignedTransaction({
+        env: c.env,
+        network,
+        sourceAddress: wallet.address,
+        transaction,
+        walletId: wallet.id,
+      });
+    }
+
+    const contact = await saveContact(c.env, {
+      funded: true,
+      label: String(body.label || 'Demo recipient'),
+      wallet,
+    });
+    const balance = await getAccountBalances(c.env, wallet.address, network);
+
+    return c.json(
+      {
+        balance,
+        contact,
+      },
+      201,
+    );
+  });
+
+}

@@ -274,7 +274,7 @@ export function PromoCarousel({
       subtitle:
         network === 'mainnet'
           ? 'Receive real XLM with QR or on-chain deposit'
-          : 'Fund demo USDC/USDT after adding trustlines',
+          : 'Fund demo USDC/USDT after enabling receiving',
       title: network === 'mainnet' ? 'On-chain deposit' : 'Demo token faucet',
     },
     {
