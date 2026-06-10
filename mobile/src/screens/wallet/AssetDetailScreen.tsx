@@ -49,7 +49,10 @@ function formatCompact(value?: number | null) {
   });
 }
 
-function makeFallbackAsset(params: AssetRouteParams, network: WalletState['network']): BalanceItem {
+function makeFallbackAsset(
+  params: AssetRouteParams,
+  network: WalletState['network'],
+): BalanceItem {
   const assetCode = params.assetCode || params.asset?.assetCode || 'XLM';
   const assetIssuer = params.assetIssuer ?? params.asset?.assetIssuer ?? null;
   const isNative = assetCode === 'XLM' && !assetIssuer;
@@ -129,7 +132,13 @@ function mergeRouteAsset(
   return makeFallbackAsset(params, wallet.network);
 }
 
-function MetadataRow({ label, value }: { label: string; value?: string | null }) {
+function MetadataRow({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | null;
+}) {
   if (!value) {
     return null;
   }
@@ -154,7 +163,7 @@ export function AssetDetailScreen({
 }: {
   onBack: () => void;
   onGoToReceive: () => void;
-  onGoToRamp: () => void;
+  onGoToRamp: (direction?: 'buy' | 'sell') => void;
   onGoToSend: (assetCode?: string) => void;
   route: { params?: AssetRouteParams };
   wallet: WalletState;
@@ -166,8 +175,9 @@ export function AssetDetailScreen({
   );
   const canUse = asset.isNative || asset.trusted;
   const needsTrustline = !asset.isNative && !asset.trusted;
+  const supportsVndOrders = ['XLM', 'USDC'].includes(asset.assetCode);
   const badgeLabel = needsTrustline
-    ? 'Trustline needed'
+    ? 'Enable asset'
     : asset.demo
     ? 'Demo'
     : asset.trustLevel === 'verified'
@@ -218,7 +228,7 @@ export function AssetDetailScreen({
                     ? modern.assetBadgeDemo
                     : badgeLabel === 'Verified'
                     ? modern.assetBadgeVerified
-                    : badgeLabel === 'Trustline needed'
+                    : badgeLabel === 'Enable asset'
                     ? modern.assetBadgeTrustline
                     : modern.assetBadgeUnverified,
                 ]}
@@ -230,7 +240,7 @@ export function AssetDetailScreen({
                       ? modern.assetBadgeTextDemo
                       : badgeLabel === 'Verified'
                       ? modern.assetBadgeTextVerified
-                      : badgeLabel === 'Trustline needed'
+                      : badgeLabel === 'Enable asset'
                       ? modern.assetBadgeTextTrustline
                       : modern.assetBadgeTextUnverified,
                   ]}
@@ -256,7 +266,7 @@ export function AssetDetailScreen({
           </Text>
           <Text style={styles.balanceMeta}>
             {needsTrustline
-              ? 'Enable receiving before holding this asset.'
+              ? 'Enable this asset before you can receive or hold it.'
               : asset.limit
               ? `Trustline limit ${asset.limit}`
               : 'Ready for wallet actions.'}
@@ -265,7 +275,7 @@ export function AssetDetailScreen({
       </View>
 
       <View style={modern.sectionCard}>
-        <SectionHeader title="Asset details" />
+        <SectionHeader title="Asset info" />
         <MetadataRow
           label="Network"
           value={wallet.isMainnet ? 'Mainnet' : 'Testnet'}
@@ -288,10 +298,7 @@ export function AssetDetailScreen({
               : null
           }
         />
-        <MetadataRow
-          label="Volume 7d"
-          value={formatCompact(asset.volume7d)}
-        />
+        <MetadataRow label="Volume 7d" value={formatCompact(asset.volume7d)} />
       </View>
 
       <View style={modern.sectionCard}>
@@ -302,7 +309,7 @@ export function AssetDetailScreen({
             onPress={enableAsset}
             style={modern.primaryModernButton}
           >
-            <Text style={modern.modernButtonText}>Enable receiving</Text>
+            <Text style={modern.modernButtonText}>Enable asset</Text>
           </PressScale>
         ) : (
           <>
@@ -311,7 +318,9 @@ export function AssetDetailScreen({
               onPress={() => onGoToSend(asset.assetCode)}
               style={modern.primaryModernButton}
             >
-              <Text style={modern.modernButtonText}>Send {asset.assetCode}</Text>
+              <Text style={modern.modernButtonText}>
+                Send {asset.assetCode}
+              </Text>
             </PressScale>
             <PressScale
               disabled={wallet.isBusy}
@@ -324,23 +333,41 @@ export function AssetDetailScreen({
                   modern.secondaryModernButtonText,
                 ]}
               >
-                Receive / Deposit
+                Receive
               </Text>
             </PressScale>
-            <PressScale
-              disabled={wallet.isBusy}
-              onPress={onGoToRamp}
-              style={modern.secondaryModernButton}
-            >
-              <Text
-                style={[
-                  modern.modernButtonText,
-                  modern.secondaryModernButtonText,
-                ]}
-              >
-                Buy/Sell with VND
-              </Text>
-            </PressScale>
+            {supportsVndOrders ? (
+              <>
+                <PressScale
+                  disabled={wallet.isBusy}
+                  onPress={() => onGoToRamp('buy')}
+                  style={modern.secondaryModernButton}
+                >
+                  <Text
+                    style={[
+                      modern.modernButtonText,
+                      modern.secondaryModernButtonText,
+                    ]}
+                  >
+                    Buy with VND
+                  </Text>
+                </PressScale>
+                <PressScale
+                  disabled={wallet.isBusy}
+                  onPress={() => onGoToRamp('sell')}
+                  style={modern.secondaryModernButton}
+                >
+                  <Text
+                    style={[
+                      modern.modernButtonText,
+                      modern.secondaryModernButtonText,
+                    ]}
+                  >
+                    Withdraw to bank
+                  </Text>
+                </PressScale>
+              </>
+            ) : null}
           </>
         )}
         <PressScale

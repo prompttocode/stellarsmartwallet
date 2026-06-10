@@ -62,11 +62,11 @@ export function FaucetScreen({
           </View>
           <View style={styles.cardCopy}>
             <Text style={styles.cardEyebrow}>{networkLabel} orders</Text>
-            <Text style={styles.cardTitle}>Buy or sell with VND</Text>
+            <Text style={styles.cardTitle}>Buy with VND</Text>
             <Text style={styles.cardText}>
               {wallet.isMainnet
-                ? 'Create real payment orders for XLM and USDC.'
-                : 'Use the same order flow as Mainnet with Testnet assets.'}
+                ? 'Buy XLM or USDC with a bank transfer. Withdraw is available from Home.'
+                : 'Test the same buy flow as Mainnet with Testnet assets.'}
             </Text>
           </View>
         </View>
@@ -75,7 +75,7 @@ export function FaucetScreen({
           onPress={onGoToRamp}
           style={[modern.primaryModernButton, styles.fullButton]}
         >
-          <Text style={modern.modernButtonText}>Open Buy/Sell orders</Text>
+          <Text style={modern.modernButtonText}>Buy with VND</Text>
         </PressScale>
       </View>
 
@@ -136,11 +136,7 @@ export function FaucetScreen({
           )}
         </View>
         <View style={styles.addressBox}>
-          <Text
-            numberOfLines={2}
-            selectable
-            style={styles.addressText}
-          >
+          <Text numberOfLines={2} selectable style={styles.addressText}>
             {address || 'Create a wallet first'}
           </Text>
         </View>
@@ -180,7 +176,7 @@ export function FaucetScreen({
               : 'Faucet'
             : needsTrustline
             ? 'Enable'
-            : 'Buy/Sell';
+            : 'Buy';
           const assetText = isXlm
             ? wallet.isMainnet
               ? 'Native Stellar asset. Deposit real XLM to activate Mainnet.'
@@ -215,9 +211,7 @@ export function FaucetScreen({
                     <View
                       style={[
                         styles.assetPill,
-                        needsTrustline
-                          ? styles.warningPill
-                          : styles.readyPill,
+                        needsTrustline ? styles.warningPill : styles.readyPill,
                       ]}
                     >
                       <Text

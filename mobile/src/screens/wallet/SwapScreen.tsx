@@ -146,13 +146,13 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
           subtitle={`Transaction submitted to Stellar ${
             wallet.isMainnet ? 'Mainnet' : 'Testnet'
           }.`}
-          title="Swap completed"
+          title="Swap complete"
         />
         <View style={modern.sectionCard}>
           <View style={modern.successOrb}>
             <Ionicons color="#0ABF73" name="checkmark" size={42} />
           </View>
-          <Text style={modern.successModernTitle}>Swap completed</Text>
+          <Text style={modern.successModernTitle}>Swap complete</Text>
           <Text style={modern.successModernText}>
             {formatTokenAmount(lastSwap.fromAmount)} {lastSwap.fromAssetCode} →{' '}
             {formatTokenAmount(lastSwap.toAmount)} {lastSwap.toAssetCode}
@@ -168,7 +168,10 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
             style={modern.secondaryModernButton}
           >
             <Text
-              style={[modern.modernButtonText, modern.secondaryModernButtonText]}
+              style={[
+                modern.modernButtonText,
+                modern.secondaryModernButtonText,
+              ]}
             >
               Swap again
             </Text>
@@ -185,12 +188,8 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
         showsVerticalScrollIndicator={false}
       >
         <ModernScreenHeader
-          subtitle={
-            wallet.isMainnet
-              ? 'Swap real XLM and Circle USDC through Stellar path payments.'
-              : 'Swap Testnet XLM and Payment API USDC through Stellar paths.'
-          }
-          title="Swap"
+          subtitle="Exchange XLM and USDC on Stellar. This does not withdraw VND to a bank."
+          title="Swap tokens"
         />
 
         {!wallet.walletCanSign ? (
@@ -263,7 +262,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
           </View>
 
           <View style={modern.rateCard}>
-            <Text style={modern.swapLabel}>Stellar DEX quote</Text>
+            <Text style={modern.swapLabel}>Exchange rate</Text>
             <Text style={modern.assetModernBalance}>
               {quote
                 ? `1 ${sellCode} ≈ ${quote.rate.toFixed(7)} ${buyCode}`

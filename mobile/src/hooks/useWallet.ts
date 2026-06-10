@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReactNativeBiometrics from 'react-native-biometrics';
@@ -54,6 +54,44 @@ const LEGACY_LOCAL_SESSION_STORAGE_KEYS = [
   'lobstr-demo-session-network',
 ];
 const RAMP_ORDER_STORAGE_PREFIX = 'privy-ramp-order';
+const MARKET_PRICE_REFRESH_MS = 60_000;
+
+function getAssetIdentity(asset: AssetItem) {
+  return asset.isNative
+    ? `${asset.network}:native`
+    : `${asset.network}:${asset.assetCode}:${asset.assetIssuer || ''}`;
+}
+
+function hasMarketPrice(asset: AssetItem) {
+  return (
+    typeof asset.priceUsd === 'number' &&
+    Number.isFinite(asset.priceUsd) &&
+    asset.priceUsd > 0
+  );
+}
+
+function mergeAssetMarketData(
+  nextAssets: AssetItem[],
+  previousAssets: AssetItem[],
+) {
+  const previousByIdentity = new Map(
+    previousAssets.map(asset => [getAssetIdentity(asset), asset]),
+  );
+
+  return nextAssets.map(asset => {
+    const previous = previousByIdentity.get(getAssetIdentity(asset));
+
+    return {
+      ...asset,
+      image: asset.image || previous?.image || null,
+      priceUsd: hasMarketPrice(asset)
+        ? asset.priceUsd
+        : previous?.priceUsd ?? null,
+      rating: asset.rating ?? previous?.rating ?? null,
+      volume7d: asset.volume7d ?? previous?.volume7d ?? null,
+    };
+  });
+}
 
 function mergePopulatedFields<T extends object>(
   previous?: T,
@@ -120,9 +158,7 @@ function wait(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function getTokenWithRetry(
-  getToken: () => Promise<string | null>,
-) {
+async function getTokenWithRetry(getToken: () => Promise<string | null>) {
   for (const delay of [0, 300, 700, 1200, 2000]) {
     if (delay > 0) {
       await wait(delay);
@@ -169,6 +205,9 @@ export function useWallet() {
   const [network, setNetwork] = useState<StellarNetwork>('testnet');
   const [networks, setNetworks] = useState<StellarNetworkInfo[]>([]);
   const [assets, setAssets] = useState<AssetItem[]>([]);
+  const [assetPricesUpdatedAt, setAssetPricesUpdatedAt] = useState<
+    number | null
+  >(null);
   const [collectibles, setCollectibles] = useState<CollectibleItem[]>([]);
   const [account, setAccount] = useState<WalletAccount | null>(null);
   const [wallets, setWallets] = useState<Wallet[]>([]);
@@ -189,7 +228,9 @@ export function useWallet() {
     'Enter your email to receive a Privy login code.',
   );
   const [rampProviders, setRampProviders] = useState<RampProvider[]>([]);
-  const [activeRampOrder, setActiveRampOrder] = useState<RampOrder | null>(null);
+  const [activeRampOrder, setActiveRampOrder] = useState<RampOrder | null>(
+    null,
+  );
   const [rampOrderHistory, setRampOrderHistory] = useState<RampOrder[]>([]);
   const [walletConnectConfig, setWalletConnectConfig] =
     useState<WalletConnectConfig | null>(null);
@@ -200,6 +241,7 @@ export function useWallet() {
   >(null);
   const { user, isReady, error: privyError, logout: logoutPrivy } = usePrivy();
   const { getIdentityToken } = useIdentityToken();
+  const getIdentityTokenRef = useRef(getIdentityToken);
   const {
     sendCode,
     loginWithCode,
@@ -213,7 +255,7 @@ export function useWallet() {
   const { login: loginWithOAuth, state: oauthState } = useLoginWithOAuth();
 
   const run = useCallback(
-    async <T,>(
+    async <T>(
       label: string,
       action: () => Promise<T>,
       options: RunOptions = {},
@@ -255,7 +297,11 @@ export function useWallet() {
 
       setHealth(result);
       setNetworks(networkResult.networks || result.networks || []);
-      setAssets(assetResult.assets || []);
+      const nextAssets = assetResult.assets || [];
+      setAssets(current => mergeAssetMarketData(nextAssets, current));
+      setAssetPricesUpdatedAt(
+        nextAssets.some(hasMarketPrice) ? Date.now() : null,
+      );
       setRampProviders(rampResult.providers || []);
       setWalletConnectConfig(walletConnectResult);
       setMessage(
@@ -271,7 +317,9 @@ export function useWallet() {
   }, [checkServer]);
 
   useEffect(() => {
-    AsyncStorage.multiRemove(LEGACY_LOCAL_SESSION_STORAGE_KEYS).catch(() => null);
+    AsyncStorage.multiRemove(LEGACY_LOCAL_SESSION_STORAGE_KEYS).catch(
+      () => null,
+    );
   }, []);
 
   const isMainnet = network === 'mainnet';
@@ -291,6 +339,10 @@ export function useWallet() {
     null;
   const activeNetworkWalletId = wallet?.id || activeWalletId;
   const userKey = getPrivyUserKey(user);
+
+  useEffect(() => {
+    getIdentityTokenRef.current = getIdentityToken;
+  }, [getIdentityToken]);
   const visibleAssets = assets.length > 0 ? assets : balances;
   const selectedBalance = getBalanceForAsset(balances, selectedAssetCode);
   const selectedAsset =
@@ -310,8 +362,96 @@ export function useWallet() {
   const walletActive = Boolean(wallet && balances.some(item => item.exists));
   const rampOrderStorageKey =
     account && wallet
-      ? `${RAMP_ORDER_STORAGE_PREFIX}:${account.id || account.email}:${wallet.id}:${network}`
+      ? `${RAMP_ORDER_STORAGE_PREFIX}:${account.id || account.email}:${
+          wallet.id
+        }:${network}`
       : null;
+
+  const refreshAssetPrices = useCallback(async () => {
+    try {
+      const result = await api<AssetsResponse>(
+        `/api/assets?network=${network}&limit=100`,
+      );
+      let nextAssets = result.assets || [];
+
+      if (network === 'mainnet') {
+        const fetchedIdentities = new Set(nextAssets.map(getAssetIdentity));
+        const missingBalances = balances.filter(
+          balance =>
+            Number(balance.balance) > 0 &&
+            !fetchedIdentities.has(getAssetIdentity(balance)),
+        );
+        const discoveredAssets = await Promise.all(
+          missingBalances.map(async balance => {
+            const search = balance.assetIssuer || balance.assetCode;
+
+            try {
+              const searchResult = await api<AssetsResponse>(
+                `/api/assets?network=mainnet&limit=20&search=${encodeURIComponent(
+                  search,
+                )}`,
+              );
+
+              return (
+                searchResult.assets?.find(
+                  asset =>
+                    getAssetIdentity(asset) === getAssetIdentity(balance),
+                ) || null
+              );
+            } catch {
+              return null;
+            }
+          }),
+        );
+        const byIdentity = new Map(
+          nextAssets.map(asset => [getAssetIdentity(asset), asset]),
+        );
+
+        for (const discovered of discoveredAssets) {
+          if (discovered) {
+            byIdentity.set(getAssetIdentity(discovered), discovered);
+          }
+        }
+
+        nextAssets = [...byIdentity.values()];
+      }
+
+      const receivedMarketPrices = nextAssets.some(hasMarketPrice);
+
+      setAssets(current => {
+        if (
+          network === 'mainnet' &&
+          !receivedMarketPrices &&
+          current.some(hasMarketPrice)
+        ) {
+          return current;
+        }
+
+        return mergeAssetMarketData(nextAssets, current);
+      });
+      if (receivedMarketPrices) {
+        setAssetPricesUpdatedAt(Date.now());
+      } else if (network !== 'mainnet') {
+        setAssetPricesUpdatedAt(null);
+      }
+
+      return nextAssets;
+    } catch {
+      return null;
+    }
+  }, [balances, network]);
+
+  useEffect(() => {
+    if (network !== 'mainnet') {
+      setAssetPricesUpdatedAt(null);
+      return undefined;
+    }
+
+    refreshAssetPrices();
+    const timer = setInterval(refreshAssetPrices, MARKET_PRICE_REFRESH_MS);
+
+    return () => clearInterval(timer);
+  }, [network, refreshAssetPrices]);
 
   useEffect(() => {
     let cancelled = false;
@@ -380,31 +520,34 @@ export function useWallet() {
     }
   }
 
-  const applySession = useCallback((
-    session: SessionResponse,
-    nextMessage = 'Your Stellar wallet is ready.',
-  ) => {
-    const sessionWallets =
-      session.wallets ||
-      session.account.wallets ||
-      (session.account.wallet ? [session.account.wallet] : []);
-    const nextActiveWalletId =
-      session.activeWalletId ||
-      session.account.activeWalletId ||
-      session.account.wallet?.id ||
-      null;
+  const applySession = useCallback(
+    (
+      session: SessionResponse,
+      nextMessage = 'Your Stellar wallet is ready.',
+    ) => {
+      const sessionWallets =
+        session.wallets ||
+        session.account.wallets ||
+        (session.account.wallet ? [session.account.wallet] : []);
+      const nextActiveWalletId =
+        session.activeWalletId ||
+        session.account.activeWalletId ||
+        session.account.wallet?.id ||
+        null;
 
-    const sessionNetwork =
-      session.network || session.account.wallet?.network || network;
+      const sessionNetwork =
+        session.network || session.account.wallet?.network || network;
 
-    setNetwork(sessionNetwork);
-    setAccount(session.account);
-    setWallets(sessionWallets);
-    setActiveWalletId(nextActiveWalletId);
-    setBalances(session.balances || session.balance.balances || []);
-    setTransactions(session.transactions);
-    setMessage(nextMessage);
-  }, [network]);
+      setNetwork(sessionNetwork);
+      setAccount(session.account);
+      setWallets(sessionWallets);
+      setActiveWalletId(nextActiveWalletId);
+      setBalances(session.balances || session.balance.balances || []);
+      setTransactions(session.transactions);
+      setMessage(nextMessage);
+    },
+    [network],
+  );
 
   useEffect(() => {
     if (!wallet?.address) {
@@ -434,29 +577,31 @@ export function useWallet() {
   }, [network, wallet?.address]);
 
   const refreshPrivySecuritySession = useCallback(async () => {
-    if (!isReady || !user) {
+    if (!isReady || !userKey) {
       setPrivySessionReady(false);
       return false;
     }
 
-    const identityToken = await getTokenWithRetry(getIdentityToken);
+    const identityToken = await getTokenWithRetry(getIdentityTokenRef.current);
     const hasToken = Boolean(identityToken);
 
     setPrivySessionReady(hasToken);
 
     return hasToken;
-  }, [getIdentityToken, isReady, user]);
+  }, [isReady, userKey]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function probePrivyToken() {
-      if (!isReady || !user) {
+      if (!isReady || !userKey) {
         setPrivySessionReady(false);
         return;
       }
 
-      const identityToken = await getTokenWithRetry(getIdentityToken);
+      const identityToken = await getTokenWithRetry(
+        getIdentityTokenRef.current,
+      );
 
       if (!cancelled) {
         setPrivySessionReady(Boolean(identityToken));
@@ -468,7 +613,7 @@ export function useWallet() {
     return () => {
       cancelled = true;
     };
-  }, [getIdentityToken, isReady, user, userKey]);
+  }, [isReady, userKey]);
 
   async function getAuthHeaders(required = false) {
     const identityToken = await getTokenWithRetry(getIdentityToken);
@@ -489,27 +634,32 @@ export function useWallet() {
 
   useEffect(() => {
     let cancelled = false;
+    const accountEmail = account?.email;
+    const walletAddress = wallet?.address;
+    const walletId = wallet?.id;
 
-    if (!account || !wallet) {
-      setRampOrderHistory([]);
+    if (!accountEmail || !walletAddress || !walletId) {
+      setRampOrderHistory(current => (current.length > 0 ? [] : current));
       return () => {
         cancelled = true;
       };
     }
 
-    const accountEmail = account.email;
-    const walletAddress = wallet.address;
-    const walletId = wallet.id;
+    const historyAccountEmail = accountEmail;
+    const historyWalletAddress = walletAddress;
+    const historyWalletId = walletId;
 
     async function loadRampOrderHistory() {
       try {
-        const identityToken = await getTokenWithRetry(getIdentityToken);
+        const identityToken = await getTokenWithRetry(
+          getIdentityTokenRef.current,
+        );
         const params = new URLSearchParams({
-          email: accountEmail,
+          email: historyAccountEmail,
           limit: '50',
           network,
-          sourceAddress: walletAddress,
-          sourceWalletId: walletId,
+          sourceAddress: historyWalletAddress,
+          sourceWalletId: historyWalletId,
         });
         const result = await api<RampOrderHistoryResponse>(
           `/api/ramp/orders?${params.toString()}`,
@@ -535,7 +685,7 @@ export function useWallet() {
     return () => {
       cancelled = true;
     };
-  }, [account, getIdentityToken, network, wallet]);
+  }, [account?.email, network, wallet?.address, wallet?.id]);
 
   async function requireBiometric(promptMessage: string) {
     const rnBiometrics = new ReactNativeBiometrics();
@@ -565,7 +715,9 @@ export function useWallet() {
     ) => {
       const identityToken =
         existingIdentityToken || (await getTokenWithRetry(getIdentityToken));
-      const sessionEmail = String(fallbackEmail || '').trim().toLowerCase();
+      const sessionEmail = String(fallbackEmail || '')
+        .trim()
+        .toLowerCase();
 
       if (!identityToken && !isEmailLike(sessionEmail)) {
         throw new Error(
@@ -607,7 +759,8 @@ export function useWallet() {
       setRestoreAttemptedForUser(userKey);
       run(
         'Restoring session',
-        () => finishPrivySession(undefined, getEmailFromPrivyUser(user), network),
+        () =>
+          finishPrivySession(undefined, getEmailFromPrivyUser(user), network),
         { showAlert: false },
       );
     }
@@ -628,7 +781,9 @@ export function useWallet() {
       const targetEmail = email.trim().toLowerCase();
 
       if (!isEmailLike(targetEmail)) {
-        throw new Error('Enter a valid email to receive your Privy login code.');
+        throw new Error(
+          'Enter a valid email to receive your Privy login code.',
+        );
       }
 
       const currentPrivyEmail = getEmailFromPrivyUser(user);
@@ -750,26 +905,26 @@ export function useWallet() {
     return run(
       isMainnet ? 'Creating Mainnet wallet' : 'Creating Testnet wallet',
       async () => {
-      const headers = await getAuthHeaders(isMainnet);
-      const session = await api<SessionResponse>('/api/wallets', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          email: account.email,
-          fund: !isMainnet,
-          network,
-        }),
-      });
+        const headers = await getAuthHeaders(isMainnet);
+        const session = await api<SessionResponse>('/api/wallets', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            email: account.email,
+            fund: !isMainnet,
+            network,
+          }),
+        });
 
-      resetRecipientState();
-      applySession(
-        session,
-        isMainnet
-          ? 'Mainnet wallet created. Deposit XLM to activate it.'
-          : 'Wallet created and funded with test XLM.',
-      );
+        resetRecipientState();
+        applySession(
+          session,
+          isMainnet
+            ? 'Mainnet wallet created. Deposit XLM to activate it.'
+            : 'Wallet created and funded with test XLM.',
+        );
 
-      return session;
+        return session;
       },
     );
   }
@@ -1033,7 +1188,9 @@ export function useWallet() {
 
     return run('Claiming demo NFT', async () => {
       if (isMainnet) {
-        throw new Error('Demo NFT claiming is only available on Stellar Testnet.');
+        throw new Error(
+          'Demo NFT claiming is only available on Stellar Testnet.',
+        );
       }
 
       const result = await api<FundNftResult>(
@@ -1065,7 +1222,9 @@ export function useWallet() {
   async function createTestReceiver() {
     return run('Creating receiver', async () => {
       if (isMainnet) {
-        throw new Error('Mainnet cannot create demo receivers. Enter a real wallet address.');
+        throw new Error(
+          'Mainnet cannot create demo receivers. Enter a real wallet address.',
+        );
       }
 
       const result = await api<ReceiverResponse>('/api/demo/receiver', {
@@ -1076,9 +1235,7 @@ export function useWallet() {
       setRecipientContact(result.contact);
       setRecipient(result.contact.wallet.address);
       setRecipientBalances(result.balance.balances || []);
-      setMessage(
-        'Test receiver created and funded with Stellar Testnet XLM.',
-      );
+      setMessage('Test receiver created and funded with Stellar Testnet XLM.');
 
       return result;
     });
@@ -1131,7 +1288,9 @@ export function useWallet() {
       }
 
       setMessage(
-        `Sent ${formatTokenAmount(amount)} ${selectedAssetCode} on Stellar ${network}.`,
+        `Sent ${formatTokenAmount(
+          amount,
+        )} ${selectedAssetCode} on Stellar ${network}.`,
       );
 
       return result;
@@ -1177,9 +1336,9 @@ export function useWallet() {
     );
   }
 
-  async function searchAssets(query: string) {
+  async function searchAssets(query: string, options?: { limit?: number }) {
     const params = new URLSearchParams({
-      limit: '40',
+      limit: String(options?.limit || 40),
       network,
     });
     const search = query.trim();
@@ -1189,7 +1348,9 @@ export function useWallet() {
     }
 
     try {
-      const result = await api<AssetsResponse>(`/api/assets?${params.toString()}`);
+      const result = await api<AssetsResponse>(
+        `/api/assets?${params.toString()}`,
+      );
 
       return result.assets || [];
     } catch {
@@ -1219,10 +1380,7 @@ export function useWallet() {
         asset => asset.assetCode === toAssetCode,
       );
 
-      await ensureWalletTrustline(
-        toAssetCode,
-        toAsset?.assetIssuer || null,
-      );
+      await ensureWalletTrustline(toAssetCode, toAsset?.assetIssuer || null);
 
       const result = await api<SwapResult>(
         `/api/stellar/${network}/swap/execute`,
@@ -1246,7 +1404,9 @@ export function useWallet() {
       setBalances(result.balances);
       setTransactions(result.transactions);
       setMessage(
-        `Swapped ${formatTokenAmount(result.fromAmount)} ${result.fromAssetCode} to ${formatTokenAmount(result.toAmount)} ${result.toAssetCode}.`,
+        `Swapped ${formatTokenAmount(result.fromAmount)} ${
+          result.fromAssetCode
+        } to ${formatTokenAmount(result.toAmount)} ${result.toAssetCode}.`,
       );
 
       return result;
@@ -1306,15 +1466,11 @@ export function useWallet() {
 
     setRampOrderHistory(current => [
       order,
-      ...current.filter(
-        item => (item.code || item.id) !== reference,
-      ),
+      ...current.filter(item => (item.code || item.id) !== reference),
     ]);
   }
 
-  async function refreshRampOrderHistory(
-    options: { silent?: boolean } = {},
-  ) {
+  async function refreshRampOrderHistory(options: { silent?: boolean } = {}) {
     if (!account || !wallet) {
       setRampOrderHistory([]);
       return [];
@@ -1370,14 +1526,17 @@ export function useWallet() {
     return run(
       `Quote ${direction}`,
       async () => {
-        const result = await api<RampApiResponse<RampQuote>>('/api/ramp/quote', {
-          method: 'POST',
-          body: JSON.stringify({
-            amount: rampAmount,
-            assetCode,
-            direction,
-          }),
-        });
+        const result = await api<RampApiResponse<RampQuote>>(
+          '/api/ramp/quote',
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              amount: rampAmount,
+              assetCode,
+              direction,
+            }),
+          },
+        );
 
         return result.data;
       },
@@ -1408,11 +1567,9 @@ export function useWallet() {
       const asset = visibleAssets.find(item => item.assetCode === assetCode);
 
       if (direction === 'buy' && assetCode === 'USDC') {
-        await ensureWalletTrustline(
-          assetCode,
-          asset?.assetIssuer || null,
-          { confirmMainnet: true },
-        );
+        await ensureWalletTrustline(assetCode, asset?.assetIssuer || null, {
+          confirmMainnet: true,
+        });
       }
 
       const headers = await getAuthHeaders(isMainnet);
@@ -1439,7 +1596,7 @@ export function useWallet() {
       setMessage(
         direction === 'buy'
           ? `Buy order ${result.data.code} created. Transfer the exact VND amount shown.`
-          : `Sell order ${result.data.code} created. Send crypto with the order memo.`,
+          : `Withdrawal ${result.data.code} created. Send crypto with the payment code as memo.`,
       );
 
       return result.data;
@@ -1517,10 +1674,13 @@ export function useWallet() {
     }
 
     return run('Cancelling order', async () => {
-      await api(`/api/ramp/orders/${encodeURIComponent(orderReference)}/cancel`, {
-        method: 'POST',
-        body: JSON.stringify({ reason: 'User requested cancellation' }),
-      });
+      await api(
+        `/api/ramp/orders/${encodeURIComponent(orderReference)}/cancel`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ reason: 'User requested cancellation' }),
+        },
+      );
 
       const nextOrder = {
         ...activeRampOrder,
@@ -1553,9 +1713,7 @@ export function useWallet() {
     return run('Confirming test payment', async () => {
       const headers = await getAuthHeaders(false);
       const result = await api<RampApiResponse<RampOrder>>(
-        `/api/ramp/orders/${encodeURIComponent(
-          orderReference,
-        )}/bypass-payment`,
+        `/api/ramp/orders/${encodeURIComponent(orderReference)}/bypass-payment`,
         {
           body: JSON.stringify({
             email: account.email,
@@ -1567,10 +1725,7 @@ export function useWallet() {
           method: 'POST',
         },
       );
-      const nextOrder = mergeRampOrderDetails(
-        activeRampOrder,
-        result.data,
-      );
+      const nextOrder = mergeRampOrderDetails(activeRampOrder, result.data);
 
       await persistRampOrder(nextOrder);
       upsertRampOrderHistory(nextOrder);
@@ -1592,7 +1747,7 @@ export function useWallet() {
     if (isMainnet) {
       Alert.alert(
         'Testnet only',
-        'Sell payment bypass cannot be used for Mainnet orders.',
+        'Withdrawal bypass cannot be used for Mainnet orders.',
       );
       return null;
     }
@@ -1614,10 +1769,7 @@ export function useWallet() {
           method: 'POST',
         },
       );
-      const nextOrder = mergeRampOrderDetails(
-        activeRampOrder,
-        result.data,
-      );
+      const nextOrder = mergeRampOrderDetails(activeRampOrder, result.data);
 
       await persistRampOrder(nextOrder);
       upsertRampOrderHistory(nextOrder);
@@ -1638,7 +1790,7 @@ export function useWallet() {
 
     return run(`Sending ${order.asset_code}`, async () => {
       if (order.order_type !== 'sell') {
-        throw new Error('Only sell orders require an on-chain transfer.');
+        throw new Error('Only withdrawals require an on-chain transfer.');
       }
 
       if (isRampOrderTerminal(order)) {
@@ -1648,7 +1800,9 @@ export function useWallet() {
       const destination = String(order.pay_data?.address || '').trim();
 
       if (!destination) {
-        throw new Error('The payment service did not provide a deposit address.');
+        throw new Error(
+          'The payment service did not provide a deposit address.',
+        );
       }
 
       if (isMainnet) {
@@ -1686,7 +1840,9 @@ export function useWallet() {
       await persistRampOrder(nextOrder);
       upsertRampOrderHistory(nextOrder);
       setMessage(
-        `Sent ${formatTokenAmount(String(order.amount))} ${order.asset_code} for order ${order.code}.`,
+        `Sent ${formatTokenAmount(String(order.amount))} ${
+          order.asset_code
+        } for order ${order.code}.`,
       );
 
       return result;
@@ -1720,7 +1876,11 @@ export function useWallet() {
       const assetResult = await api<AssetsResponse>(
         `/api/assets?network=${nextNetwork}`,
       );
-      setAssets(assetResult.assets || []);
+      const nextAssets = assetResult.assets || [];
+      setAssets(current => mergeAssetMarketData(nextAssets, current));
+      setAssetPricesUpdatedAt(
+        nextAssets.some(hasMarketPrice) ? Date.now() : null,
+      );
 
       if (!account) {
         setBalances([]);
@@ -1841,6 +2001,7 @@ export function useWallet() {
     account,
     activeRampOrder,
     activeWalletId: activeNetworkWalletId,
+    assetPricesUpdatedAt,
     addWatchOnlyWallet,
     addTrustline,
     amount,
@@ -1888,6 +2049,7 @@ export function useWallet() {
     recipientContact,
     recipientSelectedBalance,
     refreshPrivySecuritySession,
+    refreshAssetPrices,
     refreshRampOrder,
     refreshRampOrderHistory,
     refreshCollectibles,

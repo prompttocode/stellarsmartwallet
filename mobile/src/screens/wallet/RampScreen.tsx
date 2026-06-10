@@ -28,6 +28,8 @@ import type { WalletState } from '@hooks/useWallet';
 import {
   getRampOrderStatus,
   isRampOrderTerminal,
+  RAMP_PROCESSING_LABELS,
+  RAMP_STATE_LABELS,
   rampTimestampToMs,
 } from '@utils/ramp';
 import { formatTokenAmount, shortAddress } from '@utils/format';
@@ -55,26 +57,38 @@ function formatCountdown(expiredAt?: number | null) {
 
 export function RampScreen({
   onBack,
-  onFinish,
+  route,
   wallet,
 }: {
   onBack: () => void;
-  onFinish: () => void | Promise<void>;
+  route?: { params?: { direction?: RampDirection } };
   wallet: WalletState;
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
-  const [direction, setDirection] = useState<RampDirection>('buy');
+  const [direction, setDirection] = useState<RampDirection>(
+    route?.params?.direction === 'sell' ? 'sell' : 'buy',
+  );
   const [assetCode, setAssetCode] = useState<RampAssetCode>('XLM');
   const [amount, setAmount] = useState('10');
   const [quote, setQuote] = useState<RampQuote | null>(null);
   const [bankId, setBankId] = useState('970422');
   const [fullName, setFullName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
+  const [dismissedResultKey, setDismissedResultKey] = useState<string | null>(
+    null,
+  );
   const [, setClock] = useState(Date.now());
   const order = wallet.activeRampOrder;
   const refreshRampOrderRef = useRef(wallet.refreshRampOrder);
   const orderReference = order?.code || order?.id || '';
   const terminal = isRampOrderTerminal(order);
+  const resultKey =
+    terminal && order
+      ? `${order.id || order.code}:${order.state}:${order.processing_state}`
+      : null;
+  const showResult = Boolean(
+    resultKey && dismissedResultKey !== resultKey,
+  );
   const providerConfigured = wallet.rampProviders.some(
     provider => provider.id === 'seerbot-vnd' && provider.configured,
   );
@@ -90,6 +104,13 @@ export function RampScreen({
   useEffect(() => {
     refreshRampOrderRef.current = wallet.refreshRampOrder;
   }, [wallet.refreshRampOrder]);
+
+  useEffect(() => {
+    if (!order && route?.params?.direction) {
+      setDirection(route.params.direction);
+      setQuote(null);
+    }
+  }, [order, route?.params?.direction]);
 
   useEffect(() => {
     const timer = setInterval(() => setClock(Date.now()), 1000);
@@ -160,11 +181,6 @@ export function RampScreen({
     }
   }
 
-  async function finishOrder() {
-    await wallet.clearRampOrder();
-    await onFinish();
-  }
-
   if (order) {
     const bankInfo = order.body?.bankInfo;
     const isSell = order.order_type === 'sell';
@@ -188,6 +204,12 @@ export function RampScreen({
         }/tx/${transactionHash}`
       : null;
     const completed = Number(order.state) === 3;
+    const stateLabel =
+      RAMP_STATE_LABELS[Number(order.state)] || 'Unknown status';
+    const processingLabel =
+      RAMP_PROCESSING_LABELS[Number(order.processing_state)] ||
+      'Waiting for provider';
+    const orderAction = isSell ? 'Withdraw' : 'Buy';
 
     return (
       <View style={styles.orderScreen}>
@@ -198,9 +220,9 @@ export function RampScreen({
           <ModernScreenHeader
             onBack={onBack}
             subtitle={`${wallet.isMainnet ? 'Mainnet' : 'Testnet'} · ${
-              isSell ? 'Sell' : 'Buy'
+              isSell ? 'Withdraw to bank' : 'Buy with VND'
             } ${order.asset_code}`}
-            title="Payment order"
+            title={`${orderAction} order`}
           />
 
           <View style={modern.sectionCard}>
@@ -223,13 +245,11 @@ export function RampScreen({
             </View>
             <View style={modern.reviewModernBox}>
               <InfoLine
-                label="Order"
-                value={`${isSell ? 'Sell' : 'Buy'} ${formatTokenAmount(
-                  String(order.amount),
-                )} ${order.asset_code}`}
+                label={isSell ? 'You withdraw' : 'You buy'}
+                value={`${formatTokenAmount(String(order.amount))} ${
+                  order.asset_code
+                }`}
               />
-              <InfoLine label="Order ID" value={String(order.id || '-')} />
-              <InfoLine label="Payment code" value={order.code || '-'} />
               <InfoLine
                 label="Network"
                 value={
@@ -238,12 +258,15 @@ export function RampScreen({
                     : 'Testnet · testing only'
                 }
               />
-              <InfoLine label="State" value={String(order.state)} />
-              <InfoLine
-                label="Processing state"
-                value={String(order.processing_state)}
-              />
             </View>
+          </View>
+
+          <View style={modern.sectionCard}>
+            <SectionHeader title="Order details" />
+            <InfoLine label="Status" value={stateLabel} />
+            <InfoLine label="Current step" value={processingLabel} />
+            <InfoLine label="Order ID" value={String(order.id || '-')} />
+            <InfoLine label="Payment code" value={order.code || '-'} />
           </View>
 
           {!isSell ? (
@@ -287,12 +310,10 @@ export function RampScreen({
               {canBypassTestPayment ? (
                 <View style={styles.testPaymentBox}>
                   <View style={styles.testPaymentCopy}>
-                    <Text style={styles.testPaymentTitle}>
-                      Test without transferring VND
-                    </Text>
+                    <Text style={styles.testPaymentTitle}>Testnet only</Text>
                     <Text style={styles.testPaymentText}>
-                      Confirm this payment in the dev environment only. This
-                      action is unavailable for Mainnet orders.
+                      Confirm the VND payment without a real bank transfer. This
+                      action is unavailable on Mainnet.
                     </Text>
                   </View>
                   <PressScale
@@ -308,7 +329,7 @@ export function RampScreen({
                         modern.secondaryModernButtonText,
                       ]}
                     >
-                      Confirm test payment
+                      Confirm test buy
                     </Text>
                   </PressScale>
                 </View>
@@ -316,10 +337,10 @@ export function RampScreen({
             </View>
           ) : (
             <View style={modern.sectionCard}>
-              <SectionHeader title="Send crypto" />
+              <SectionHeader title="Complete withdrawal" />
               <Text style={modern.emptyModernText}>
-                Send the exact asset and amount to the address below. The
-                Stellar text memo must be exactly the order code.
+                Send the exact crypto amount below to receive VND in your bank
+                account. The Stellar memo must match the payment code.
               </Text>
               <View style={modern.reviewModernBox}>
                 <InfoLine
@@ -353,13 +374,10 @@ export function RampScreen({
               {canBypassTestSellPayment ? (
                 <View style={styles.testPaymentBox}>
                   <View style={styles.testPaymentCopy}>
-                    <Text style={styles.testPaymentTitle}>
-                      Test without sending crypto
-                    </Text>
+                    <Text style={styles.testPaymentTitle}>Testnet only</Text>
                     <Text style={styles.testPaymentText}>
-                      Simulate the hot wallet receiving this asset and trigger
-                      the dev VND payout flow. Your Testnet balance will not be
-                      deducted.
+                      Confirm crypto receipt without sending Testnet assets.
+                      This triggers the provider's test withdrawal flow.
                     </Text>
                   </View>
                   <PressScale
@@ -373,7 +391,7 @@ export function RampScreen({
                         modern.secondaryModernButtonText,
                       ]}
                     >
-                      Confirm test crypto receipt
+                      Confirm test withdrawal
                     </Text>
                   </PressScale>
                 </View>
@@ -453,7 +471,7 @@ export function RampScreen({
           </View>
         </ScrollView>
 
-        {terminal ? (
+        {showResult ? (
           <View style={styles.resultOverlay}>
             <View accessibilityViewIsModal style={styles.resultModal}>
               <View style={styles.resultContent}>
@@ -494,7 +512,7 @@ export function RampScreen({
                 </Text>
                 <Text style={styles.resultText}>
                   {completed
-                    ? `${isSell ? 'Sell' : 'Buy'} ${formatTokenAmount(
+                    ? `${isSell ? 'Withdraw' : 'Buy'} ${formatTokenAmount(
                         String(order.amount),
                       )} ${order.asset_code} completed successfully.`
                     : Number(order.state) === 5
@@ -512,12 +530,14 @@ export function RampScreen({
               <View style={styles.resultActions}>
                 <Pressable
                   accessibilityRole="button"
-                  disabled={wallet.isBusy}
-                  onPress={finishOrder}
+                  onPress={() => {
+                    if (resultKey) {
+                      setDismissedResultKey(resultKey);
+                    }
+                  }}
                   style={({ pressed }) => [
                     styles.resultPrimaryAction,
                     pressed ? styles.resultPrimaryActionPressed : null,
-                    wallet.isBusy ? styles.resultActionDisabled : null,
                   ]}
                 >
                   <Text style={styles.resultPrimaryActionText}>Done</Text>
@@ -557,6 +577,7 @@ export function RampScreen({
   const canCreate =
     providerConfigured &&
     Boolean(quote) &&
+    (direction === 'buy' || Number(quote?.total_vnd || 0) > 0) &&
     validSellForm &&
     Boolean(wallet.wallet) &&
     (direction === 'buy' || wallet.walletCanSign);
@@ -570,10 +591,10 @@ export function RampScreen({
         onBack={onBack}
         subtitle={
           wallet.isMainnet
-            ? 'Orders and Stellar transfers on Mainnet use real money and assets.'
-            : 'Integration environment using Stellar Testnet assets with no monetary value.'
+            ? 'Buy crypto with VND or withdraw VND to your bank account.'
+            : 'Test the same buy and withdrawal flow with Testnet assets.'
         }
-        title="Buy/Sell with VND"
+        title="Buy & withdraw"
       />
 
       {!providerConfigured ? (
@@ -602,7 +623,7 @@ export function RampScreen({
                   direction === item ? styles.segmentTextActive : null,
                 ]}
               >
-                {item === 'buy' ? 'Buy crypto' : 'Sell crypto'}
+                {item === 'buy' ? 'Buy with VND' : 'Withdraw to bank'}
               </Text>
             </Pressable>
           ))}
@@ -655,7 +676,7 @@ export function RampScreen({
 
         {direction === 'sell' ? (
           <>
-            <SectionHeader title="VND payout account" />
+            <SectionHeader title="Bank account" />
             <TextInput
               keyboardType="number-pad"
               maxLength={6}
@@ -691,14 +712,18 @@ export function RampScreen({
               value={accountNumber}
             />
             <Text style={modern.assetModernMeta}>
-              Payout method: Bank account
+              VND will be sent to this bank account after the crypto transfer is
+              confirmed.
             </Text>
           </>
         ) : null}
 
         {quote ? (
-          <View style={modern.reviewModernBox}>
-            <Text style={modern.reviewModernTitle}>Estimated order</Text>
+          <View style={styles.quoteCard}>
+            <Text style={styles.quoteEyebrow}>
+              {direction === 'buy' ? 'ESTIMATED PAYMENT' : 'ESTIMATED PAYOUT'}
+            </Text>
+            <Text style={styles.quoteAmount}>{formatVnd(quote.total_vnd)}</Text>
             <InfoLine
               label="Rate"
               value={`${formatVnd(quote.rate)} / ${quote.asset_code}`}
@@ -709,6 +734,17 @@ export function RampScreen({
               label={direction === 'buy' ? 'You transfer' : 'Estimated payout'}
               value={formatVnd(quote.total_vnd)}
             />
+            {direction === 'sell' &&
+            quote.gross_vnd > 0 &&
+            quote.fee_vnd / quote.gross_vnd >= 0.5 ? (
+              <View style={styles.feeWarning}>
+                <Ionicons color="#A25C00" name="warning-outline" size={18} />
+                <Text style={styles.feeWarningText}>
+                  The fee uses a large part of this withdrawal. Increase the
+                  crypto amount for a better payout.
+                </Text>
+              </View>
+            ) : null}
             <Text style={modern.reviewModernText}>
               Final values come from the order response. This quote may change.
             </Text>
@@ -729,7 +765,11 @@ export function RampScreen({
           <Text style={modern.modernButtonText}>
             {quote
               ? canCreate
-                ? `Create ${direction} order`
+                ? direction === 'buy'
+                  ? 'Create buy order'
+                  : 'Create withdrawal'
+                : direction === 'sell' && Number(quote.total_vnd) <= 0
+                ? 'Withdrawal amount is too small'
                 : 'Complete required details'
               : 'Get VND quote'}
           </Text>
@@ -780,11 +820,42 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 10,
   },
+  feeWarning: {
+    alignItems: 'flex-start',
+    backgroundColor: '#FFF7E8',
+    borderRadius: 14,
+    flexDirection: 'row',
+    gap: 9,
+    padding: 12,
+  },
+  feeWarningText: {
+    color: '#855114',
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+  },
   orderScreen: {
     flex: 1,
   },
-  resultActionDisabled: {
-    opacity: 0.45,
+  quoteAmount: {
+    color: '#111318',
+    fontSize: 30,
+    fontWeight: '900',
+    letterSpacing: -0.7,
+    marginBottom: 4,
+  },
+  quoteCard: {
+    backgroundColor: '#F5F6F8',
+    borderRadius: 22,
+    gap: 9,
+    padding: 16,
+  },
+  quoteEyebrow: {
+    color: '#7B818A',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.8,
   },
   resultActions: {
     gap: 10,

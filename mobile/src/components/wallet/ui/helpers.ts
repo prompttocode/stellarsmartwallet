@@ -1,48 +1,94 @@
 import { useMemo } from 'react';
 import type { AssetItem, BalanceItem } from '@app-types';
 
-export function calculateTotalUsdValue(balances: BalanceItem[]): number {
-  return balances.reduce((sum, balance) => {
-    const amount = Number(balance.balance) || 0;
+function getAssetKey(asset: AssetItem) {
+  return asset.isNative
+    ? `${asset.network}:native`
+    : `${asset.network}:${asset.assetCode}:${asset.assetIssuer || ''}`;
+}
 
-    if (balance.assetCode === 'XLM') {
-      return sum + amount * 0.12;
-    }
+export function calculatePortfolioValuation(assets: BalanceItem[]) {
+  return assets.reduce(
+    (valuation, asset) => {
+      const amount = Number(asset.balance) || 0;
 
-    if (
-      balance.assetCode === 'EURC' ||
-      balance.assetCode === 'PYUSD' ||
-      balance.assetCode === 'USDC' ||
-      balance.assetCode === 'USDT' ||
-      balance.assetCode === 'yUSDC'
-    ) {
-      return sum + amount;
-    }
+      if (amount <= 0) {
+        return valuation;
+      }
 
-    return sum;
-  }, 0);
+      valuation.positiveAssetCount += 1;
+
+      if (
+        typeof asset.priceUsd !== 'number' ||
+        !Number.isFinite(asset.priceUsd) ||
+        asset.priceUsd <= 0
+      ) {
+        valuation.unpricedAssetCount += 1;
+        return valuation;
+      }
+
+      valuation.pricedAssetCount += 1;
+      valuation.totalUsd += amount * asset.priceUsd;
+      return valuation;
+    },
+    {
+      positiveAssetCount: 0,
+      pricedAssetCount: 0,
+      totalUsd: 0,
+      unpricedAssetCount: 0,
+    },
+  );
 }
 
 export function getModernAssets(
   balances: BalanceItem[],
   visibleAssets: AssetItem[],
 ) {
-  return visibleAssets.map<BalanceItem>(asset => {
-    const balance = balances.find(
-      item =>
-        item.assetCode === asset.assetCode &&
-        (item.assetIssuer || null) === (asset.assetIssuer || null),
+  const merged = new Map<string, BalanceItem>();
+
+  for (const asset of visibleAssets) {
+    const balance = balances.find(item => getAssetKey(item) === getAssetKey(asset));
+
+    merged.set(getAssetKey(asset), {
+      ...asset,
+      ...balance,
+      image: asset.image || balance?.image || null,
+      priceUsd: asset.priceUsd ?? balance?.priceUsd ?? null,
+      rating: asset.rating ?? balance?.rating ?? null,
+      volume7d: asset.volume7d ?? balance?.volume7d ?? null,
+      balance: balance?.balance || '0',
+      exists: balance?.exists || false,
+      trusted: balance?.trusted ?? asset.isNative,
+    });
+  }
+
+  for (const balance of balances) {
+    const key = getAssetKey(balance);
+
+    if (!merged.has(key)) {
+      merged.set(key, balance);
+    }
+  }
+
+  return [...merged.values()];
+}
+
+export function getWalletAssets(
+  balances: BalanceItem[],
+  visibleAssets: AssetItem[],
+) {
+  return balances.map(balance => {
+    const marketAsset = visibleAssets.find(
+      asset => getAssetKey(asset) === getAssetKey(balance),
     );
 
-    if (balance) {
-      return balance;
-    }
-
     return {
-      ...asset,
-      balance: '0',
-      exists: false,
-      trusted: asset.isNative,
+      ...marketAsset,
+      ...balance,
+      image: marketAsset?.image || balance.image || null,
+      priceUsd: marketAsset?.priceUsd ?? balance.priceUsd ?? null,
+      rating: marketAsset?.rating ?? balance.rating ?? null,
+      volume7d: marketAsset?.volume7d ?? balance.volume7d ?? null,
     };
   });
 }

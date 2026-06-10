@@ -12,10 +12,7 @@ import {
 } from '@components/wallet';
 import type { WalletState } from '@hooks/useWallet';
 import type { RampOrder, TransactionItem } from '@app-types';
-import {
-  getRampOrderStatus,
-  rampTimestampToMs,
-} from '@utils/ramp';
+import { getRampOrderStatus, rampTimestampToMs } from '@utils/ramp';
 import { formatTokenAmount } from '@utils/format';
 
 type TransactionFilter = 'all' | 'received' | 'sent';
@@ -28,8 +25,8 @@ const filters: { label: string; value: TransactionFilter }[] = [
 ];
 
 const historyKinds: { label: string; value: HistoryKind }[] = [
-  { label: 'Stellar', value: 'stellar' },
-  { label: 'Buy/Sell', value: 'orders' },
+  { label: 'Transfers', value: 'stellar' },
+  { label: 'Cash orders', value: 'orders' },
 ];
 
 function filterTransactions(
@@ -83,19 +80,13 @@ function FiatOrderRow({
       >
         <Ionicons
           color={completed ? '#0ABF73' : terminal ? '#D84C5F' : '#3867D6'}
-          name={
-            completed
-              ? 'checkmark'
-              : terminal
-              ? 'close'
-              : 'time-outline'
-          }
+          name={completed ? 'checkmark' : terminal ? 'close' : 'time-outline'}
           size={22}
         />
       </View>
       <View style={styles.orderBody}>
         <Text style={styles.orderTitle}>
-          {order.order_type === 'sell' ? 'Sell' : 'Buy'}{' '}
+          {order.order_type === 'sell' ? 'Withdraw' : 'Buy'}{' '}
           {formatTokenAmount(String(order.amount))} {order.asset_code}
         </Text>
         <Text numberOfLines={1} style={styles.orderMeta}>
@@ -145,8 +136,8 @@ export function TransactionsScreen({
       showsVerticalScrollIndicator={false}
     >
       <ModernScreenHeader
-        subtitle="Stellar transactions and VND payment orders in one place."
-        title="History"
+        subtitle="Review crypto transfers, swaps, buys, and bank withdrawals."
+        title="Activity"
       />
 
       <View style={modern.sectionCard}>
@@ -170,11 +161,7 @@ export function TransactionsScreen({
               <Text style={modern.sectionActionText}>↻</Text>
             </PressScale>
           }
-          title={
-            historyKind === 'stellar'
-              ? 'Stellar transactions'
-              : 'VND orders'
-          }
+          title={historyKind === 'stellar' ? 'Transfers' : 'Cash orders'}
         />
         {historyKind === 'stellar' ? (
           <>
@@ -203,9 +190,7 @@ export function TransactionsScreen({
               })
             ) : (
               <View style={modern.emptyModern}>
-                <Text style={modern.emptyModernTitle}>
-                  No transactions yet
-                </Text>
+                <Text style={modern.emptyModernTitle}>No transactions yet</Text>
                 <Text style={modern.emptyModernText}>
                   Deposits, sends, and swaps appear here after they are
                   submitted to Stellar.
@@ -216,7 +201,9 @@ export function TransactionsScreen({
         ) : wallet.rampOrderHistory.length > 0 ? (
           wallet.rampOrderHistory.map(order => (
             <FiatOrderRow
-              key={`${order.code || order.id}:${order.state}:${order.processing_state}`}
+              key={`${order.code || order.id}:${order.state}:${
+                order.processing_state
+              }`}
               onPress={() => onGoToRampOrder(order)}
               order={order}
             />
@@ -225,7 +212,7 @@ export function TransactionsScreen({
           <View style={modern.emptyModern}>
             <Text style={modern.emptyModernTitle}>No VND orders yet</Text>
             <Text style={modern.emptyModernText}>
-              Buy and Sell orders created for this wallet and network will
+              Buy and withdraw orders created for this wallet and network will
               appear here.
             </Text>
           </View>

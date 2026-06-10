@@ -1166,6 +1166,7 @@ async function fetchStellarExpertAssets(options: { limit: number; search?: unkno
   const params = new URLSearchParams({
     limit: String(options.limit),
     order: 'desc',
+    sort: 'rating',
   });
   const search = String(options.search || '').trim();
 

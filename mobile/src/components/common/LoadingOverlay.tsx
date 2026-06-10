@@ -1,12 +1,15 @@
 import React from 'react';
-import { View, ActivityIndicator, Text, StyleSheet, Modal } from 'react-native';
+import { ActivityIndicator, Modal, StyleSheet, Text, View } from 'react-native';
 
 interface LoadingOverlayProps {
   visible: boolean;
   message?: string;
 }
 
-export function LoadingOverlay({ visible, message = 'Loading...' }: LoadingOverlayProps) {
+export function LoadingOverlay({
+  visible,
+  message = 'Loading...',
+}: LoadingOverlayProps) {
   return (
     <Modal visible={visible} transparent animationType="fade">
       <View style={styles.container}>
@@ -21,23 +24,29 @@ export function LoadingOverlay({ visible, message = 'Loading...' }: LoadingOverl
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     alignItems: 'center',
+    backgroundColor: 'rgba(12, 14, 18, 0.38)',
+    flex: 1,
     justifyContent: 'center',
+    padding: 24,
   },
   box: {
-    backgroundColor: '#1E293B',
-    padding: 24,
-    borderRadius: 16,
     alignItems: 'center',
-    minWidth: 160,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    minWidth: 184,
+    paddingHorizontal: 28,
+    paddingVertical: 24,
+    shadowColor: '#000000',
+    shadowOffset: { height: 12, width: 0 },
+    shadowOpacity: 0.16,
+    shadowRadius: 28,
   },
   text: {
-    marginTop: 16,
-    color: '#FFF',
+    color: '#17191D',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '800',
+    marginTop: 16,
     textAlign: 'center',
   },
 });

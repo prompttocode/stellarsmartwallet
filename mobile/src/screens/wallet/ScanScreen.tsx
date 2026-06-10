@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { Camera, useCameraDevice, useCameraPermission, useCodeScanner } from 'react-native-vision-camera';
+import {
+  Camera,
+  useCameraDevice,
+  useCameraPermission,
+  useCodeScanner,
+} from 'react-native-vision-camera';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -45,7 +50,7 @@ export function ScanScreen({ navigation }: any) {
 
   const codeScanner = useCodeScanner({
     codeTypes: ['qr', 'ean-13'],
-    onCodeScanned: (codes) => {
+    onCodeScanned: codes => {
       if (scanned) return;
       if (codes.length > 0) {
         const value = codes[0].value;
@@ -56,7 +61,7 @@ export function ScanScreen({ navigation }: any) {
           if (parsed.type === 'walletconnect') {
             Alert.alert(
               'WalletConnect',
-              'WalletConnect URI received. Open Account to configure a Reown projectId before pairing dApps.',
+              'WalletConnect URI received. Open Settings > Advanced to configure a Reown projectId before pairing dApps.',
             );
             navigation.goBack();
             return;
@@ -65,17 +70,25 @@ export function ScanScreen({ navigation }: any) {
           navigation.replace('Send', { prefilledAddress: parsed.value });
         }
       }
-    }
+    },
   });
 
   if (!hasPermission) {
     return (
       <View style={styles.container}>
-        <Text style={styles.text}>Please allow camera access in device settings.</Text>
-        <TouchableOpacity style={styles.buttonPrimary} onPress={requestPermission}>
+        <Text style={styles.text}>
+          Please allow camera access in device settings.
+        </Text>
+        <TouchableOpacity
+          style={styles.buttonPrimary}
+          onPress={requestPermission}
+        >
           <Text style={styles.buttonPrimaryText}>Allow camera</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.buttonSecondary} onPress={() => navigation.goBack()}>
+        <TouchableOpacity
+          style={styles.buttonSecondary}
+          onPress={() => navigation.goBack()}
+        >
           <Text style={styles.buttonSecondaryText}>Go back</Text>
         </TouchableOpacity>
       </View>
@@ -86,7 +99,10 @@ export function ScanScreen({ navigation }: any) {
     return (
       <View style={styles.container}>
         <Text style={styles.text}>No camera was found on this device.</Text>
-        <TouchableOpacity style={styles.buttonSecondary} onPress={() => navigation.goBack()}>
+        <TouchableOpacity
+          style={styles.buttonSecondary}
+          onPress={() => navigation.goBack()}
+        >
           <Text style={styles.buttonSecondaryText}>Go back</Text>
         </TouchableOpacity>
       </View>
@@ -102,7 +118,10 @@ export function ScanScreen({ navigation }: any) {
         codeScanner={codeScanner}
       />
       <View style={headerStyle}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+        >
           <Ionicons name="close" size={28} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.title}>Scan QR code</Text>
@@ -204,5 +223,5 @@ const styles = StyleSheet.create({
   buttonSecondaryText: {
     color: '#FFFFFF',
     fontSize: 16,
-  }
+  },
 });

@@ -4,26 +4,47 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
   AssetListItem,
   ModernScreenHeader,
-  getModernAssets,
+  SectionHeader,
   modern,
   useSafeScreenInsetStyle,
 } from '@components/wallet';
 import type { AssetItem, BalanceItem } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
 
+function getAssetKey(asset: AssetItem) {
+  return asset.isNative
+    ? `${asset.network}:native`
+    : `${asset.network}:${asset.assetCode}:${asset.assetIssuer || ''}`;
+}
+
+function mergeMarketAssets(
+  marketAssets: AssetItem[],
+  balances: BalanceItem[],
+) {
+  return marketAssets.map(asset => {
+    const balance = balances.find(item => getAssetKey(item) === getAssetKey(asset));
+
+    return {
+      ...asset,
+      ...balance,
+      image: asset.image || balance?.image || null,
+      priceUsd: asset.priceUsd ?? balance?.priceUsd ?? null,
+      rating: asset.rating ?? balance?.rating ?? null,
+      volume7d: asset.volume7d ?? balance?.volume7d ?? null,
+      balance: balance?.balance || '0',
+      exists: balance?.exists || false,
+      trusted: balance?.trusted ?? asset.isNative,
+    };
+  });
+}
+
 export function AssetSearchScreen({
   onBack,
   onGoToAssetDetail,
-  onGoToFaucet,
-  onGoToRamp,
-  onGoToSend,
   wallet,
 }: {
   onBack: () => void;
   onGoToAssetDetail: (asset: BalanceItem) => void;
-  onGoToFaucet: () => void;
-  onGoToRamp: () => void;
-  onGoToSend: (assetCode?: string) => void;
   wallet: WalletState;
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
@@ -45,18 +66,12 @@ export function AssetSearchScreen({
   }, [wallet.network]);
 
   useEffect(() => {
-    if (!trimmedQuery) {
-      setRemoteAssets([]);
-      setIsSearching(false);
-      setError(null);
-      return;
-    }
-
     let cancelled = false;
     const timer = setTimeout(() => {
       setIsSearching(true);
       setError(null);
-      searchAssetsRef.current(trimmedQuery)
+      searchAssetsRef
+        .current(trimmedQuery, { limit: trimmedQuery ? 40 : 100 })
         .then(result => {
           if (!cancelled) {
             setRemoteAssets(result);
@@ -82,26 +97,14 @@ export function AssetSearchScreen({
   }, [trimmedQuery, wallet.network]);
 
   const assets = useMemo(
-    () => getModernAssets(wallet.balances, remoteAssets),
+    () => mergeMarketAssets(remoteAssets, wallet.balances),
     [remoteAssets, wallet.balances],
   );
 
-  function handleSecondaryAction(assetCode: string) {
-    if (wallet.isMainnet) {
-      onGoToFaucet();
-      return;
-    }
-
-    if (assetCode === 'XLM') {
-      wallet.fundWallet();
-      return;
-    }
-
-    onGoToRamp();
-  }
-
   const emptyText = !trimmedQuery
-    ? 'Search by asset code, name, issuer, or domain.'
+    ? isSearching
+      ? 'Loading top assets from the remote API...'
+      : 'No market assets returned by the API.'
     : isSearching
     ? 'Searching assets...'
     : error || 'No assets found from API.';
@@ -114,10 +117,10 @@ export function AssetSearchScreen({
     >
       <ModernScreenHeader
         onBack={onBack}
-        title="Search assets"
+        title="Asset market"
         subtitle={
           wallet.isMainnet
-            ? 'Find Stellar Mainnet assets from the remote asset API.'
+            ? 'Find Stellar Mainnet assets, prices, and issuers.'
             : 'Find Testnet assets supported by this app.'
         }
       />
@@ -137,12 +140,15 @@ export function AssetSearchScreen({
           />
         </View>
         <Text style={styles.searchHint}>
-          Results come from the API for the selected network. Your Home asset
-          list stays clean.
+          Results come from the selected network API. Tap an asset for details,
+          actions, and enable status.
         </Text>
       </View>
 
       <View style={modern.sectionCard}>
+        <SectionHeader
+          title={trimmedQuery ? 'Search results' : 'Top market assets'}
+        />
         {assets.length > 0 ? (
           assets.map((asset, index) => (
             <AssetListItem
@@ -151,9 +157,11 @@ export function AssetSearchScreen({
               index={index}
               key={`${asset.assetCode}:${asset.assetIssuer || 'native'}`}
               onAdd={wallet.addTrustline}
-              onFaucet={handleSecondaryAction}
+              onFaucet={() => undefined}
               onPress={onGoToAssetDetail}
-              onSend={onGoToSend}
+              onSend={() => undefined}
+              showAction={false}
+              variant="market"
             />
           ))
         ) : (

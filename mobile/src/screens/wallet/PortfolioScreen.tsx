@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Alert,
   ImageBackground,
   RefreshControl,
   ScrollView,
@@ -14,8 +15,8 @@ import {
   QuickActionGrid,
   SectionHeader,
   WalletHero,
-  calculateTotalUsdValue,
-  getModernAssets,
+  calculatePortfolioValuation,
+  getWalletAssets,
   modern,
   PressScale,
   TransactionListItem,
@@ -31,7 +32,7 @@ const portfolioBackground = require('@assets/images/background/backstellar.png')
 export function PortfolioScreen({
   onGoToReceive,
   onGoToSend,
-  onGoToSwap,
+  onGoToWithdraw,
   onGoToFaucet,
   onGoToRamp,
   onGoToAssetSearch,
@@ -44,7 +45,7 @@ export function PortfolioScreen({
 }: {
   onGoToReceive: () => void;
   onGoToSend: (assetCode?: string) => void;
-  onGoToSwap: () => void;
+  onGoToWithdraw: () => void;
   onGoToFaucet: () => void;
   onGoToRamp: () => void;
   onGoToAssetSearch: () => void;
@@ -60,7 +61,9 @@ export function PortfolioScreen({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const { selectedCurrency, convertFromUSD, loading } = useCurrencyConfig();
 
-  const baseUsdValue = calculateTotalUsdValue(wallet.balances);
+  const assets = getWalletAssets(wallet.balances, wallet.visibleAssets);
+  const valuation = calculatePortfolioValuation(assets);
+  const baseUsdValue = valuation.totalUsd;
   const convertedValue = convertFromUSD(baseUsdValue);
 
   // Format based on currency
@@ -73,7 +76,7 @@ export function PortfolioScreen({
   };
   const symbol = currencySymbols[selectedCurrency] || '$';
 
-  const portfolioValue = loading
+  const formattedPortfolioValue = loading
     ? '...'
     : selectedCurrency === 'VND' || selectedCurrency === 'JPY'
     ? `${Math.round(convertedValue).toLocaleString('en-US')} ${symbol}`
@@ -81,12 +84,28 @@ export function PortfolioScreen({
         maximumFractionDigits: 2,
         minimumFractionDigits: 2,
       })}`;
-
-  const assets = getModernAssets(wallet.balances, wallet.visibleAssets);
+  const portfolioValue = !wallet.isMainnet
+    ? 'Demo assets'
+    : valuation.positiveAssetCount > 0 && valuation.pricedAssetCount === 0
+    ? 'Price unavailable'
+    : formattedPortfolioValue;
+  const portfolioNote = !wallet.isMainnet
+    ? 'Testnet assets have no real market value'
+    : valuation.unpricedAssetCount > 0
+    ? `${valuation.unpricedAssetCount} asset${
+        valuation.unpricedAssetCount === 1 ? '' : 's'
+      } not included · Market prices refresh every minute`
+    : wallet.assetPricesUpdatedAt
+    ? 'Stellar market prices · Refreshes every minute'
+    : 'Waiting for market prices';
 
   function faucetAsset(assetCode: string) {
     if (wallet.isMainnet) {
-      onGoToFaucet();
+      if (assetCode === 'XLM') {
+        onGoToFaucet();
+      } else {
+        onGoToRamp();
+      }
       return;
     }
 
@@ -106,10 +125,34 @@ export function PortfolioScreen({
     setIsRefreshing(true);
 
     try {
-      await wallet.refreshSession();
+      await Promise.all([
+        wallet.refreshSession(),
+        wallet.refreshAssetPrices(),
+      ]);
     } finally {
       setIsRefreshing(false);
     }
+  }
+
+  function confirmNetworkSwitch() {
+    const nextNetwork = wallet.isMainnet ? 'Testnet' : 'Mainnet';
+
+    Alert.alert(
+      `Switch to ${nextNetwork}?`,
+      wallet.isMainnet
+        ? 'Testnet uses demo assets. Your Mainnet wallets and balances will be hidden until you switch back.'
+        : 'Mainnet uses real assets and real money. Check every transaction carefully.',
+      [
+        { style: 'cancel', text: 'Cancel' },
+        {
+          onPress: () =>
+            wallet.switchNetwork(
+              wallet.network === 'mainnet' ? 'testnet' : 'mainnet',
+            ),
+          text: `Switch to ${nextNetwork}`,
+        },
+      ],
+    );
   }
 
   return (
@@ -137,15 +180,12 @@ export function PortfolioScreen({
           email={wallet.account?.email}
           hidden={hidden}
           onHideToggle={() => setHidden(value => !value)}
-          onNetworkPress={() =>
-            wallet.switchNetwork(
-              wallet.network === 'mainnet' ? 'testnet' : 'mainnet',
-            )
-          }
+          onNetworkPress={confirmNetworkSwitch}
           onScan={onGoToScan}
           onSearch={onGoToAssetSearch}
           onWalletPress={() => setIsWalletModalVisible(true)}
           network={wallet.network}
+          portfolioNote={portfolioNote}
           portfolioValue={portfolioValue}
         >
           <QuickActionGrid
@@ -184,13 +224,13 @@ export function PortfolioScreen({
                 icon: (
                   <MaterialCommunityIcons
                     color="#3867D6"
-                    name="swap-horizontal"
+                    name="bank-transfer-out"
                     size={25}
                   />
                 ),
-                key: 'swap',
-                label: 'Swap',
-                onPress: onGoToSwap,
+                key: 'withdraw',
+                label: 'Withdraw',
+                onPress: onGoToWithdraw,
               },
             ]}
           />
@@ -227,6 +267,7 @@ export function PortfolioScreen({
                 onSend={onGoToSend}
                 onFaucet={faucetAsset}
                 onPress={onGoToAssetDetail}
+                showAction={false}
               />
             ))}
           </View>
@@ -296,7 +337,7 @@ export function PortfolioScreen({
                   </PressScale>
                 ) : null
               }
-              title="Recent Transactions"
+              title="Recent activity"
             />
             {wallet.transactions.slice(0, 5).map(transaction => {
               const assetItem = assets.find(

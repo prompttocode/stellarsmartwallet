@@ -41,12 +41,12 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#00d2fc',
-        tabBarInactiveTintColor: '#8A9AA3',
+        tabBarActiveTintColor: '#111318',
+        tabBarInactiveTintColor: '#9298A1',
         tabBarStyle: {
           backgroundColor: '#FFFFFF',
           borderTopWidth: 1,
-          borderTopColor: '#E5E8EB',
+          borderTopColor: '#ECEEF1',
           paddingBottom: 24, // Assuming safe area inset
           paddingTop: 8,
           height: 80,
@@ -70,9 +70,11 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
               if (assetCode) wallet.setSelectedAssetCode(assetCode);
               navigation.navigate('Send');
             }}
-            onGoToSwap={() => navigation.navigate('SwapTab')}
+            onGoToWithdraw={() =>
+              navigation.navigate('Ramp', { direction: 'sell' })
+            }
             onGoToFaucet={() => navigation.navigate('Faucet')}
-            onGoToRamp={() => navigation.navigate('Ramp')}
+            onGoToRamp={() => navigation.navigate('Ramp', { direction: 'buy' })}
             onGoToAssetSearch={() => navigation.navigate('AssetSearch')}
             onGoToAssetDetail={(asset: BalanceItem) =>
               navigation.navigate('AssetDetail', getAssetParams(asset))
@@ -90,7 +92,7 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
       <Tab.Screen
         name="HistoryTab"
         options={{
-          tabBarLabel: 'History',
+          tabBarLabel: 'Activity',
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="history" size={size} color={color} />
           ),
@@ -129,9 +131,9 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
       <Tab.Screen
         name="AccountTab"
         options={{
-          tabBarLabel: 'Account',
+          tabBarLabel: 'Settings',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person" size={size} color={color} />
+            <Ionicons name="settings-outline" size={size} color={color} />
           ),
         }}
       >
@@ -180,26 +182,18 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                 <FaucetScreen
                   wallet={wallet}
                   onBack={() => navigation.goBack()}
-                  onGoToRamp={() => navigation.navigate('Ramp')}
+                  onGoToRamp={() =>
+                    navigation.navigate('Ramp', { direction: 'buy' })
+                  }
                 />
               )}
             </Stack.Screen>
             <Stack.Screen name="Ramp">
-              {({ navigation }: any) => (
+              {({ route, navigation }: any) => (
                 <RampScreen
+                  route={route}
                   wallet={wallet}
                   onBack={() => navigation.goBack()}
-                  onFinish={() =>
-                    navigation.reset({
-                      index: 0,
-                      routes: [
-                        {
-                          name: 'MainTabs',
-                          params: { screen: 'HomeTab' },
-                        },
-                      ],
-                    })
-                  }
                 />
               )}
             </Stack.Screen>
@@ -208,12 +202,6 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                 <AssetSearchScreen
                   wallet={wallet}
                   onBack={() => navigation.goBack()}
-                  onGoToFaucet={() => navigation.navigate('Faucet')}
-                  onGoToRamp={() => navigation.navigate('Ramp')}
-                  onGoToSend={(assetCode?: string) => {
-                    if (assetCode) wallet.setSelectedAssetCode(assetCode);
-                    navigation.navigate('Send');
-                  }}
                   onGoToAssetDetail={(asset: BalanceItem) =>
                     navigation.navigate('AssetDetail', {
                       asset,
@@ -231,7 +219,9 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                   route={route}
                   onBack={() => navigation.goBack()}
                   onGoToReceive={() => navigation.navigate('Receive')}
-                  onGoToRamp={() => navigation.navigate('Ramp')}
+                  onGoToRamp={(direction = 'buy') =>
+                    navigation.navigate('Ramp', { direction })
+                  }
                   onGoToSend={(assetCode?: string) => {
                     if (assetCode) wallet.setSelectedAssetCode(assetCode);
                     navigation.navigate('Send');

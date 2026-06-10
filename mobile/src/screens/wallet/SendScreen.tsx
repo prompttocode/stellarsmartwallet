@@ -62,12 +62,15 @@ export function SendScreen({
     if (available) {
       try {
         const { success } = await rnBiometrics.simplePrompt({
-          promptMessage: 'Confirm to send this transaction',
+          promptMessage: 'Confirm this transfer',
           cancelButtonText: 'Cancel',
         });
 
         if (!success) {
-          Alert.alert('Authentication failed', 'Could not send the transaction.');
+          Alert.alert(
+            'Authentication failed',
+            'Could not send the transaction.',
+          );
           return;
         }
       } catch {
@@ -101,13 +104,13 @@ export function SendScreen({
           subtitle={`Transaction submitted to Stellar ${
             wallet.network === 'mainnet' ? 'Mainnet' : 'Testnet'
           }.`}
-          title="Payment sent"
+          title="Transfer sent"
         />
         <View style={modern.sectionCard}>
           <View style={modern.successOrb}>
             <Ionicons color="#0ABF73" name="checkmark" size={42} />
           </View>
-          <Text style={modern.successModernTitle}>Payment sent</Text>
+          <Text style={modern.successModernTitle}>Transfer sent</Text>
           <Text style={modern.successModernText}>
             {formatTokenAmount(wallet.amount)} {lastResult.assetCode} →{' '}
             {recipientLabel}
@@ -149,10 +152,10 @@ export function SendScreen({
               ? 'Review carefully. Mainnet transactions move real assets.'
               : 'Review carefully before sending test tokens.'
           }
-          title="Review payment"
+          title="Review transfer"
         />
         <View style={modern.sectionCard}>
-          <SectionHeader title="Payment details" />
+          <SectionHeader title="Transfer details" />
           <InfoLine
             label="Network"
             value={
@@ -161,7 +164,9 @@ export function SendScreen({
           />
           <InfoLine
             label="Amount"
-            value={`${formatTokenAmount(wallet.amount || '0')} ${wallet.selectedAssetCode}`}
+            value={`${formatTokenAmount(wallet.amount || '0')} ${
+              wallet.selectedAssetCode
+            }`}
           />
           <InfoLine
             label="Destination"
@@ -204,31 +209,31 @@ export function SendScreen({
           onBack={onBack}
           subtitle={
             wallet.isMainnet
-              ? 'Send or withdraw real tokens on Stellar Mainnet.'
-              : 'Send Stellar Testnet XLM or Payment API USDC.'
+              ? 'Transfer crypto to another Stellar wallet on Mainnet.'
+              : 'Transfer Testnet XLM or USDC to another Stellar wallet.'
           }
           title="Send"
         />
 
-      {!wallet.walletCanSign ? (
-        <View style={modern.sectionCard}>
-          <Text style={modern.emptyModernTitle}>Watch-only wallet</Text>
-          <Text style={modern.emptyModernText}>
-            This wallet can only view balances and QR codes. It cannot sign
-            sends, swaps, or exports.
-          </Text>
-        </View>
-      ) : null}
+        {!wallet.walletCanSign ? (
+          <View style={modern.sectionCard}>
+            <Text style={modern.emptyModernTitle}>Watch-only wallet</Text>
+            <Text style={modern.emptyModernText}>
+              This wallet can only view balances and QR codes. It cannot sign
+              sends, swaps, or exports.
+            </Text>
+          </View>
+        ) : null}
 
-      {wallet.isMainnet && !wallet.walletActive ? (
-        <View style={modern.sectionCard}>
-          <Text style={modern.emptyModernTitle}>Wallet inactive</Text>
-          <Text style={modern.emptyModernText}>
-            Deposit real XLM into this wallet before sending Mainnet
-            transactions.
-          </Text>
-        </View>
-      ) : null}
+        {wallet.isMainnet && !wallet.walletActive ? (
+          <View style={modern.sectionCard}>
+            <Text style={modern.emptyModernTitle}>Wallet inactive</Text>
+            <Text style={modern.emptyModernText}>
+              Deposit real XLM into this wallet before sending Mainnet
+              transactions.
+            </Text>
+          </View>
+        ) : null}
 
         <View style={modern.formCard}>
           <SectionHeader title="Asset" />
@@ -247,55 +252,55 @@ export function SendScreen({
           </Text>
         </View>
 
-      <View style={modern.formCard}>
-        <SectionHeader
-          action={
-            <PressScale onPress={onGoToScan}>
-              <Ionicons name="qr-code-outline" size={20} color="#0F8EA3" />
-            </PressScale>
-          }
-          title="Recipient"
-        />
-        <TextInput
-          autoCapitalize="characters"
-          autoCorrect={false}
-          multiline
-          onChangeText={wallet.setRecipient}
-          placeholder="G... Stellar wallet address"
-          placeholderTextColor="#A7B3BA"
-          style={modern.modernInput}
-          value={wallet.recipient}
-        />
-        {wallet.recipientContact ? (
-          <View style={modern.reviewModernBox}>
-            <Text style={modern.reviewModernTitle}>
-              {wallet.recipientContact.label}
-            </Text>
-            <Text style={modern.reviewModernText}>
-              {shortAddress(wallet.recipientContact.wallet.address)}
-            </Text>
-          </View>
-        ) : null}
-      </View>
+        <View style={modern.formCard}>
+          <SectionHeader
+            action={
+              <PressScale onPress={onGoToScan}>
+                <Ionicons name="qr-code-outline" size={20} color="#0F8EA3" />
+              </PressScale>
+            }
+            title="Recipient"
+          />
+          <TextInput
+            autoCapitalize="characters"
+            autoCorrect={false}
+            multiline
+            onChangeText={wallet.setRecipient}
+            placeholder="G... Stellar wallet address"
+            placeholderTextColor="#A7B3BA"
+            style={modern.modernInput}
+            value={wallet.recipient}
+          />
+          {wallet.recipientContact ? (
+            <View style={modern.reviewModernBox}>
+              <Text style={modern.reviewModernTitle}>
+                {wallet.recipientContact.label}
+              </Text>
+              <Text style={modern.reviewModernText}>
+                {shortAddress(wallet.recipientContact.wallet.address)}
+              </Text>
+            </View>
+          ) : null}
+        </View>
 
-      <View style={modern.formCard}>
-        <SectionHeader title="Amount" />
-        <TextInput
-          keyboardType="decimal-pad"
-          onChangeText={wallet.setAmount}
-          placeholder="1"
-          placeholderTextColor="#A7B3BA"
-          style={modern.modernInput}
-          value={wallet.amount}
-        />
-        <PressScale
-          disabled={wallet.isBusy || !canSubmit}
-          onPress={() => setStep('review')}
-          style={modern.primaryModernButton}
-        >
-          <Text style={modern.modernButtonText}>Review payment</Text>
-        </PressScale>
-      </View>
+        <View style={modern.formCard}>
+          <SectionHeader title="Amount" />
+          <TextInput
+            keyboardType="decimal-pad"
+            onChangeText={wallet.setAmount}
+            placeholder="1"
+            placeholderTextColor="#A7B3BA"
+            style={modern.modernInput}
+            value={wallet.amount}
+          />
+          <PressScale
+            disabled={wallet.isBusy || !canSubmit}
+            onPress={() => setStep('review')}
+            style={modern.primaryModernButton}
+          >
+            <Text style={modern.modernButtonText}>Review transfer</Text>
+          </PressScale>
+        </View>
       </ScrollView>
 
       <AssetPickerModal

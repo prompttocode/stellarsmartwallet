@@ -1,5 +1,19 @@
 export function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Unknown error';
+  const rawMessage =
+    error instanceof Error ? error.message : String(error || 'Unknown error');
+  const normalized = rawMessage.trim().toUpperCase();
+  const friendlyMessages: Record<string, string> = {
+    INSUFFICIENT_VND_BALANCE:
+      'The payment provider does not have enough VND available for this withdrawal.',
+    ORDER_NOT_ELIGIBLE:
+      'This order can no longer be confirmed. Refresh the order to see its latest status.',
+    INVALID_ADMIN_CODE:
+      'The Testnet confirmation service is not configured correctly.',
+    ORDER_NOT_FOUND: 'The payment provider could not find this order.',
+  };
+  const friendly = friendlyMessages[normalized];
+
+  return friendly ? `${friendly}\n\nCode: ${normalized}` : rawMessage;
 }
 
 export function shortAddress(address?: string) {

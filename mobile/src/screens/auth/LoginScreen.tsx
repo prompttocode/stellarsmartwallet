@@ -1,9 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 import {
-  ActivityIndicator,
   Image,
   ImageBackground,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   View,
@@ -19,17 +19,6 @@ const loginHeroImage = require('@assets/images/background/backstellar.png');
 
 function sanitizeOtp(value: string) {
   return value.replace(/\D/g, '').slice(0, OTP_LENGTH);
-}
-
-function StatusPill({ active, label }: { active: boolean; label: string }) {
-  return (
-    <View style={styles.statusPill}>
-      <View
-        style={[styles.statusDot, active ? styles.statusDotActive : null]}
-      />
-      <Text style={styles.statusText}>{label}</Text>
-    </View>
-  );
 }
 
 function PrimaryButton({
@@ -170,9 +159,7 @@ function OtpInput({
   );
 }
 
-function LoginHero({ wallet }: { wallet: WalletState }) {
-  const serverReady = Boolean(wallet.health?.ok);
-
+function LoginHero() {
   return (
     <View style={styles.hero}>
       <View style={styles.brandRow}>
@@ -183,28 +170,17 @@ function LoginHero({ wallet }: { wallet: WalletState }) {
           />
         </View>
         <View style={styles.brandCopy}>
-          <Text style={styles.brandName}>Stellar Smart Wallet</Text>
-          <Text style={styles.brandMeta}>Privy secured access</Text>
+          <Text style={styles.brandName}>Stellar Wallet</Text>
+          <Text style={styles.brandMeta}>Simple. Secure. Yours.</Text>
         </View>
-        {wallet.isBusy ? <ActivityIndicator color="#FFFFFF" /> : null}
       </View>
 
       <View style={styles.heroTextBlock}>
-        <Text style={styles.eyebrow}>Privy x Stellar</Text>
+        <Text style={styles.eyebrow}>STELLAR SMART WALLET</Text>
         <Text style={styles.heroTitle}>Welcome back</Text>
         <Text style={styles.heroSubtitle}>
-          Sign in to continue to your Stellar wallet.
+          Sign in to manage your assets, payments and Stellar wallets.
         </Text>
-        <View style={styles.statusRow}>
-          <StatusPill
-            active={wallet.isReady}
-            label={wallet.isReady ? 'Privy ready' : 'Privy loading'}
-          />
-          <StatusPill
-            active={serverReady}
-            label={serverReady ? 'Server online' : 'Server sync'}
-          />
-        </View>
       </View>
     </View>
   );
@@ -216,7 +192,7 @@ function EmailLoginStep({ wallet }: { wallet: WalletState }) {
   return (
     <View style={styles.sheet}>
       <View style={styles.stepHeader}>
-        <Text style={styles.stepKicker}>Sign in</Text>
+        <Text style={styles.stepKicker}>SIGN IN</Text>
         <Text style={styles.stepTitle}>Access your wallet</Text>
         <Text style={styles.stepSubtitle}>
           Use Google or receive a one-time code by email.
@@ -252,12 +228,14 @@ function EmailLoginStep({ wallet }: { wallet: WalletState }) {
 
         <PrimaryButton
           disabled={!wallet.isReady || wallet.isBusy}
-          icon="mail-outline"
+          icon="arrow-forward"
           label={
             wallet.busy && !googleBusy ? wallet.busy : 'Send verification code'
           }
           onPress={wallet.sendEmailCode}
         />
+
+        <LoginMessage wallet={wallet} />
       </View>
     </View>
   );
@@ -269,10 +247,10 @@ function OtpLoginStep({ wallet }: { wallet: WalletState }) {
   return (
     <View style={styles.sheet}>
       <View style={styles.stepHeader}>
-        <Text style={styles.stepKicker}>Verification</Text>
+        <Text style={styles.stepKicker}>VERIFICATION</Text>
         <Text style={styles.stepTitle}>Enter your code</Text>
         <Text style={styles.stepSubtitle}>
-          Check the inbox linked to this sign-in request.
+          We sent a 6-digit verification code to your email.
         </Text>
       </View>
 
@@ -313,18 +291,22 @@ function OtpLoginStep({ wallet }: { wallet: WalletState }) {
             <Text style={styles.textButtonText}>Use another email</Text>
           </Pressable>
         </View>
+
+        <LoginMessage wallet={wallet} />
       </View>
     </View>
   );
 }
 
 function LoginMessage({ wallet }: { wallet: WalletState }) {
+  if (!wallet.privyError) {
+    return null;
+  }
+
   return (
     <View style={styles.messageBox}>
-      <Text style={styles.messageText}>{wallet.message}</Text>
-      {wallet.privyError ? (
-        <Text style={styles.errorText}>{String(wallet.privyError)}</Text>
-      ) : null}
+      <Ionicons color="#B42318" name="alert-circle-outline" size={17} />
+      <Text style={styles.errorText}>{String(wallet.privyError)}</Text>
     </View>
   );
 }
@@ -339,17 +321,20 @@ export function LoginScreen({ wallet }: { wallet: WalletState }) {
     >
       <View style={styles.backdrop}>
         <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
-          <View>
-            <LoginHero wallet={wallet} />
-            {wallet.codeSent ? (
-              <OtpLoginStep wallet={wallet} />
-            ) : (
-              <EmailLoginStep wallet={wallet} />
-            )}
-            <View style={styles.messageInset}>
-              <LoginMessage wallet={wallet} />
+          <ScrollView
+            contentContainerStyle={styles.content}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.loginGroup}>
+              <LoginHero />
+              {wallet.codeSent ? (
+                <OtpLoginStep wallet={wallet} />
+              ) : (
+                <EmailLoginStep wallet={wallet} />
+              )}
             </View>
-          </View>
+          </ScrollView>
         </SafeAreaView>
       </View>
     </ImageBackground>

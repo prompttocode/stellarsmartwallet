@@ -1,10 +1,7 @@
 import React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import {
-  getTransactionIcon,
-  getTransactionTitle,
-} from '@hooks/useWallet';
+import { getTransactionIcon, getTransactionTitle } from '@hooks/useWallet';
 import type { AssetItem, BalanceItem, TransactionItem } from '@app-types';
 import { formatDate, formatTokenAmount, shortAddress } from '@utils/format';
 import { modern } from '../modernStyles';
@@ -19,6 +16,8 @@ export function AssetListItem({
   onSend,
   onFaucet,
   onPress,
+  showAction = true,
+  variant = 'wallet',
 }: {
   asset: BalanceItem;
   disabled?: boolean;
@@ -27,9 +26,25 @@ export function AssetListItem({
   onSend: (assetCode: string) => void;
   onFaucet: (assetCode: string, assetIssuer?: string | null) => void;
   onPress?: (asset: BalanceItem) => void;
+  showAction?: boolean;
+  variant?: 'market' | 'wallet';
 }) {
   const canUse = asset.isNative || asset.trusted;
   const needsTrustline = !asset.isNative && !asset.trusted;
+  const supportsVndOrders = ['XLM', 'USDC'].includes(asset.assetCode);
+  const balanceAmount = Number(asset.balance) || 0;
+  const priceText = formatUsd(asset.priceUsd);
+  const holdingValueText =
+    balanceAmount > 0 && typeof asset.priceUsd === 'number'
+      ? formatUsd(balanceAmount * asset.priceUsd)
+      : null;
+  const volumeText = formatCompactUsd(asset.volume7d);
+  const ratingText =
+    typeof asset.rating === 'number' && Number.isFinite(asset.rating)
+      ? `Rating ${asset.rating.toLocaleString('en-US', {
+          maximumFractionDigits: 1,
+        })}`
+      : null;
   const pressAction = onPress
     ? () => onPress(asset)
     : canUse
@@ -39,26 +54,63 @@ export function AssetListItem({
     ? 'Enable'
     : asset.isNative && asset.network === 'testnet'
     ? 'Faucet'
-    : !asset.isNative && asset.network === 'testnet'
-    ? 'Buy/Sell'
+    : !asset.isNative && supportsVndOrders
+    ? 'Buy'
     : asset.isNative
     ? 'Deposit'
-    : 'Manage';
-  const buttonAction = needsTrustline
-    ? onAdd
-    : onFaucet;
+    : 'Details';
   const badgeLabel = needsTrustline
-    ? 'Trustline needed'
+    ? 'Not enabled'
     : asset.demo
     ? 'Demo'
     : asset.trustLevel === 'verified'
     ? 'Verified'
     : 'Unverified';
-  const subtitle = asset.isNative
-    ? 'Lumens · Native Stellar coin'
-    : asset.trusted
-    ? `${asset.displayName} · ${asset.homeDomain || asset.trustLevel}`
-    : `${asset.displayName} · enable receiving first`;
+  const badgeStyle =
+    badgeLabel === 'Demo'
+      ? modern.assetBadgeDemo
+      : badgeLabel === 'Verified'
+      ? modern.assetBadgeVerified
+      : badgeLabel === 'Not enabled'
+      ? modern.assetBadgeTrustline
+      : modern.assetBadgeUnverified;
+  const badgeTextStyle =
+    badgeLabel === 'Demo'
+      ? modern.assetBadgeTextDemo
+      : badgeLabel === 'Verified'
+      ? modern.assetBadgeTextVerified
+      : badgeLabel === 'Not enabled'
+      ? modern.assetBadgeTextTrustline
+      : modern.assetBadgeTextUnverified;
+  const subtitle =
+    variant === 'market'
+      ? [
+          asset.displayName,
+          priceText,
+          volumeText ? `7d volume ${volumeText}` : null,
+          !priceText && ratingText ? ratingText : null,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : asset.isNative
+      ? ['Lumens', priceText || 'Native Stellar coin'].join(' · ')
+      : asset.trusted
+      ? [asset.displayName, asset.homeDomain || asset.trustLevel, priceText]
+          .filter(Boolean)
+          .join(' · ')
+      : [asset.displayName, 'Not enabled'].filter(Boolean).join(' · ');
+  const primaryRightText =
+    variant === 'market'
+      ? priceText || 'No price'
+      : canUse
+      ? formatTokenAmount(asset.balance, { compact: true })
+      : 'Not enabled';
+  const secondaryRightText =
+    variant === 'market'
+      ? ratingText || (canUse && balanceAmount > 0 ? 'Enabled' : 'Tap details')
+      : holdingValueText
+      ? `≈ ${holdingValueText}`
+      : asset.assetCode;
 
   return (
     <Animated.View
@@ -77,28 +129,10 @@ export function AssetListItem({
               {asset.assetCode}
             </Text>
             <View
-              style={[
-                modern.assetBadge,
-                badgeLabel === 'Demo'
-                  ? modern.assetBadgeDemo
-                  : badgeLabel === 'Verified'
-                  ? modern.assetBadgeVerified
-                  : badgeLabel === 'Trustline needed'
-                  ? modern.assetBadgeTrustline
-                  : modern.assetBadgeUnverified,
-              ]}
+              style={[modern.assetBadge, badgeStyle]}
             >
               <Text
-                style={[
-                  modern.assetBadgeText,
-                  badgeLabel === 'Demo'
-                    ? modern.assetBadgeTextDemo
-                    : badgeLabel === 'Verified'
-                    ? modern.assetBadgeTextVerified
-                    : badgeLabel === 'Trustline needed'
-                    ? modern.assetBadgeTextTrustline
-                    : modern.assetBadgeTextUnverified,
-                ]}
+                style={[modern.assetBadgeText, badgeTextStyle]}
               >
                 {badgeLabel}
               </Text>
@@ -115,24 +149,60 @@ export function AssetListItem({
             numberOfLines={1}
             style={modern.assetModernBalance}
           >
-            {canUse ? formatTokenAmount(asset.balance, { compact: true }) : 'Not enabled'}
+            {primaryRightText}
           </Text>
-          <Text style={modern.assetModernCode}>{asset.assetCode}</Text>
+          <Text numberOfLines={1} style={modern.assetModernCode}>
+            {secondaryRightText}
+          </Text>
         </View>
       </PressScale>
-      <PressScale
-        disabled={disabled}
-        onPress={() => buttonAction(asset.assetCode, asset.assetIssuer)}
-        style={
-          needsTrustline
-            ? modern.assetAddButton
-            : modern.assetFaucetButton
-        }
-      >
-        <Text style={modern.assetButtonText}>{buttonLabel}</Text>
-      </PressScale>
+      {showAction ? (
+        <PressScale
+          disabled={disabled}
+          onPress={() => {
+            if (needsTrustline) {
+              onAdd(asset.assetCode, asset.assetIssuer);
+            } else if (!asset.isNative && !supportsVndOrders && onPress) {
+              onPress(asset);
+            } else {
+              onFaucet(asset.assetCode, asset.assetIssuer);
+            }
+          }}
+          style={
+            needsTrustline ? modern.assetAddButton : modern.assetFaucetButton
+          }
+        >
+          <Text style={modern.assetButtonText}>{buttonLabel}</Text>
+        </PressScale>
+      ) : null}
     </Animated.View>
   );
+}
+
+function formatUsd(value?: number | null) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+
+  if (value > 0 && value < 0.01) {
+    return `$${value.toPrecision(3)}`;
+  }
+
+  return `$${value.toLocaleString('en-US', {
+    maximumFractionDigits: value >= 1 ? 2 : 6,
+    minimumFractionDigits: value >= 1 ? 2 : 0,
+  })}`;
+}
+
+function formatCompactUsd(value?: number | null) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+
+  return `$${value.toLocaleString('en-US', {
+    maximumFractionDigits: 1,
+    notation: 'compact',
+  })}`;
 }
 
 export function TokenPillSelector({

@@ -48,10 +48,10 @@ export function ReceiveScreen({
         onBack={onBack}
         subtitle={
           wallet.isMainnet
-            ? 'Use this address to deposit real XLM or tokens on Stellar Mainnet.'
-            : 'Use this address to receive test tokens on Stellar Testnet.'
+            ? 'Use this address to receive crypto. Buying with VND is a separate action.'
+            : 'Use this address to receive Testnet crypto from another Stellar wallet.'
         }
-        title="Receive"
+        title="Receive crypto"
       />
 
       <View style={modern.sectionCard}>
@@ -108,7 +108,10 @@ export function ReceiveScreen({
             style={modern.secondaryModernButton}
           >
             <Text
-              style={[modern.modernButtonText, modern.secondaryModernButtonText]}
+              style={[
+                modern.modernButtonText,
+                modern.secondaryModernButtonText,
+              ]}
             >
               Explorer
             </Text>
@@ -117,7 +120,7 @@ export function ReceiveScreen({
       </View>
 
       <View style={modern.sectionCard}>
-        <SectionHeader title="Receivable assets" />
+        <SectionHeader title="Assets you can receive" />
         {assets.map(asset => {
           const needsTrustline = !asset.isNative && !asset.trusted;
           const canReceive = !needsTrustline;
@@ -138,8 +141,8 @@ export function ReceiveScreen({
                         compact: true,
                       })}`
                     : wallet.isMainnet && !wallet.walletActive
-                    ? 'Deposit XLM first, then enable receiving'
-                    : 'Enable receiving before deposits'}
+                    ? 'Deposit XLM first, then enable this asset'
+                    : 'Enable this asset before receiving it'}
                 </Text>
               </View>
               {needsTrustline ? (

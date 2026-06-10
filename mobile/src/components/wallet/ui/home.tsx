@@ -23,6 +23,7 @@ export function WalletHero({
   onScan,
   onSearch,
   onWalletPress,
+  portfolioNote,
   portfolioValue,
   network = 'testnet',
 }: {
@@ -35,6 +36,7 @@ export function WalletHero({
   onScan: () => void;
   onSearch: () => void;
   onWalletPress?: () => void;
+  portfolioNote?: string;
   portfolioValue: string;
   network?: 'testnet' | 'mainnet';
 }) {
@@ -141,7 +143,11 @@ export function WalletHero({
         <View style={modern.heroCard}>
           <View style={modern.heroCardHeader}>
             <View>
-              <Text style={modern.heroLabel}>Estimated portfolio value</Text>
+              <Text style={modern.heroLabel}>
+                {network === 'mainnet'
+                  ? 'Estimated portfolio value'
+                  : 'Testnet portfolio'}
+              </Text>
               <Text style={modern.heroNetworkMeta}>
                 {network === 'mainnet'
                   ? 'Stellar Mainnet · real assets'
@@ -164,6 +170,9 @@ export function WalletHero({
           >
             {hidden ? '••••' : portfolioValue}
           </Text>
+          {!hidden && portfolioNote ? (
+            <Text style={modern.heroPriceNote}>{portfolioNote}</Text>
+          ) : null}
 
           <View style={modern.heroAccountRow}>
             <View style={modern.heroAccountMark}>

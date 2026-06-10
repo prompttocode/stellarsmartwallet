@@ -34,14 +34,6 @@ function getAssetPriceText(asset: BalanceItem) {
     })}`;
   }
 
-  if (['EURC', 'PYUSD', 'USDC', 'USDT', 'yUSDC'].includes(asset.assetCode)) {
-    return '≈ $1.00';
-  }
-
-  if (asset.assetCode === 'XLM') {
-    return '≈ $0.12';
-  }
-
   return null;
 }
 
