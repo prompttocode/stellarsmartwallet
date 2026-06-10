@@ -84,13 +84,13 @@ export function PortfolioScreen({
         maximumFractionDigits: 2,
         minimumFractionDigits: 2,
       })}`;
-  const portfolioValue = !wallet.isMainnet
-    ? 'Demo assets'
-    : valuation.positiveAssetCount > 0 && valuation.pricedAssetCount === 0
+  const portfolioValue = valuation.positiveAssetCount > 0 && valuation.pricedAssetCount === 0
     ? 'Price unavailable'
     : formattedPortfolioValue;
   const portfolioNote = !wallet.isMainnet
-    ? 'Testnet assets have no real market value'
+    ? valuation.pricedAssetCount > 0
+      ? 'Reference market price only · Testnet assets have no real value'
+      : 'Waiting for reference market prices'
     : valuation.unpricedAssetCount > 0
     ? `${valuation.unpricedAssetCount} asset${
         valuation.unpricedAssetCount === 1 ? '' : 's'

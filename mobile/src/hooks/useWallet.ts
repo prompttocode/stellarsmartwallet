@@ -93,6 +93,42 @@ function mergeAssetMarketData(
   });
 }
 
+function applyReferenceMarketPrices(
+  testnetAssets: AssetItem[],
+  mainnetAssets: AssetItem[],
+) {
+  const nativeReference = mainnetAssets.find(
+    asset => asset.isNative && hasMarketPrice(asset),
+  );
+  const referencesByCode = new Map<string, AssetItem>();
+
+  for (const asset of mainnetAssets) {
+    if (!hasMarketPrice(asset) || referencesByCode.has(asset.assetCode)) {
+      continue;
+    }
+
+    referencesByCode.set(asset.assetCode, asset);
+  }
+
+  return testnetAssets.map(asset => {
+    const reference = asset.isNative
+      ? nativeReference
+      : referencesByCode.get(asset.assetCode);
+
+    if (!reference) {
+      return asset;
+    }
+
+    return {
+      ...asset,
+      image: asset.image || reference.image || null,
+      priceUsd: reference.priceUsd ?? asset.priceUsd ?? null,
+      rating: asset.rating ?? reference.rating ?? null,
+      volume7d: reference.volume7d ?? asset.volume7d ?? null,
+    };
+  });
+}
+
 function mergePopulatedFields<T extends object>(
   previous?: T,
   next?: T,
@@ -414,6 +450,19 @@ export function useWallet() {
         }
 
         nextAssets = [...byIdentity.values()];
+      } else {
+        try {
+          const referenceResult = await api<AssetsResponse>(
+            '/api/assets?network=mainnet&limit=100',
+          );
+
+          nextAssets = applyReferenceMarketPrices(
+            nextAssets,
+            referenceResult.assets || [],
+          );
+        } catch {
+          // Testnet can still work without reference prices.
+        }
       }
 
       const receivedMarketPrices = nextAssets.some(hasMarketPrice);
@@ -431,8 +480,6 @@ export function useWallet() {
       });
       if (receivedMarketPrices) {
         setAssetPricesUpdatedAt(Date.now());
-      } else if (network !== 'mainnet') {
-        setAssetPricesUpdatedAt(null);
       }
 
       return nextAssets;
@@ -442,11 +489,6 @@ export function useWallet() {
   }, [balances, network]);
 
   useEffect(() => {
-    if (network !== 'mainnet') {
-      setAssetPricesUpdatedAt(null);
-      return undefined;
-    }
-
     refreshAssetPrices();
     const timer = setInterval(refreshAssetPrices, MARKET_PRICE_REFRESH_MS);
 
