@@ -15,14 +15,14 @@ function getAssetKey(asset: AssetItem) {
     : `${asset.network}:${asset.assetCode}:${asset.assetIssuer || ''}`;
 }
 
-function getReceiveAssets(
-  balances: BalanceItem[],
-  visibleAssets: AssetItem[],
-) {
+function getReceiveAssets(balances: BalanceItem[], visibleAssets: AssetItem[]) {
   const walletAssets = getWalletAssets(balances, visibleAssets);
   const walletAssetKeys = new Set(walletAssets.map(getAssetKey));
   const importantReceiveAssets = visibleAssets
-    .filter(asset => asset.assetCode === 'USDC' && !walletAssetKeys.has(getAssetKey(asset)))
+    .filter(
+      asset =>
+        asset.assetCode === 'USDC' && !walletAssetKeys.has(getAssetKey(asset)),
+    )
     .map<BalanceItem>(asset => ({
       ...asset,
       balance: '0',
@@ -68,13 +68,13 @@ export function ReceiveScreen({
   }
 
   return (
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          {
-            paddingBottom: insets.bottom + 48,
-          },
-        ]}
+    <ScrollView
+      contentContainerStyle={[
+        styles.content,
+        {
+          paddingBottom: insets.bottom + 48,
+        },
+      ]}
       style={styles.root}
       showsVerticalScrollIndicator={false}
     >

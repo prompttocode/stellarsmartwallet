@@ -84,9 +84,10 @@ export function PortfolioScreen({
         maximumFractionDigits: 2,
         minimumFractionDigits: 2,
       })}`;
-  const portfolioValue = valuation.positiveAssetCount > 0 && valuation.pricedAssetCount === 0
-    ? 'Price unavailable'
-    : formattedPortfolioValue;
+  const portfolioValue =
+    valuation.positiveAssetCount > 0 && valuation.pricedAssetCount === 0
+      ? 'Price unavailable'
+      : formattedPortfolioValue;
   const portfolioNote = !wallet.isMainnet
     ? valuation.pricedAssetCount > 0
       ? 'Reference market price only · Testnet assets have no real value'
@@ -125,10 +126,7 @@ export function PortfolioScreen({
     setIsRefreshing(true);
 
     try {
-      await Promise.all([
-        wallet.refreshSession(),
-        wallet.refreshAssetPrices(),
-      ]);
+      await Promise.all([wallet.refreshSession(), wallet.refreshAssetPrices()]);
     } finally {
       setIsRefreshing(false);
     }
@@ -244,19 +242,7 @@ export function PortfolioScreen({
           ) : null}
 
           <View style={modern.sectionCard}>
-            <SectionHeader
-              action={
-                <View style={modern.sectionHeaderActions}>
-                  <PressScale
-                    onPress={onGoToAssetSearch}
-                    style={modern.sectionIconButton}
-                  >
-                    <Ionicons color="#3867D6" name="search" size={18} />
-                  </PressScale>
-                </View>
-              }
-              title="My assets"
-            />
+            <SectionHeader title="My assets" />
             {assets.map((asset, index) => (
               <AssetListItem
                 asset={asset}

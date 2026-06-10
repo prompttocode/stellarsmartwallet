@@ -30,6 +30,7 @@
     "expo-secure-store": "^55.0.14",
     "expo-web-browser": "^55.0.16",
     "fast-text-encoding": "^1.0.6",
+    "lottie-react-native": "^7.3.8",
     "react": "19.1.1",
     "react-native": "0.82.0",
     "react-native-biometrics": "^3.0.1",

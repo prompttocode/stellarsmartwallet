@@ -53,8 +53,10 @@ const LEGACY_LOCAL_SESSION_STORAGE_KEYS = [
   'lobstr-demo-session-email',
   'lobstr-demo-session-network',
 ];
+const PREFERRED_NETWORK_STORAGE_KEY = 'privy-wallet-preferred-network';
 const RAMP_ORDER_STORAGE_PREFIX = 'privy-ramp-order';
 const MARKET_PRICE_REFRESH_MS = 60_000;
+const DEFAULT_NETWORK: StellarNetwork = 'mainnet';
 
 function getAssetIdentity(asset: AssetItem) {
   return asset.isNative
@@ -218,6 +220,10 @@ export function getBalanceAmount(balances: BalanceItem[], assetCode: string) {
   return getBalanceForAsset(balances, assetCode)?.balance || '0';
 }
 
+function isStellarNetwork(value: unknown): value is StellarNetwork {
+  return value === 'mainnet' || value === 'testnet';
+}
+
 export function getTransactionTitle(transaction: TransactionItem) {
   if (transaction.operation === 'change_trust') {
     return `Added ${transaction.assetCode} trustline`;
@@ -238,7 +244,8 @@ export function getTransactionIcon(transaction: TransactionItem) {
 
 export function useWallet() {
   const [health, setHealth] = useState<Health | null>(null);
-  const [network, setNetwork] = useState<StellarNetwork>('testnet');
+  const [network, setNetwork] = useState<StellarNetwork>(DEFAULT_NETWORK);
+  const [preferredNetworkLoaded, setPreferredNetworkLoaded] = useState(false);
   const [networks, setNetworks] = useState<StellarNetworkInfo[]>([]);
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [assetPricesUpdatedAt, setAssetPricesUpdatedAt] = useState<
@@ -289,6 +296,13 @@ export function useWallet() {
     },
   });
   const { login: loginWithOAuth, state: oauthState } = useLoginWithOAuth();
+
+  const setPreferredNetwork = useCallback((nextNetwork: StellarNetwork) => {
+    setNetwork(nextNetwork);
+    AsyncStorage.setItem(PREFERRED_NETWORK_STORAGE_KEY, nextNetwork).catch(
+      () => null,
+    );
+  }, []);
 
   const run = useCallback(
     async <T>(
@@ -349,13 +363,36 @@ export function useWallet() {
   }, [network, run]);
 
   useEffect(() => {
-    checkServer();
-  }, [checkServer]);
+    if (preferredNetworkLoaded) {
+      checkServer();
+    }
+  }, [checkServer, preferredNetworkLoaded]);
 
   useEffect(() => {
     AsyncStorage.multiRemove(LEGACY_LOCAL_SESSION_STORAGE_KEYS).catch(
       () => null,
     );
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    AsyncStorage.getItem(PREFERRED_NETWORK_STORAGE_KEY)
+      .then(value => {
+        if (!cancelled && isStellarNetwork(value)) {
+          setNetwork(value);
+        }
+      })
+      .catch(() => null)
+      .finally(() => {
+        if (!cancelled) {
+          setPreferredNetworkLoaded(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const isMainnet = network === 'mainnet';
@@ -580,7 +617,7 @@ export function useWallet() {
       const sessionNetwork =
         session.network || session.account.wallet?.network || network;
 
-      setNetwork(sessionNetwork);
+      setPreferredNetwork(sessionNetwork);
       setAccount(session.account);
       setWallets(sessionWallets);
       setActiveWalletId(nextActiveWalletId);
@@ -588,7 +625,7 @@ export function useWallet() {
       setTransactions(session.transactions);
       setMessage(nextMessage);
     },
-    [network],
+    [network, setPreferredNetwork],
   );
 
   useEffect(() => {
@@ -1911,7 +1948,7 @@ export function useWallet() {
     }
 
     return run('Switching network', async () => {
-      setNetwork(nextNetwork);
+      setPreferredNetwork(nextNetwork);
       setSelectedAssetCode('XLM');
       resetRecipientState();
 

@@ -1,8 +1,10 @@
 import { Account, Asset, Keypair } from '@stellar/stellar-sdk';
 import { describe, expect, it } from 'vitest';
 import {
+  assertCanAddTrustline,
   assertStellarMemo,
   buildPaymentTransaction,
+  getStellarSubmissionErrorMessage,
   type Env,
 } from './core';
 
@@ -35,5 +37,54 @@ describe('Stellar payment memo', () => {
     expect(() => assertStellarMemo('x'.repeat(29))).toThrow(
       'Stellar text memo must be at most 28 bytes',
     );
+  });
+});
+
+describe('Stellar trustline reserve', () => {
+  function accountWithXlm(balance: string, subentryCount = 0) {
+    return {
+      balances: [{ asset_type: 'native', balance }],
+      subentry_count: subentryCount,
+    } as never;
+  }
+
+  it('rejects enabling a first trustline with only the base account reserve', () => {
+    expect(() => assertCanAddTrustline(accountWithXlm('1'), 'USDT')).toThrow(
+      'Not enough XLM to enable USDT',
+    );
+  });
+
+  it('allows enabling a first trustline when reserve and fee buffer are available', () => {
+    expect(() =>
+      assertCanAddTrustline(accountWithXlm('1.5002'), 'USDT'),
+    ).not.toThrow();
+  });
+});
+
+describe('Stellar submission errors', () => {
+  it('maps low reserve Horizon result codes to a readable message', () => {
+    const message = getStellarSubmissionErrorMessage({
+      response: {
+        data: {
+          extras: {
+            result_codes: {
+              transaction: 'tx_failed',
+              operations: ['op_low_reserve'],
+            },
+          },
+        },
+      },
+    });
+
+    expect(message).toContain('Not enough XLM reserve');
+  });
+
+  it('hides generic 400 SDK messages behind the fallback', () => {
+    expect(
+      getStellarSubmissionErrorMessage(
+        new Error('Request failed with status code 400'),
+        'Stellar could not submit this transaction.',
+      ),
+    ).toBe('Stellar could not submit this transaction.');
   });
 });

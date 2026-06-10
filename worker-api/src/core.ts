@@ -87,6 +87,8 @@ export const TESTNET_USDC_ISSUER =
   'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
 export const MAINNET_USDC_ISSUER =
   'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+const STELLAR_BASE_RESERVE_XLM = 0.5;
+const TRUSTLINE_FEE_BUFFER_XLM = 0.0001;
 export const KNOWN_ASSET_CASES = new Map(
   ['AQUA', 'EURC', 'PYUSD', 'USDC', 'XLM'].map(code => [
     code.toLowerCase(),
@@ -1277,6 +1279,106 @@ export function getNativeBalance(account: Awaited<ReturnType<typeof loadAccount>
   return balances.find(balance => balance.asset_type === 'native')?.balance || '0';
 }
 
+export function getMinimumBalanceForSubentries(subentryCount: number) {
+  return (2 + subentryCount) * STELLAR_BASE_RESERVE_XLM;
+}
+
+export function getRequiredBalanceForNewTrustline(
+  account: Awaited<ReturnType<typeof loadAccount>>,
+) {
+  const subentryCount = Number(account?.subentry_count || 0);
+
+  return getMinimumBalanceForSubentries(subentryCount + 1) + TRUSTLINE_FEE_BUFFER_XLM;
+}
+
+export function assertCanAddTrustline(
+  account: Awaited<ReturnType<typeof loadAccount>>,
+  assetCode: string,
+) {
+  const available = Number(getNativeBalance(account));
+  const required = getRequiredBalanceForNewTrustline(account);
+
+  if (!Number.isFinite(available) || available < required) {
+    throw makeError(
+      `Not enough XLM to enable ${assetCode}. You have ${available.toFixed(
+        7,
+      )} XLM, but enabling this asset requires at least ${required.toFixed(
+        4,
+      )} XLM for Stellar reserve and network fee. Deposit more XLM first.`,
+      400,
+    );
+  }
+}
+
+function getNestedValue(value: unknown, path: string[]) {
+  return path.reduce<unknown>((current, key) => {
+    if (!current || typeof current !== 'object') {
+      return undefined;
+    }
+
+    return (current as Record<string, unknown>)[key];
+  }, value);
+}
+
+function getHorizonResultCodes(error: unknown) {
+  const candidates = [
+    getNestedValue(error, ['response', 'data', 'extras', 'result_codes']),
+    getNestedValue(error, ['response', 'extras', 'result_codes']),
+    getNestedValue(error, ['extras', 'result_codes']),
+    getNestedValue(error, ['data', 'extras', 'result_codes']),
+  ];
+
+  return candidates.find(
+    item => item && typeof item === 'object',
+  ) as
+    | {
+        transaction?: string;
+        operations?: string[];
+      }
+    | undefined;
+}
+
+export function getStellarSubmissionErrorMessage(
+  error: unknown,
+  fallback = 'Stellar transaction failed.',
+) {
+  const resultCodes = getHorizonResultCodes(error);
+  const operationCodes = resultCodes?.operations || [];
+  const transactionCode = resultCodes?.transaction || '';
+  const allCodes = [transactionCode, ...operationCodes].filter(Boolean);
+
+  if (
+    allCodes.includes('op_low_reserve') ||
+    allCodes.includes('tx_insufficient_balance')
+  ) {
+    return 'Not enough XLM reserve to complete this Stellar transaction. Deposit more XLM first.';
+  }
+
+  if (allCodes.includes('op_no_issuer')) {
+    return 'The token issuer does not exist on this Stellar network.';
+  }
+
+  if (allCodes.includes('op_already_exists')) {
+    return 'This asset is already enabled for receiving.';
+  }
+
+  if (allCodes.includes('tx_bad_seq')) {
+    return 'Stellar rejected this transaction because the wallet sequence changed. Refresh and try again.';
+  }
+
+  if (allCodes.length > 0) {
+    return `${fallback} Code: ${allCodes.join(', ')}`;
+  }
+
+  const rawMessage = error instanceof Error ? error.message : String(error || '');
+
+  if (/Request failed with status code 400/i.test(rawMessage)) {
+    return fallback;
+  }
+
+  return rawMessage || fallback;
+}
+
 export function findIssuedBalance(
   account: Awaited<ReturnType<typeof loadAccount>>,
   assetCode: string,
@@ -1585,7 +1687,22 @@ export async function submitPrivySignedTransaction({
   const signatureHex = await signStellarTransaction(env, walletId, transaction);
   addPrivySignature(transaction, sourceAddress, signatureHex);
 
-  return getStellarServer(env, network).submitTransaction(transaction);
+  try {
+    return await getStellarServer(env, network).submitTransaction(transaction);
+  } catch (error) {
+    const status =
+      Number(getNestedValue(error, ['response', 'status'])) ||
+      Number((error as { status?: number })?.status) ||
+      400;
+
+    throw makeError(
+      getStellarSubmissionErrorMessage(
+        error,
+        'Stellar could not submit this transaction.',
+      ),
+      status,
+    );
+  }
 }
 
 export function parsePathAsset(assetRecord: Record<string, any>) {
@@ -1986,7 +2103,24 @@ export async function signStellarXdr({
     };
   }
 
-  const submitted = await getStellarServer(env, network).submitTransaction(transaction);
+  let submitted: Awaited<ReturnType<ReturnType<typeof getStellarServer>['submitTransaction']>>;
+
+  try {
+    submitted = await getStellarServer(env, network).submitTransaction(transaction);
+  } catch (error) {
+    const status =
+      Number(getNestedValue(error, ['response', 'status'])) ||
+      Number((error as { status?: number })?.status) ||
+      400;
+
+    throw makeError(
+      getStellarSubmissionErrorMessage(
+        error,
+        'Stellar could not submit this transaction.',
+      ),
+      status,
+    );
+  }
 
   return {
     review,

@@ -1,5 +1,8 @@
 import React from 'react';
-import { ActivityIndicator, Modal, StyleSheet, Text, View } from 'react-native';
+import { Modal, StyleSheet, Text, View } from 'react-native';
+import LottieView from 'lottie-react-native';
+
+const loadingAnimation = require('@assets/lottie/loading.json');
 
 interface LoadingOverlayProps {
   visible: boolean;
@@ -11,10 +14,20 @@ export function LoadingOverlay({
   message = 'Loading...',
 }: LoadingOverlayProps) {
   return (
-    <Modal visible={visible} transparent animationType="fade">
+    <Modal
+      animationType="fade"
+      statusBarTranslucent
+      transparent
+      visible={visible}
+    >
       <View style={styles.container}>
         <View style={styles.box}>
-          <ActivityIndicator size="large" color="#0F8EA3" />
+          <LottieView
+            autoPlay
+            loop
+            source={loadingAnimation}
+            style={styles.animation}
+          />
           <Text style={styles.text}>{message}</Text>
         </View>
       </View>
@@ -30,23 +43,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 24,
   },
+  animation: {
+    height: 96,
+    width: 128,
+  },
   box: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    minWidth: 184,
-    paddingHorizontal: 28,
-    paddingVertical: 24,
+    backgroundColor: '#111827',
+    borderRadius: 28,
+    minWidth: 190,
+    paddingHorizontal: 26,
+    paddingVertical: 22,
     shadowColor: '#000000',
     shadowOffset: { height: 12, width: 0 },
-    shadowOpacity: 0.16,
+    shadowOpacity: 0.18,
     shadowRadius: 28,
   },
   text: {
-    color: '#17191D',
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '800',
-    marginTop: 16,
+    marginTop: 8,
     textAlign: 'center',
   },
 });

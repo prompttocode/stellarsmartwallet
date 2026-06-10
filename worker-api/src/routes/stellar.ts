@@ -1,6 +1,7 @@
 import type { Context, Hono } from 'hono';
 import {
   assertAccountWallet,
+  assertCanAddTrustline,
   assertAmount,
   assertSufficientBalance,
   assertStellarAddress,
@@ -119,6 +120,8 @@ async function handleTrustline(
       transactions: await getAccountHistory(c.env, sourceAddress, network),
     });
   }
+
+  assertCanAddTrustline(sourceAccount, assetDefinition.assetCode);
 
   const transaction = buildTrustlineTransaction({
     asset: getIssuedAsset(assetDefinition),

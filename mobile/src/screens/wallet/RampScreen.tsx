@@ -61,7 +61,7 @@ export function RampScreen({
   wallet,
 }: {
   onBack: () => void;
-  route?: { params?: { direction?: RampDirection } };
+  route?: { params?: { direction?: RampDirection; source?: 'history' } };
   wallet: WalletState;
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
@@ -79,6 +79,7 @@ export function RampScreen({
   );
   const [, setClock] = useState(Date.now());
   const order = wallet.activeRampOrder;
+  const openedFromHistory = route?.params?.source === 'history';
   const refreshRampOrderRef = useRef(wallet.refreshRampOrder);
   const orderReference = order?.code || order?.id || '';
   const terminal = isRampOrderTerminal(order);
@@ -87,7 +88,7 @@ export function RampScreen({
       ? `${order.id || order.code}:${order.state}:${order.processing_state}`
       : null;
   const showResult = Boolean(
-    resultKey && dismissedResultKey !== resultKey,
+    resultKey && !openedFromHistory && dismissedResultKey !== resultKey,
   );
   const providerConfigured = wallet.rampProviders.some(
     provider => provider.id === 'seerbot-vnd' && provider.configured,
@@ -534,6 +535,7 @@ export function RampScreen({
                     if (resultKey) {
                       setDismissedResultKey(resultKey);
                     }
+                    wallet.clearRampOrder().catch(() => null);
                   }}
                   style={({ pressed }) => [
                     styles.resultPrimaryAction,

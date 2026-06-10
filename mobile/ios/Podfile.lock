@@ -103,6 +103,36 @@ PODS:
   - hermes-engine (0.82.0):
     - hermes-engine/Pre-built (= 0.82.0)
   - hermes-engine/Pre-built (0.82.0)
+  - lottie-ios (4.6.0)
+  - lottie-react-native (7.3.8):
+    - boost
+    - DoubleConversion
+    - fast_float
+    - fmt
+    - glog
+    - hermes-engine
+    - lottie-ios (= 4.6.0)
+    - RCT-Folly
+    - RCT-Folly/Fabric
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - SocketRocket
+    - Yoga
   - NitroImage (0.15.1):
     - boost
     - DoubleConversion
@@ -3095,6 +3125,7 @@ DEPENDENCIES:
   - fmt (from `../node_modules/react-native/third-party-podspecs/fmt.podspec`)
   - glog (from `../node_modules/react-native/third-party-podspecs/glog.podspec`)
   - hermes-engine (from `../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
+  - lottie-react-native (from `../node_modules/lottie-react-native`)
   - NitroImage (from `../node_modules/react-native-nitro-image`)
   - NitroModules (from `../node_modules/react-native-nitro-modules`)
   - RCT-Folly (from `../node_modules/react-native/third-party-podspecs/RCT-Folly.podspec`)
@@ -3183,6 +3214,7 @@ DEPENDENCIES:
 
 SPEC REPOS:
   trunk:
+    - lottie-ios
     - SocketRocket
     - YttriumWrapper
 
@@ -3236,6 +3268,8 @@ EXTERNAL SOURCES:
   hermes-engine:
     :podspec: "../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec"
     :tag: hermes-2025-09-01-RNv0.82.0-265ef62ff3eb7289d17e366664ac0da82303e101
+  lottie-react-native:
+    :path: "../node_modules/lottie-react-native"
   NitroImage:
     :path: "../node_modules/react-native-nitro-image"
   NitroModules:
@@ -3428,6 +3462,8 @@ SPEC CHECKSUMS:
   fmt: a40bb5bd0294ea969aaaba240a927bd33d878cdd
   glog: 5683914934d5b6e4240e497e0f4a3b42d1854183
   hermes-engine: 8642d8f14a548ab718ec112e9bebdfdd154138b5
+  lottie-ios: 8f959969761e9c45d70353667d00af0e5b9cadb3
+  lottie-react-native: b410d8c9dcaf536198ce852ea47e73c9158ad04e
   NitroImage: 1030847adcaad2f2fe74ea8c0b97e31c0bad2313
   NitroModules: 8ab2b6936d6d3b6283d22b3e1394ab141c6cb8c2
   RCT-Folly: 846fda9475e61ec7bcbf8a3fe81edfcaeb090669

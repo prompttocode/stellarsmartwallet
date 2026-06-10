@@ -10,6 +10,7 @@ import { modern } from '@components/wallet';
 import { LoadingOverlay } from '@components/common/LoadingOverlay';
 import { CurrencyProvider } from '@contexts/CurrencyContext';
 import type { WalletState } from '@hooks/useWallet';
+import { isRampOrderTerminal } from '@utils/ramp';
 
 import { PortfolioScreen } from '@screens/wallet/PortfolioScreen';
 import { ReceiveScreen } from '@screens/wallet/ReceiveScreen';
@@ -102,8 +103,8 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
           <TransactionsScreen
             wallet={wallet}
             onGoToRampOrder={(order: RampOrder) => {
-              wallet.openRampOrder(order);
-              navigation.navigate('Ramp');
+              wallet.openRampOrder(order).catch(() => null);
+              navigation.navigate('Ramp', { source: 'history' });
             }}
             onGoToTransaction={(id: string) =>
               navigation.navigate('TransactionDetail', { id })
@@ -150,6 +151,8 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
   const statusText =
     wallet.busy ||
     (wallet.message ? `${networkStatus} · ${wallet.message}` : networkStatus);
+  const shouldShowLoadingOverlay =
+    wallet.isBusy && !isRampOrderTerminal(wallet.activeRampOrder);
 
   return (
     <CurrencyProvider>
@@ -248,7 +251,7 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
           </Stack.Navigator>
         </NavigationContainer>
 
-        <LoadingOverlay visible={wallet.isBusy} message={statusText} />
+        <LoadingOverlay visible={shouldShowLoadingOverlay} message={statusText} />
       </View>
     </CurrencyProvider>
   );

@@ -117,10 +117,7 @@ export function WalletHero({
               />
             </Animated.View>
           </Pressable>
-          <Pressable
-            onPress={onWalletPress}
-            style={modern.addressPill}
-          >
+          <Pressable onPress={onWalletPress} style={modern.addressPill}>
             <Ionicons
               color="rgba(255,255,255,0.9)"
               name="wallet-outline"
@@ -200,7 +197,7 @@ export function WalletHero({
                     : null,
                 ]}
               >
-                {network === 'mainnet' ? 'LIVE' : 'DEMO'}
+                {network === 'mainnet' ? 'Mainnet' : 'Testnet'}
               </Text>
             </View>
           </View>
