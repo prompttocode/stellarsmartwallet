@@ -42,6 +42,8 @@ type RampOrderData = Record<string, unknown>;
 
 const PAYMENT_ORDER_TIMEOUT_MS = 15_000;
 
+type RampLogLevel = "info" | "warn" | "error";
+
 type StoredRampOrderRow = {
   account_email: string;
   account_key: string;
@@ -58,6 +60,59 @@ type StoredRampOrderRow = {
   wallet_address: string;
   wallet_id: string;
 };
+
+function rampLog(
+  level: RampLogLevel,
+  event: string,
+  details: Record<string, unknown> = {}
+) {
+  const entry = JSON.stringify({
+    event,
+    service: "payment-ramp",
+    timestamp: new Date().toISOString(),
+    ...details,
+  });
+
+  if (level === "error") {
+    console.error(entry);
+    return;
+  }
+
+  if (level === "warn") {
+    console.warn(entry);
+    return;
+  }
+
+  console.info(entry);
+}
+
+function maskAccountNumber(value: string) {
+  return value ? `***${value.slice(-4)}` : "";
+}
+
+function maskStellarAddress(value: string) {
+  return value.length > 12
+    ? `${value.slice(0, 6)}...${value.slice(-6)}`
+    : value;
+}
+
+function getOrderLogFields(order: RampOrderData | null | undefined) {
+  if (!order) {
+    return {};
+  }
+
+  return {
+    assetCode: order.asset_code || order.currency,
+    chainId: order.chain_id,
+    orderAmount: order.amount,
+    orderCode: order.code || order.payment_code,
+    orderId: order.id || order.order_id,
+    orderState: order.state ?? order.order_state,
+    processingState:
+      order.processing_state ?? order.processingState,
+    providerTransactionHash: order.transaction_hash || null,
+  };
+}
 
 function getPaymentBaseUrl(env: Env) {
   const value = String(env.PAYMENT_API_BASE_URL || "")
@@ -77,6 +132,8 @@ async function paymentRequest<T>(
   options: RequestInit = {},
   requiresPartnerKey = false
 ) {
+  const requestId = crypto.randomUUID();
+  const startedAt = Date.now();
   const headers = new Headers(options.headers);
   headers.set("Accept", "application/json");
 
@@ -94,10 +151,31 @@ async function paymentRequest<T>(
     headers.set("partner-app-key", partnerKey);
   }
 
-  const response = await fetch(`${getPaymentBaseUrl(env)}${path}`, {
-    ...options,
-    headers,
+  rampLog("info", "payment_api.request", {
+    method: options.method || "GET",
+    partnerKeyAttached: requiresPartnerKey,
+    path,
+    requestId,
   });
+
+  let response: Response;
+
+  try {
+    response = await fetch(`${getPaymentBaseUrl(env)}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch (error) {
+    rampLog("error", "payment_api.network_error", {
+      durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+      method: options.method || "GET",
+      path,
+      requestId,
+    });
+    throw error;
+  }
+
   const text = await response.text();
   let body: unknown = null;
 
@@ -106,6 +184,17 @@ async function paymentRequest<T>(
   } catch {
     body = null;
   }
+
+  const responseData = getPaymentResponseData(body);
+  const responseLog = {
+    durationMs: Date.now() - startedAt,
+    method: options.method || "GET",
+    path,
+    providerTraceId: response.headers.get("x-trace-id"),
+    requestId,
+    status: response.status,
+    ...getOrderLogFields(responseData),
+  };
 
   if (!response.ok) {
     const errorBody = body as {
@@ -118,8 +207,16 @@ async function paymentRequest<T>(
         : errorBody?.error?.message) ||
       errorBody?.message ||
       `Payment service returned HTTP ${response.status}`;
+
+    rampLog("error", "payment_api.error_response", {
+      ...responseLog,
+      error: message,
+    });
+
     throw makeError(message, response.status);
   }
+
+  rampLog("info", "payment_api.response", responseLog);
 
   return body as T;
 }
@@ -386,6 +483,13 @@ async function saveRampOrderSnapshot(
     )
     .run();
 
+  rampLog("info", "ramp_order.snapshot_saved", {
+    ...getOrderLogFields(order),
+    direction: metadata.direction,
+    network: metadata.network,
+    walletAddress: maskStellarAddress(metadata.walletAddress),
+  });
+
   return order;
 }
 
@@ -397,6 +501,10 @@ async function mergeAndSaveStoredRampOrder(
   const row = await findStoredRampOrder(env, reference);
 
   if (!row) {
+    rampLog("warn", "ramp_order.snapshot_not_found", {
+      orderReference: reference,
+      ...getOrderLogFields(next),
+    });
     return next;
   }
 
@@ -497,7 +605,9 @@ async function getFeeConfig(env: Env, assetCode: RampAssetCode) {
 async function getRate(env: Env, assetCode: RampAssetCode) {
   return paymentRequest<PaymentRate>(
     env,
-    assetCode === "USDC" ? "/api/rate/usdt_vnd" : "/api/rate/xlm_vnd"
+    assetCode === "USDC" ? "/api/rate/usdt_vnd" : "/api/rate/xlm_vnd",
+    {},
+    true
   );
 }
 
@@ -817,6 +927,18 @@ export function registerRampRoutes(app: Hono<WorkerBindings>) {
       bank_id: bankId,
       full_name: fullName,
     };
+
+    rampLog("info", "withdrawal.create_requested", {
+      accountNumber: maskAccountNumber(accountNumber),
+      accountType,
+      amount: order.amount,
+      assetCode: order.asset_code,
+      bankId,
+      chainId: order.chain_id,
+      network: order.context.network,
+      sourceAddress: maskStellarAddress(order.context.sourceAddress),
+    });
+
     const response = await paymentRequest(
       c.env,
       "/api/orders/withdrawal",
@@ -847,6 +969,12 @@ export function registerRampRoutes(app: Hono<WorkerBindings>) {
     const responseData = getPaymentResponseData(response);
 
     if (!responseData) {
+      rampLog("warn", "withdrawal.create_missing_order_data", {
+        amount: order.amount,
+        assetCode: order.asset_code,
+        bankId,
+        chainId: order.chain_id,
+      });
       return c.json(response);
     }
 
@@ -872,6 +1000,19 @@ export function registerRampRoutes(app: Hono<WorkerBindings>) {
       walletId: order.context.sourceWalletId,
     });
 
+    rampLog("info", "withdrawal.created", {
+      ...getOrderLogFields(snapshot),
+      accountNumber: maskAccountNumber(accountNumber),
+      bankId,
+      depositAddress: maskStellarAddress(
+        String(
+          (snapshot.pay_data as Record<string, unknown> | undefined)?.address ||
+            ""
+        )
+      ),
+      network: order.context.network,
+    });
+
     return c.json(replacePaymentResponseData(response, snapshot));
   });
 
@@ -894,12 +1035,21 @@ export function registerRampRoutes(app: Hono<WorkerBindings>) {
     const responseData = getPaymentResponseData(response);
 
     if (!responseData) {
+      rampLog("warn", "ramp_order.status_missing_data", {
+        orderReference: reference,
+      });
       return c.json(response);
     }
 
     const merged = stored
       ? await mergeAndSaveStoredRampOrder(c.env, reference, responseData)
       : await saveUntrackedRampOrderFromQuery(c, responseData);
+
+    rampLog("info", "ramp_order.status_refreshed", {
+      ...getOrderLogFields(merged),
+      orderReference: reference,
+      storedOrderFound: Boolean(stored),
+    });
 
     return c.json(replacePaymentResponseData(response, merged));
   });
@@ -1102,32 +1252,82 @@ export function registerRampRoutes(app: Hono<WorkerBindings>) {
       }
     );
 
+    rampLog("info", "ramp_order.cancelled", {
+      ...getOrderLogFields(merged),
+      orderReference: reference,
+    });
+
     return c.json(replacePaymentResponseData(response, merged));
   });
 
   app.post("/api/ramp/callback", async (c) => {
     const body = await readJsonBody(c);
     const payload = (body.payload || {}) as Record<string, unknown>;
+    const topic = String(body.topic || "").trim();
+    const supportedTopics = new Set([
+      "order.state.change",
+      "order.state_changed",
+    ]);
+    const orderReference = String(body.id || payload.order_id || "").trim();
+    const nextOrderState = Number(payload.new_order_state);
+    const nextProcessingState = Number(
+      payload.new_processing_state ??
+        payload.new_order_processing_state ??
+        payload.processing_state
+    );
+
+    rampLog("info", "payment_callback.received", {
+      nextOrderState: Number.isFinite(nextOrderState) ? nextOrderState : null,
+      nextProcessingState: Number.isFinite(nextProcessingState)
+        ? nextProcessingState
+        : null,
+      orderReference,
+      topic,
+    });
 
     if (
-      body.topic !== "order.state.change" ||
-      !String(body.id || payload.order_id || "").trim() ||
-      !Number.isFinite(Number(payload.new_order_state))
+      !supportedTopics.has(topic) ||
+      !orderReference ||
+      !Number.isFinite(nextOrderState)
     ) {
+      rampLog("warn", "payment_callback.rejected", {
+        hasOrderReference: Boolean(orderReference),
+        hasValidOrderState: Number.isFinite(nextOrderState),
+        topic,
+        topicSupported: supportedTopics.has(topic),
+      });
       throw makeError("Invalid payment callback payload", 400);
     }
 
-    const orderReference = String(body.id || payload.order_id).trim();
     const callbackUpdate: RampOrderData = {
-      state: Number(payload.new_order_state),
+      state: nextOrderState,
     };
-    const nextProcessingState = Number(payload.new_processing_state);
 
     if (Number.isFinite(nextProcessingState)) {
       callbackUpdate.processing_state = nextProcessingState;
     }
 
-    await mergeAndSaveStoredRampOrder(c.env, orderReference, callbackUpdate);
+    const storedOrder = await findStoredRampOrder(c.env, orderReference);
+
+    if (!storedOrder) {
+      rampLog("warn", "payment_callback.order_not_found", {
+        orderReference,
+        topic,
+      });
+    }
+
+    const merged = await mergeAndSaveStoredRampOrder(
+      c.env,
+      orderReference,
+      callbackUpdate
+    );
+
+    rampLog("info", "payment_callback.applied", {
+      ...getOrderLogFields(merged),
+      orderReference,
+      storedOrderFound: Boolean(storedOrder),
+      topic,
+    });
 
     return c.json({ success: true });
   });

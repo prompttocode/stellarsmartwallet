@@ -29,6 +29,32 @@ import {
   type WorkerBindings,
 } from '../core';
 
+function maskStellarAddress(value: string) {
+  return value.length > 12
+    ? `${value.slice(0, 6)}...${value.slice(-6)}`
+    : value;
+}
+
+function stellarPaymentLog(
+  level: 'info' | 'error',
+  event: string,
+  details: Record<string, unknown>,
+) {
+  const entry = JSON.stringify({
+    event,
+    service: 'stellar-payment',
+    timestamp: new Date().toISOString(),
+    ...details,
+  });
+
+  if (level === 'error') {
+    console.error(entry);
+    return;
+  }
+
+  console.info(entry);
+}
+
 async function handleStellarLookup(
   c: Context<WorkerBindings>,
   fallbackNetwork: StellarNetwork = 'testnet',
@@ -230,13 +256,51 @@ async function handleSend(
     network,
     sourceAccount,
   });
-  const submitted = await submitPrivySignedTransaction({
-    env: c.env,
+  const memo = String(body.memo || '');
+
+  stellarPaymentLog('info', 'stellar_payment.submit_requested', {
+    amount,
+    assetCode: assetDefinition.assetCode,
+    destination: maskStellarAddress(destination),
+    memo: memo || null,
     network,
-    sourceAddress,
-    transaction,
-    walletId: sourceWalletId,
+    sourceAddress: maskStellarAddress(sourceAddress),
   });
+
+  let submitted: Awaited<ReturnType<typeof submitPrivySignedTransaction>>;
+
+  try {
+    submitted = await submitPrivySignedTransaction({
+      env: c.env,
+      network,
+      sourceAddress,
+      transaction,
+      walletId: sourceWalletId,
+    });
+  } catch (error) {
+    stellarPaymentLog('error', 'stellar_payment.submit_failed', {
+      amount,
+      assetCode: assetDefinition.assetCode,
+      destination: maskStellarAddress(destination),
+      error: error instanceof Error ? error.message : String(error),
+      memo: memo || null,
+      network,
+      sourceAddress: maskStellarAddress(sourceAddress),
+    });
+    throw error;
+  }
+
+  stellarPaymentLog('info', 'stellar_payment.submitted', {
+    amount,
+    assetCode: assetDefinition.assetCode,
+    destination: maskStellarAddress(destination),
+    hash: submitted.hash,
+    ledger: submitted.ledger,
+    memo: memo || null,
+    network,
+    sourceAddress: maskStellarAddress(sourceAddress),
+  });
+
   const refreshedSource = await getAccountBalances(c.env, sourceAddress, network);
   const refreshedDestination = await getAccountBalances(c.env, destination, network);
   const transactionItem = buildSubmittedTransactionItem({

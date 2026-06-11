@@ -20,12 +20,30 @@ app.use(
 
 app.onError((error, c) => {
   const status = (error as { status?: number }).status || 500;
+  const traceId = crypto.randomUUID();
+
+  console.error(
+    JSON.stringify({
+      event: 'worker.request_error',
+      message: error.message || 'Server error',
+      method: c.req.method,
+      path: c.req.path,
+      service: 'privy-stellar-api',
+      status,
+      timestamp: new Date().toISOString(),
+      traceId,
+    }),
+  );
 
   return c.json(
     {
       error: error.message || 'Server error',
+      traceId,
     },
     status as 400,
+    {
+      'x-trace-id': traceId,
+    },
   );
 });
 

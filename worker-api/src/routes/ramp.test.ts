@@ -211,14 +211,18 @@ describe("payment ramp routes", () => {
   });
 
   it("quotes buy orders with rate and minimum fee", async () => {
+    let ratePartnerKey: string | null = null;
+
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: string | URL | Request) => {
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
 
         if (url.endsWith("/config/fee/XLM")) {
           return jsonResponse(feeResponse());
         }
+
+        ratePartnerKey = new Headers(init?.headers).get("partner-app-key");
 
         return jsonResponse({
           buy: 5000,
@@ -249,6 +253,7 @@ describe("payment ramp routes", () => {
     };
 
     expect(response.status).toBe(200);
+    expect(ratePartnerKey).toBe(env.PAYMENT_PARTNER_APP_KEY);
     expect(body.data).toMatchObject({
       fee_vnd: 5000,
       gross_vnd: 50000,
@@ -382,6 +387,89 @@ describe("payment ramp routes", () => {
       "https://payments.example/api/orders/ORDER123",
       expect.objectContaining({ method: "GET" })
     );
+  });
+
+  it("accepts the provider callback topic and processing state aliases", async () => {
+    const testEnv = {
+      ...env,
+      DB: createRampDb(),
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+
+        if (url.endsWith("/config/fee/XLM")) {
+          return jsonResponse(feeResponse());
+        }
+
+        return jsonResponse({
+          data: {
+            code: "CALLBACK123",
+            id: "590",
+            processing_state: 10,
+            state: 1,
+          },
+          success: true,
+        });
+      })
+    );
+
+    const createResponse = await createApp().request(
+      "/api/ramp/orders/deposit",
+      {
+        body: JSON.stringify({
+          amount: "10",
+          assetCode: "XLM",
+          network: "testnet",
+          sourceAddress: "GUSER",
+          sourceWalletId: "wallet-1",
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+      testEnv
+    );
+
+    expect(createResponse.status).toBe(200);
+
+    const callbackResponse = await createApp().request(
+      "/api/ramp/callback",
+      {
+        body: JSON.stringify({
+          id: "590",
+          payload: {
+            new_order_processing_state: 12,
+            new_order_state: 5,
+            old_order_processing_state: 0,
+            old_order_state: 0,
+            order_id: "590",
+          },
+          topic: "order.state_changed",
+          ts: "2026-06-11T00:00:00.000Z",
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+      testEnv
+    );
+
+    expect(callbackResponse.status).toBe(200);
+
+    const historyResponse = await createApp().request(
+      "/api/ramp/orders?email=user@example.com&network=testnet&sourceAddress=GUSER&sourceWalletId=wallet-1",
+      undefined,
+      testEnv
+    );
+    const historyBody = (await historyResponse.json()) as {
+      data: { orders: Array<{ processing_state: number; state: number }> };
+    };
+
+    expect(historyBody.data.orders[0]).toMatchObject({
+      processing_state: 12,
+      state: 5,
+    });
   });
 
   it("persists order history and preserves populated bank fields", async () => {

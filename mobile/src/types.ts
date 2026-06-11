@@ -76,9 +76,12 @@ export type CollectiblesResponse = {
 };
 
 export type BalanceItem = AssetItem & {
+  availableBalance?: string;
   balance: string;
   exists: boolean;
   limit?: string;
+  minimumBalance?: string;
+  reservedBalance?: string;
   trusted: boolean;
 };
 

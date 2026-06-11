@@ -2,8 +2,10 @@ import { Account, Asset, Keypair } from '@stellar/stellar-sdk';
 import { describe, expect, it } from 'vitest';
 import {
   assertCanAddTrustline,
+  assertSufficientBalance,
   assertStellarMemo,
   buildPaymentTransaction,
+  getAvailableNativeBalance,
   getStellarSubmissionErrorMessage,
   type Env,
 } from './core';
@@ -41,9 +43,13 @@ describe('Stellar payment memo', () => {
 });
 
 describe('Stellar trustline reserve', () => {
-  function accountWithXlm(balance: string, subentryCount = 0) {
+  function accountWithXlm(
+    balance: string,
+    subentryCount = 0,
+    extraBalances: Array<Record<string, unknown>> = [],
+  ) {
     return {
-      balances: [{ asset_type: 'native', balance }],
+      balances: [{ asset_type: 'native', balance }, ...extraBalances],
       subentry_count: subentryCount,
     } as never;
   }
@@ -58,6 +64,47 @@ describe('Stellar trustline reserve', () => {
     expect(() =>
       assertCanAddTrustline(accountWithXlm('1.5002'), 'USDT'),
     ).not.toThrow();
+  });
+
+  it('calculates native available balance after reserve and fee buffer', () => {
+    expect(getAvailableNativeBalance(accountWithXlm('1.25'))).toBeCloseTo(
+      0.2499,
+    );
+  });
+
+  it('rejects sending native XLM above available balance', () => {
+    expect(() =>
+      assertSufficientBalance(
+        accountWithXlm('1.25'),
+        {
+          assetCode: 'XLM',
+          assetIssuer: null,
+          isNative: true,
+        } as never,
+        '0.3',
+      ),
+    ).toThrow('Insufficient available XLM balance');
+  });
+
+  it('requires XLM for network fees when sending issued assets', () => {
+    expect(() =>
+      assertSufficientBalance(
+        accountWithXlm('1', 1, [
+          {
+            asset_code: 'USDC',
+            asset_issuer: 'GISSUER',
+            asset_type: 'credit_alphanum4',
+            balance: '5',
+          },
+        ]),
+        {
+          assetCode: 'USDC',
+          assetIssuer: 'GISSUER',
+          isNative: false,
+        } as never,
+        '1',
+      ),
+    ).toThrow('Deposit a small amount of XLM');
   });
 });
 

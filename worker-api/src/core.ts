@@ -89,6 +89,7 @@ export const MAINNET_USDC_ISSUER =
   'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
 const STELLAR_BASE_RESERVE_XLM = 0.5;
 const TRUSTLINE_FEE_BUFFER_XLM = 0.0001;
+const PAYMENT_FEE_BUFFER_XLM = 0.0001;
 export const KNOWN_ASSET_CASES = new Map(
   ['AQUA', 'EURC', 'PYUSD', 'USDC', 'XLM'].map(code => [
     code.toLowerCase(),
@@ -1283,6 +1284,40 @@ export function getMinimumBalanceForSubentries(subentryCount: number) {
   return (2 + subentryCount) * STELLAR_BASE_RESERVE_XLM;
 }
 
+function formatStellarBalance(value: number) {
+  return Math.max(0, value).toFixed(7);
+}
+
+export function getMinimumBalanceForAccount(
+  account: Awaited<ReturnType<typeof loadAccount>>,
+) {
+  if (!account) {
+    return 0;
+  }
+
+  const subentryCount = Number(account.subentry_count || 0);
+
+  return getMinimumBalanceForSubentries(subentryCount);
+}
+
+export function getAvailableNativeBalance(
+  account: Awaited<ReturnType<typeof loadAccount>>,
+  feeBuffer = PAYMENT_FEE_BUFFER_XLM,
+) {
+  if (!account) {
+    return 0;
+  }
+
+  const balance = Number(getNativeBalance(account));
+  const minimumBalance = getMinimumBalanceForAccount(account);
+
+  if (!Number.isFinite(balance)) {
+    return 0;
+  }
+
+  return Math.max(0, balance - minimumBalance - feeBuffer);
+}
+
 export function getRequiredBalanceForNewTrustline(
   account: Awaited<ReturnType<typeof loadAccount>>,
 ) {
@@ -1449,10 +1484,19 @@ export function getBalanceItems(
 ) {
   return assetDefinitions.map(asset => {
     if (asset.isNative) {
+      const balance = Number(getNativeBalance(account));
+      const minimumBalance = getMinimumBalanceForAccount(account);
+      const availableBalance = getAvailableNativeBalance(account);
+
       return {
         ...asset,
+        availableBalance: formatStellarBalance(availableBalance),
         balance: getNativeBalance(account),
         exists: Boolean(account),
+        minimumBalance: formatStellarBalance(minimumBalance),
+        reservedBalance: formatStellarBalance(
+          account && Number.isFinite(balance) ? Math.min(balance, minimumBalance) : 0,
+        ),
         trusted: Boolean(account),
       };
     }
@@ -1461,6 +1505,7 @@ export function getBalanceItems(
 
     return {
       ...asset,
+      availableBalance: balance?.balance || '0',
       balance: balance?.balance || '0',
       exists: Boolean(account),
       limit: balance?.limit || '0',
@@ -1510,19 +1555,47 @@ export function assertSufficientBalance(
   amountValue: unknown,
 ) {
   const amount = Number(assertAmount(amountValue));
-  const balance = assetDefinition.isNative
-    ? Number(getNativeBalance(account))
-    : Number(
-        findIssuedBalance(
-          account,
-          assetDefinition.assetCode,
-          assetDefinition.assetIssuer,
-        )?.balance || 0,
+
+  if (assetDefinition.isNative) {
+    const available = getAvailableNativeBalance(account);
+    const minimumBalance = getMinimumBalanceForAccount(account);
+
+    if (!Number.isFinite(available) || available < amount) {
+      throw makeError(
+        `Insufficient available XLM balance. You can send up to ${formatStellarBalance(
+          available,
+        )} XLM. Stellar keeps ${formatStellarBalance(
+          minimumBalance,
+        )} XLM reserved for this wallet.`,
+        400,
       );
+    }
+
+    return;
+  }
+
+  const balance = Number(
+    findIssuedBalance(
+      account,
+      assetDefinition.assetCode,
+      assetDefinition.assetIssuer,
+    )?.balance || 0,
+  );
 
   if (!Number.isFinite(balance) || balance < amount) {
     throw makeError(
       `Insufficient ${assetDefinition.assetCode} balance`,
+      400,
+    );
+  }
+
+  const nativeBalance = Number(getNativeBalance(account));
+  const requiredNativeBalance =
+    getMinimumBalanceForAccount(account) + PAYMENT_FEE_BUFFER_XLM;
+
+  if (!Number.isFinite(nativeBalance) || nativeBalance < requiredNativeBalance) {
+    throw makeError(
+      `Deposit a small amount of XLM to pay Stellar network fees before sending ${assetDefinition.assetCode}.`,
       400,
     );
   }

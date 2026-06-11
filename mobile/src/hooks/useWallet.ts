@@ -1645,6 +1645,25 @@ export function useWallet() {
 
       const asset = visibleAssets.find(item => item.assetCode === assetCode);
 
+      if (direction === 'sell') {
+        const balance = balances.find(
+          item =>
+            item.assetCode === assetCode &&
+            (item.assetIssuer || null) === (asset?.assetIssuer || null),
+        );
+        const availableBalance = Number(
+          balance?.availableBalance || balance?.balance || 0,
+        );
+
+        if (Number(rampAmount) > availableBalance) {
+          throw new Error(
+            `You can withdraw up to ${formatTokenAmount(
+              String(availableBalance),
+            )} ${assetCode}. Stellar keeps reserve and network fees aside.`,
+          );
+        }
+      }
+
       if (direction === 'buy' && assetCode === 'USDC') {
         await ensureWalletTrustline(assetCode, asset?.assetIssuer || null, {
           confirmMainnet: true,
