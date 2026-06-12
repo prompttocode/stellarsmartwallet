@@ -13,9 +13,6 @@ Repo chia riêng backend và mobile app cho ví Stellar dùng Privy.
 
 ## Install
 
-Dependency được cài riêng theo từng app. Không dùng npm workspaces, nên mỗi phần
-có `node_modules` riêng:
-
 ```sh
 cd mobile
 npm install --legacy-peer-deps

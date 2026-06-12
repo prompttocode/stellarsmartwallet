@@ -10,7 +10,7 @@ HORIZON_MAINNET_URL = "https://horizon.stellar.org"
 FRIENDBOT_URL = "https://friendbot.stellar.org"
 PAYMENT_API_BASE_URL = "https://payment-api.dev.seerbot.io"
 PAYMENT_CALLBACK_URL = "https://privy-stellar-api.namvu3121.workers.dev/api/ramp/callback"
-WALLETCONNECT_PROJECT_ID = ""
+WALLETCONNECT_PROJECT_ID = "9e31081a2d372a24f298a798a291ee67"
 
 [observability]
 enabled = true

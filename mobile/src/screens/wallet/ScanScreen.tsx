@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import {
   Camera,
   useCameraDevice,
@@ -8,6 +8,7 @@ import {
 } from 'react-native-vision-camera';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useWalletConnect } from '@contexts/WalletConnectContext';
 
 function parseScannedValue(value: string) {
   if (value.startsWith('wc:')) {
@@ -41,6 +42,7 @@ export function ScanScreen({ navigation }: any) {
   const device = useCameraDevice('back');
   const { hasPermission, requestPermission } = useCameraPermission();
   const [scanned, setScanned] = useState(false);
+  const walletConnect = useWalletConnect();
 
   useEffect(() => {
     if (!hasPermission) {
@@ -59,11 +61,16 @@ export function ScanScreen({ navigation }: any) {
           const parsed = parseScannedValue(value);
 
           if (parsed.type === 'walletconnect') {
-            Alert.alert(
-              'WalletConnect',
-              'WalletConnect URI received. Open Settings > Advanced to configure a Reown projectId before pairing dApps.',
-            );
-            navigation.goBack();
+            walletConnect
+              .pair(parsed.value)
+              .then(paired => {
+                if (paired) {
+                  navigation.goBack();
+                } else {
+                  setScanned(false);
+                }
+              })
+              .catch(() => setScanned(false));
             return;
           }
 

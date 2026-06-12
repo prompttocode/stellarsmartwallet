@@ -1,4 +1,12 @@
-import { Account, Asset, Keypair } from '@stellar/stellar-sdk';
+import {
+  Account,
+  Asset,
+  BASE_FEE,
+  Keypair,
+  Networks,
+  Operation,
+  TransactionBuilder,
+} from '@stellar/stellar-sdk';
 import { describe, expect, it } from 'vitest';
 import {
   assertCanAddTrustline,
@@ -7,6 +15,7 @@ import {
   buildPaymentTransaction,
   getAvailableNativeBalance,
   getStellarSubmissionErrorMessage,
+  reviewStellarXdr,
   type Env,
 } from './core';
 
@@ -133,5 +142,74 @@ describe('Stellar submission errors', () => {
         'Stellar could not submit this transaction.',
       ),
     ).toBe('Stellar could not submit this transaction.');
+  });
+});
+
+describe('WalletConnect XDR review', () => {
+  const walletConnectEnv = {
+    HORIZON_TESTNET_URL: 'https://horizon-testnet.stellar.org',
+  } as Env;
+
+  function buildXdr(operation: ReturnType<typeof Operation.payment>) {
+    const source = Keypair.random();
+    const transaction = new TransactionBuilder(
+      new Account(source.publicKey(), '1'),
+      {
+        fee: BASE_FEE,
+        networkPassphrase: Networks.TESTNET,
+      },
+    )
+      .addOperation(operation)
+      .setTimeout(60)
+      .build();
+
+    return {
+      source: source.publicKey(),
+      xdr: transaction.toEnvelope().toXDR('base64'),
+    };
+  }
+
+  it('returns structured payment details', () => {
+    const destination = Keypair.random().publicKey();
+    const { source, xdr } = buildXdr(
+      Operation.payment({
+        amount: '1.25',
+        asset: Asset.native(),
+        destination,
+      }),
+    );
+    const review = reviewStellarXdr({
+      env: walletConnectEnv,
+      network: 'testnet',
+      sourceAddress: source,
+      xdr,
+    });
+
+    expect(review.operations).toEqual([
+      expect.objectContaining({
+        amount: '1.2500000',
+        asset: { code: 'XLM', issuer: null },
+        destination,
+        type: 'payment',
+      }),
+    ]);
+  });
+
+  it('rejects classic operations outside the v1 allowlist', () => {
+    const { source, xdr } = buildXdr(
+      Operation.manageData({
+        name: 'unsupported',
+        value: 'value',
+      }) as ReturnType<typeof Operation.payment>,
+    );
+
+    expect(() =>
+      reviewStellarXdr({
+        env: walletConnectEnv,
+        network: 'testnet',
+        sourceAddress: source,
+        xdr,
+      }),
+    ).toThrow('Operation manageData');
   });
 });

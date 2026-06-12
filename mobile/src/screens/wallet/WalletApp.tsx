@@ -9,6 +9,8 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { modern } from '@components/wallet';
 import { LoadingOverlay } from '@components/common/LoadingOverlay';
 import { CurrencyProvider } from '@contexts/CurrencyContext';
+import { WalletConnectProvider } from '@contexts/WalletConnectContext';
+import { WalletConnectOverlays } from '@components/wallet/WalletConnectOverlays';
 import type { WalletState } from '@hooks/useWallet';
 import { isRampOrderTerminal } from '@utils/ramp';
 
@@ -24,6 +26,7 @@ import { AssetSearchScreen } from '@screens/wallet/AssetSearchScreen';
 import { TransactionDetailScreen } from '@screens/wallet/TransactionDetailScreen';
 import { TransactionsScreen } from '@screens/wallet/TransactionsScreen';
 import { ScanScreen } from '@screens/wallet/ScanScreen';
+import { WalletConnectScreen } from '@screens/wallet/WalletConnectScreen';
 import type { BalanceItem, RampOrder } from '@app-types';
 
 const Stack = createNativeStackNavigator();
@@ -138,7 +141,14 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
           ),
         }}
       >
-        {() => <AccountScreen wallet={wallet} />}
+        {({ navigation }: any) => (
+          <AccountScreen
+            onOpenWalletConnect={() =>
+              navigation.navigate('WalletConnect')
+            }
+            wallet={wallet}
+          />
+        )}
       </Tab.Screen>
     </Tab.Navigator>
   );
@@ -156,8 +166,9 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
 
   return (
     <CurrencyProvider>
-      <View style={modern.screenFill}>
-        <NavigationContainer>
+      <WalletConnectProvider wallet={wallet}>
+        <View style={modern.screenFill}>
+          <NavigationContainer>
           <Stack.Navigator screenOptions={{ headerShown: false }}>
             <Stack.Screen name="MainTabs">
               {props => <MainTabs {...props} wallet={wallet} />}
@@ -248,11 +259,25 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
               }}
             </Stack.Screen>
             <Stack.Screen name="Scan" component={ScanScreen} />
+            <Stack.Screen name="WalletConnect">
+              {({ navigation }: any) => (
+                <WalletConnectScreen
+                  onBack={() => navigation.goBack()}
+                  onScan={() => navigation.navigate('Scan')}
+                  wallet={wallet}
+                />
+              )}
+            </Stack.Screen>
           </Stack.Navigator>
-        </NavigationContainer>
+          </NavigationContainer>
 
-        <LoadingOverlay visible={shouldShowLoadingOverlay} message={statusText} />
-      </View>
+          <LoadingOverlay
+            visible={shouldShowLoadingOverlay}
+            message={statusText}
+          />
+          <WalletConnectOverlays wallet={wallet} />
+        </View>
+      </WalletConnectProvider>
     </CurrencyProvider>
   );
 }

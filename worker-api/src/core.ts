@@ -2096,21 +2096,106 @@ export function requireClassicTransaction(
   return transaction as ReturnType<TransactionBuilder['build']>;
 }
 
-export function summarizeOperation(operation: Record<string, any>) {
+const WALLETCONNECT_CLASSIC_OPERATION_TYPES = new Set([
+  'changeTrust',
+  'createAccount',
+  'createPassiveSellOffer',
+  'manageBuyOffer',
+  'manageSellOffer',
+  'pathPaymentStrictReceive',
+  'pathPaymentStrictSend',
+  'payment',
+]);
+
+function summarizeStellarAsset(asset: Record<string, any> | undefined) {
+  if (!asset) {
+    return null;
+  }
+
   return {
-    amount: operation.amount || operation.startingBalance || null,
-    assetCode:
-      operation.asset?.code ||
-      operation.sendAsset?.code ||
-      operation.destAsset?.code ||
-      NATIVE_ASSET_CODE,
-    destination:
-      operation.destination ||
-      operation.destAsset?.issuer ||
-      operation.asset?.issuer ||
-      null,
-    type: operation.type,
+    code: String(asset.code || NATIVE_ASSET_CODE),
+    issuer: asset.issuer ? String(asset.issuer) : null,
   };
+}
+
+export function summarizeOperation(operation: Record<string, any>) {
+  if (!WALLETCONNECT_CLASSIC_OPERATION_TYPES.has(operation.type)) {
+    const label =
+      operation.type === 'invokeHostFunction'
+        ? 'Soroban contract calls'
+        : `Operation ${operation.type || 'unknown'}`;
+
+    throw makeError(`${label} are not supported by this WalletConnect signer`, 400);
+  }
+
+  const base = {
+    source: operation.source ? String(operation.source) : null,
+    type: String(operation.type),
+  };
+
+  switch (operation.type) {
+    case 'payment':
+      return {
+        ...base,
+        amount: String(operation.amount),
+        asset: summarizeStellarAsset(operation.asset),
+        destination: String(operation.destination),
+      };
+    case 'createAccount':
+      return {
+        ...base,
+        destination: String(operation.destination),
+        startingBalance: String(operation.startingBalance),
+      };
+    case 'changeTrust':
+      return {
+        ...base,
+        asset: summarizeStellarAsset(operation.line),
+        limit: String(operation.limit),
+      };
+    case 'pathPaymentStrictSend':
+      return {
+        ...base,
+        destination: String(operation.destination),
+        destinationAsset: summarizeStellarAsset(operation.destAsset),
+        destinationMinimum: String(operation.destMin),
+        path: (operation.path || []).map(summarizeStellarAsset),
+        sendAmount: String(operation.sendAmount),
+        sendAsset: summarizeStellarAsset(operation.sendAsset),
+      };
+    case 'pathPaymentStrictReceive':
+      return {
+        ...base,
+        destination: String(operation.destination),
+        destinationAmount: String(operation.destAmount),
+        destinationAsset: summarizeStellarAsset(operation.destAsset),
+        path: (operation.path || []).map(summarizeStellarAsset),
+        sendAsset: summarizeStellarAsset(operation.sendAsset),
+        sendMaximum: String(operation.sendMax),
+      };
+    case 'manageBuyOffer':
+      return {
+        ...base,
+        buying: summarizeStellarAsset(operation.buying),
+        buyAmount: String(operation.buyAmount),
+        offerId: String(operation.offerId),
+        price: String(operation.price),
+        selling: summarizeStellarAsset(operation.selling),
+      };
+    case 'manageSellOffer':
+    case 'createPassiveSellOffer':
+      return {
+        ...base,
+        amount: String(operation.amount),
+        buying: summarizeStellarAsset(operation.buying),
+        offerId:
+          operation.offerId === undefined ? null : String(operation.offerId),
+        price: String(operation.price),
+        selling: summarizeStellarAsset(operation.selling),
+      };
+    default:
+      throw makeError('Unsupported Stellar operation', 400);
+  }
 }
 
 export function reviewStellarXdr({
@@ -2130,16 +2215,30 @@ export function reviewStellarXdr({
     throw makeError('XDR does not use the selected wallet as source', 403);
   }
 
+  const operations = (
+    (transaction.operations || []) as Array<Record<string, any>>
+  ).map(summarizeOperation);
+  const warnings: string[] = [];
+
+  if (operations.length > 1) {
+    warnings.push(`This transaction contains ${operations.length} operations.`);
+  }
+
+  if (Number(transaction.fee) > Number(BASE_FEE) * Math.max(1, operations.length) * 10) {
+    warnings.push('This transaction uses a higher than usual Stellar network fee.');
+  }
+
   return {
     fee: transaction.fee,
-    memo: transaction.memo?.value || null,
+    memo: transaction.memo?.value
+      ? transaction.memo.value.toString()
+      : null,
     network,
-    operationCount: transaction.operations?.length || 0,
-    operations: ((transaction.operations || []) as Array<Record<string, any>>).map(
-      summarizeOperation,
-    ),
+    operationCount: operations.length,
+    operations,
     sequence: transaction.sequence,
     source: transaction.source,
+    warnings,
   };
 }
 

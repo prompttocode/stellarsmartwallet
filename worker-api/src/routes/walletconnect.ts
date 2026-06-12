@@ -12,6 +12,33 @@ import {
   type WorkerBindings,
 } from '../core';
 
+function maskAddress(value: string) {
+  return value.length > 12
+    ? `${value.slice(0, 6)}...${value.slice(-6)}`
+    : value;
+}
+
+function walletConnectLog(
+  level: 'error' | 'info' | 'warn',
+  event: string,
+  details: Record<string, unknown>,
+) {
+  const entry = JSON.stringify({
+    event,
+    service: 'walletconnect',
+    timestamp: new Date().toISOString(),
+    ...details,
+  });
+
+  if (level === 'error') {
+    console.error(entry);
+  } else if (level === 'warn') {
+    console.warn(entry);
+  } else {
+    console.info(entry);
+  }
+}
+
 export function registerWalletConnectRoutes(app: Hono<WorkerBindings>) {
   app.get('/api/walletconnect/config', c =>
     c.json({
@@ -25,19 +52,43 @@ export function registerWalletConnectRoutes(app: Hono<WorkerBindings>) {
     const body = await readJsonBody(c);
     const network = normalizeNetwork(body.network);
     const sourceAddress = String(body.sourceAddress || '').trim();
+    const method = String(body.method || '').trim();
+    const peerName = String(body.peerName || '').trim();
+    const topic = String(body.topic || '').trim();
 
     if (sourceAddress) {
       assertStellarAddress(sourceAddress, 'Signing wallet');
     }
 
-    return c.json(
-      reviewStellarXdr({
+    try {
+      const review = reviewStellarXdr({
         env: c.env,
         network,
         sourceAddress,
         xdr: body.xdr,
-      }),
-    );
+      });
+
+      walletConnectLog('info', 'walletconnect.xdr_reviewed', {
+        method: method || null,
+        network,
+        operationCount: review.operationCount,
+        peerName: peerName || null,
+        sourceAddress: sourceAddress ? maskAddress(sourceAddress) : null,
+        topic: topic || null,
+      });
+
+      return c.json(review);
+    } catch (error) {
+      walletConnectLog('warn', 'walletconnect.xdr_review_rejected', {
+        error: error instanceof Error ? error.message : String(error),
+        method: method || null,
+        network,
+        peerName: peerName || null,
+        sourceAddress: sourceAddress ? maskAddress(sourceAddress) : null,
+        topic: topic || null,
+      });
+      throw error;
+    }
   });
 
   app.post('/api/walletconnect/stellar/sign-xdr', async c => {
@@ -45,6 +96,9 @@ export function registerWalletConnectRoutes(app: Hono<WorkerBindings>) {
     const network = normalizeNetwork(body.network);
     const sourceWalletId = String(body.sourceWalletId || '').trim();
     const sourceAddress = String(body.sourceAddress || '').trim();
+    const method = String(body.method || '').trim();
+    const peerName = String(body.peerName || '').trim();
+    const topic = String(body.topic || '').trim();
     const account = await requireAccountContext(c.env, c.req.header('authorization'), body, {
       network,
       requireAuth: true,
@@ -58,17 +112,44 @@ export function registerWalletConnectRoutes(app: Hono<WorkerBindings>) {
       walletId: sourceWalletId,
     });
 
-    const result = await signStellarXdr({
-      env: c.env,
+    let result: Awaited<ReturnType<typeof signStellarXdr>>;
+
+    try {
+      result = await signStellarXdr({
+        env: c.env,
+        network,
+        sourceAddress,
+        submit: Boolean(body.submit),
+        walletId: sourceWalletId,
+        xdr: body.xdr,
+      });
+    } catch (error) {
+      walletConnectLog('error', 'walletconnect.sign_failed', {
+        error: error instanceof Error ? error.message : String(error),
+        method: method || null,
+        network,
+        peerName: peerName || null,
+        sourceAddress: maskAddress(sourceAddress),
+        submit: Boolean(body.submit),
+        topic: topic || null,
+      });
+      throw error;
+    }
+
+    walletConnectLog('info', 'walletconnect.signed', {
+      hash: result.submitted?.hash || null,
+      method: method || null,
       network,
-      sourceAddress,
+      operationCount: result.review.operationCount,
+      peerName: peerName || null,
+      sourceAddress: maskAddress(sourceAddress),
       submit: Boolean(body.submit),
-      walletId: sourceWalletId,
-      xdr: body.xdr,
+      topic: topic || null,
     });
 
     return c.json({
       ...result,
+      hash: result.submitted?.hash || null,
       transaction: result.submitted
         ? buildSubmittedTransactionItem({
             amount: '0',

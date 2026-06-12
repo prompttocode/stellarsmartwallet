@@ -150,7 +150,13 @@ function DetailRow({
   );
 }
 
-export function AccountScreen({ wallet }: { wallet: WalletState }) {
+export function AccountScreen({
+  onOpenWalletConnect,
+  wallet,
+}: {
+  onOpenWalletConnect: () => void;
+  wallet: WalletState;
+}) {
   const screenInsetStyle = useSafeScreenInsetStyle();
   const insets = useSafeAreaInsets();
   const { selectedCurrency, setSelectedCurrency } = useCurrencyConfig();
@@ -484,6 +490,17 @@ export function AccountScreen({ wallet }: { wallet: WalletState }) {
           />
           <View style={styles.divider} />
           <SettingsRow
+            icon="link-outline"
+            onPress={onOpenWalletConnect}
+            subtitle={
+              wallet.walletConnectConfig?.configured
+                ? 'Connect and manage Stellar dApps'
+                : 'Reown project ID not configured'
+            }
+            title="WalletConnect"
+          />
+          <View style={styles.divider} />
+          <SettingsRow
             icon="options-outline"
             onPress={() => setDetailSheet('advanced')}
             subtitle="Wallet tools and app information"
@@ -715,16 +732,6 @@ export function AccountScreen({ wallet }: { wallet: WalletState }) {
         </View>
 
         <View style={styles.technicalCard}>
-          <DetailRow
-            icon="link-outline"
-            label="WalletConnect"
-            value={
-              wallet.walletConnectConfig?.configured
-                ? 'Configured'
-                : 'Project ID not configured'
-            }
-          />
-          <View style={styles.divider} />
           <DetailRow
             icon="finger-print-outline"
             label="Privy ID"
