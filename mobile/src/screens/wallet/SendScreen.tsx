@@ -1,23 +1,52 @@
 import React, { useState, useEffect } from 'react';
-import { Alert, ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import ReactNativeBiometrics from 'react-native-biometrics';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   AssetPickerModal,
   AssetSelectButton,
   getModernAssets,
   InfoLine,
-  ModernScreenHeader,
   PressScale,
-  SectionHeader,
   modern,
-  useSafeScreenInsetStyle,
 } from '@components/wallet';
 import type { WalletState } from '@hooks/useWallet';
 import type { SendResult } from '@app-types';
 import { formatTokenAmount, shortAddress } from '@utils/format';
 
 type SendStep = 'compose' | 'review' | 'success';
+
+import { TokenIcon } from '@components/wallet';
+
+function LocalSectionHeader({ title, action }: { title: string; action?: React.ReactNode }) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {action}
+    </View>
+  );
+}
+
+function LocalAssetSelectButton({ asset, label, onPress, valueLabel }: any) {
+  return (
+    <PressScale onPress={onPress} style={styles.assetSelectButton}>
+      <TokenIcon assetCode={asset?.assetCode} imageUrl={asset?.image} size={42} />
+      <View style={styles.assetSelectCopy}>
+        <Text style={styles.assetSelectLabel}>{label}</Text>
+        <Text style={styles.assetSelectTitle}>{asset?.assetCode || 'Select'}</Text>
+        <Text style={styles.assetSelectSubtitle}>
+          {asset?.assetIssuer ? 'Custom asset' : 'Lumens'} · Balance {valueLabel.split(' ')[0]}
+        </Text>
+      </View>
+      <View style={styles.assetSelectTrailing}>
+        <Text style={styles.assetSelectValue}>{valueLabel}</Text>
+        <Text style={styles.assetSelectFiat}>≈ $0.00</Text>
+        <Ionicons color="#6C757D" name="chevron-down" size={16} style={{ alignSelf: 'flex-end', marginTop: 4 }} />
+      </View>
+    </PressScale>
+  );
+}
 
 export function SendScreen({
   onBack,
@@ -30,7 +59,7 @@ export function SendScreen({
   route?: any;
   wallet: WalletState;
 }) {
-  const screenInsetStyle = useSafeScreenInsetStyle();
+  const insets = useSafeAreaInsets();
   const [step, setStep] = useState<SendStep>('compose');
   const [assetPickerVisible, setAssetPickerVisible] = useState(false);
   const [lastResult, setLastResult] = useState<SendResult | null>(null);
@@ -89,28 +118,39 @@ export function SendScreen({
 
   async function searchPickerAssets(query: string) {
     const result = await wallet.searchAssets(query);
-
     return getModernAssets(wallet.balances, result);
+  }
+
+  function renderHero(title: string, subtitle: string, onHeroBack?: () => void) {
+    return (
+      <View style={[styles.hero, { paddingTop: insets.top + 12 }]}>
+        <View style={styles.heroHeader}>
+          <PressScale onPress={onHeroBack || onBack} style={styles.heroBackButton}>
+            <Ionicons color="#FFFFFF" name="chevron-back" size={24} />
+          </PressScale>
+          <Text style={styles.heroHeaderTitle}>Transfer</Text>
+          <View style={styles.heroHeaderSpacer} />
+        </View>
+        <Text style={styles.heroEyebrow}>STELLAR WALLET</Text>
+        <Text style={styles.heroTitle}>{title}</Text>
+        <Text style={styles.heroSubtitle}>{subtitle}</Text>
+      </View>
+    );
   }
 
   if (step === 'success' && lastResult) {
     return (
       <ScrollView
-        contentContainerStyle={screenInsetStyle}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 48 }]}
+        style={styles.root}
         showsVerticalScrollIndicator={false}
       >
-        <ModernScreenHeader
-          onBack={onBack}
-          subtitle={`Transaction submitted to Stellar ${
-            wallet.network === 'mainnet' ? 'Mainnet' : 'Testnet'
-          }.`}
-          title="Transfer sent"
-        />
-        <View style={modern.sectionCard}>
+        {renderHero('Transfer sent', `Transaction submitted to Stellar ${wallet.network === 'mainnet' ? 'Mainnet' : 'Testnet'}.`)}
+        <View style={styles.receiptCard}>
           <View style={modern.successOrb}>
-            <Ionicons color="#0ABF73" name="checkmark" size={42} />
+            <Ionicons color="#B8FF45" name="checkmark" size={42} />
           </View>
-          <Text style={modern.successModernTitle}>Transfer sent</Text>
+          <Text style={styles.receiptTitle}>Transfer sent</Text>
           <Text style={modern.successModernText}>
             {formatTokenAmount(wallet.amount)} {lastResult.assetCode} →{' '}
             {recipientLabel}
@@ -125,12 +165,7 @@ export function SendScreen({
             onPress={() => setStep('compose')}
             style={modern.secondaryModernButton}
           >
-            <Text
-              style={[
-                modern.modernButtonText,
-                modern.secondaryModernButtonText,
-              ]}
-            >
+            <Text style={[modern.modernButtonText, modern.secondaryModernButtonText]}>
               Send again
             </Text>
           </PressScale>
@@ -142,20 +177,13 @@ export function SendScreen({
   if (step === 'review') {
     return (
       <ScrollView
-        contentContainerStyle={screenInsetStyle}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 48 }]}
+        style={styles.root}
         showsVerticalScrollIndicator={false}
       >
-        <ModernScreenHeader
-          onBack={() => setStep('compose')}
-          subtitle={
-            wallet.isMainnet
-              ? 'Review carefully. Mainnet transactions move real assets.'
-              : 'Review carefully before sending test tokens.'
-          }
-          title="Review transfer"
-        />
-        <View style={modern.sectionCard}>
-          <SectionHeader title="Transfer details" />
+        {renderHero('Review transfer', wallet.isMainnet ? 'Review carefully. Mainnet transactions move real assets.' : 'Review carefully before sending test tokens.', () => setStep('compose'))}
+        <View style={styles.receiptCard}>
+          <LocalSectionHeader title="Transfer details" />
           <InfoLine
             label="Network"
             value={
@@ -187,9 +215,9 @@ export function SendScreen({
           <PressScale
             disabled={wallet.isBusy || !canSubmit}
             onPress={handleConfirmSend}
-            style={modern.primaryModernButton}
+            style={[styles.primaryButton, (wallet.isBusy || !canSubmit) ? styles.disabledButton : null]}
           >
-            <Text style={modern.modernButtonText}>
+            <Text style={styles.primaryButtonText}>
               {wallet.busy || (wallet.isMainnet ? 'Confirm' : 'Send')}
             </Text>
           </PressScale>
@@ -201,104 +229,95 @@ export function SendScreen({
   return (
     <>
       <ScrollView
-        contentContainerStyle={screenInsetStyle}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 48 }]}
+        style={styles.root}
         showsVerticalScrollIndicator={false}
       >
-        <ModernScreenHeader
-          onBack={onBack}
-          subtitle={
-            wallet.isMainnet
-              ? 'Transfer crypto to another Stellar wallet on Mainnet.'
-              : 'Transfer Testnet XLM or USDC to another Stellar wallet.'
-          }
-          title="Send"
-        />
+        {renderHero('Send crypto', wallet.isMainnet ? 'Transfer crypto to another Stellar wallet on Mainnet.' : 'Transfer Testnet XLM or USDC to another Stellar wallet.')}
 
-        {!wallet.walletCanSign ? (
-          <View style={modern.sectionCard}>
-            <Text style={modern.emptyModernTitle}>Watch-only wallet</Text>
-            <Text style={modern.emptyModernText}>
-              This wallet can only view balances and QR codes. It cannot sign
-              sends, swaps, or exports.
-            </Text>
-          </View>
-        ) : null}
-
-        {wallet.isMainnet && !wallet.walletActive ? (
-          <View style={modern.sectionCard}>
-            <Text style={modern.emptyModernTitle}>Wallet inactive</Text>
-            <Text style={modern.emptyModernText}>
-              Deposit real XLM into this wallet before sending Mainnet
-              transactions.
-            </Text>
-          </View>
-        ) : null}
-
-        <View style={modern.formCard}>
-          <SectionHeader title="Asset" />
-          <AssetSelectButton
-            asset={selectedAsset}
-            label="Sending asset"
-            onPress={() => setAssetPickerVisible(true)}
-            valueLabel={`${formatTokenAmount(
-              wallet.selectedBalance?.balance || selectedAsset?.balance || '0',
-              { compact: true },
-            )} ${wallet.selectedAssetCode}`}
-          />
-          <Text style={modern.emptyModernText}>
-            Search and choose from available Stellar assets without stretching
-            this form.
-          </Text>
-        </View>
-
-        <View style={modern.formCard}>
-          <SectionHeader
-            action={
-              <PressScale onPress={onGoToScan}>
-                <Ionicons name="qr-code-outline" size={20} color="#0F8EA3" />
-              </PressScale>
-            }
-            title="Recipient"
-          />
-          <TextInput
-            autoCapitalize="characters"
-            autoCorrect={false}
-            multiline
-            onChangeText={wallet.setRecipient}
-            placeholder="G... Stellar wallet address"
-            placeholderTextColor="#A7B3BA"
-            style={modern.modernInput}
-            value={wallet.recipient}
-          />
-          {wallet.recipientContact ? (
-            <View style={modern.reviewModernBox}>
-              <Text style={modern.reviewModernTitle}>
-                {wallet.recipientContact.label}
-              </Text>
-              <Text style={modern.reviewModernText}>
-                {shortAddress(wallet.recipientContact.wallet.address)}
+        <View style={styles.receiptCard}>
+          {!wallet.walletCanSign ? (
+            <View style={styles.noticeBox}>
+              <Text style={styles.noticeTitle}>Watch-only wallet</Text>
+              <Text style={styles.noticeText}>
+                This wallet can only view balances and QR codes. It cannot sign
+                sends, swaps, or exports.
               </Text>
             </View>
           ) : null}
-        </View>
 
-        <View style={modern.formCard}>
-          <SectionHeader title="Amount" />
-          <TextInput
-            keyboardType="decimal-pad"
-            onChangeText={wallet.setAmount}
-            placeholder="1"
-            placeholderTextColor="#A7B3BA"
-            style={modern.modernInput}
-            value={wallet.amount}
-          />
-          <PressScale
-            disabled={wallet.isBusy || !canSubmit}
-            onPress={() => setStep('review')}
-            style={modern.primaryModernButton}
-          >
-            <Text style={modern.modernButtonText}>Review transfer</Text>
-          </PressScale>
+          {wallet.isMainnet && !wallet.walletActive ? (
+            <View style={styles.noticeBox}>
+              <Text style={styles.noticeTitle}>Wallet inactive</Text>
+              <Text style={styles.noticeText}>
+                Deposit real XLM into this wallet before sending Mainnet
+                transactions.
+              </Text>
+            </View>
+          ) : null}
+
+          <View style={styles.formCard}>
+            <LocalSectionHeader title="Asset" />
+            <LocalAssetSelectButton
+              asset={selectedAsset}
+              label="Sending asset"
+              onPress={() => setAssetPickerVisible(true)}
+              valueLabel={`${formatTokenAmount(
+                wallet.selectedBalance?.balance || selectedAsset?.balance || '0',
+                { compact: true },
+              )} ${wallet.selectedAssetCode}`}
+            />
+          </View>
+
+          <View style={styles.formCard}>
+            <LocalSectionHeader
+              action={
+                <PressScale onPress={onGoToScan}>
+                  <Ionicons name="qr-code-outline" size={20} color="#0F8EA3" />
+                </PressScale>
+              }
+              title="Recipient"
+            />
+            <TextInput
+              autoCapitalize="characters"
+              autoCorrect={false}
+              multiline
+              onChangeText={wallet.setRecipient}
+              placeholder="G... Stellar wallet address"
+              placeholderTextColor="#A7B3BA"
+              style={styles.input}
+              value={wallet.recipient}
+            />
+            {wallet.recipientContact ? (
+              <View style={styles.reviewBox}>
+                <Text style={styles.reviewBoxTitle}>
+                  {wallet.recipientContact.label}
+                </Text>
+                <Text style={styles.reviewBoxText}>
+                  {shortAddress(wallet.recipientContact.wallet.address)}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.formCard}>
+            <LocalSectionHeader title="Amount" />
+            <TextInput
+              keyboardType="decimal-pad"
+              onChangeText={wallet.setAmount}
+              placeholder="1"
+              placeholderTextColor="#A7B3BA"
+              style={styles.input}
+              value={wallet.amount}
+            />
+            <PressScale
+              disabled={wallet.isBusy || !canSubmit}
+              onPress={() => setStep('review')}
+              style={[styles.primaryButton, (wallet.isBusy || !canSubmit) ? styles.disabledButton : null]}
+            >
+              <Text style={styles.primaryButtonText}>Review transfer</Text>
+            </PressScale>
+          </View>
         </View>
       </ScrollView>
 
@@ -315,3 +334,200 @@ export function SendScreen({
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  assetSelectButton: {
+    alignItems: 'center',
+    backgroundColor: '#111318',
+    borderRadius: 20,
+    flexDirection: 'row',
+    gap: 12,
+    padding: 16,
+  },
+  assetSelectCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  assetSelectLabel: {
+    color: '#8A9099',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  assetSelectTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  assetSelectSubtitle: {
+    color: '#8A9099',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  assetSelectTrailing: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  assetSelectValue: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  assetSelectFiat: {
+    color: '#8A9099',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  sectionHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  sectionTitle: {
+    color: '#172033',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+
+  content: {
+    backgroundColor: '#F4F5F7',
+  },
+  disabledButton: {
+    opacity: 0.45,
+  },
+  formCard: {
+    marginBottom: 24,
+  },
+  hero: {
+    backgroundColor: '#071421',
+    paddingBottom: 72,
+    paddingHorizontal: 18,
+  },
+  heroBackButton: {
+    alignItems: 'center',
+    borderColor: 'rgba(255,255,255,0.16)',
+    borderRadius: 20,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  heroEyebrow: {
+    color: 'rgba(255,255,255,0.58)',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.3,
+    marginTop: 24,
+  },
+  heroHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  heroHeaderSpacer: {
+    width: 40,
+  },
+  heroHeaderTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  heroSubtitle: {
+    color: 'rgba(255,255,255,0.66)',
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
+    marginTop: 8,
+    maxWidth: 320,
+  },
+  heroTitle: {
+    color: '#FFFFFF',
+    fontSize: 32,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+    marginTop: 8,
+  },
+  input: {
+    backgroundColor: '#F5F6F8',
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    borderWidth: 1,
+    color: '#171A1F',
+    fontSize: 15,
+    marginTop: 12,
+    paddingHorizontal: 13,
+    paddingVertical: 12,
+  },
+  noticeBox: {
+    backgroundColor: '#FFF7E8',
+    borderRadius: 18,
+    gap: 5,
+    marginBottom: 24,
+    padding: 14,
+  },
+  noticeText: {
+    color: '#7C5A13',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+  },
+  noticeTitle: {
+    color: '#5C3D00',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  primaryButton: {
+    alignItems: 'center',
+    backgroundColor: '#B8FF45',
+    borderRadius: 28,
+    justifyContent: 'center',
+    marginTop: 20,
+    minHeight: 58,
+  },
+  primaryButtonText: {
+    color: '#071421',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  receiptCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 30,
+    marginHorizontal: 16,
+    marginTop: -48,
+    padding: 20,
+    shadowColor: '#071421',
+    shadowOffset: { height: 14, width: 0 },
+    shadowOpacity: 0.12,
+    shadowRadius: 28,
+  },
+  receiptTitle: {
+    color: '#111827',
+    fontSize: 22,
+    fontWeight: '900',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  reviewBox: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 14,
+    gap: 2,
+    marginTop: 12,
+    padding: 12,
+  },
+  reviewBoxText: {
+    color: '#6C757D',
+    fontSize: 12,
+  },
+  reviewBoxTitle: {
+    color: '#343A40',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  root: {
+    backgroundColor: '#F4F5F7',
+    flex: 1,
+  },
+});

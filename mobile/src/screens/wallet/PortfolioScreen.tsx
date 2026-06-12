@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   Alert,
+  Image,
   ImageBackground,
   RefreshControl,
   ScrollView,
@@ -27,7 +28,7 @@ import { useCurrencyConfig } from '@contexts/CurrencyContext';
 import type { BalanceItem } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
 
-const portfolioBackground = require('@assets/images/background/backstellar.png');
+
 
 export function PortfolioScreen({
   onGoToReceive,
@@ -90,7 +91,7 @@ export function PortfolioScreen({
       : formattedPortfolioValue;
   const portfolioNote = !wallet.isMainnet
     ? valuation.pricedAssetCount > 0
-      ? 'Reference market price only · Testnet assets have no real value'
+      ? 'Reference market price only'
       : 'Waiting for reference market prices'
     : valuation.unpricedAssetCount > 0
     ? `${valuation.unpricedAssetCount} asset${
@@ -154,12 +155,21 @@ export function PortfolioScreen({
   }
 
   return (
-    <ImageBackground
-      imageStyle={modern.portfolioBackgroundImage}
-      resizeMode="cover"
-      source={portfolioBackground}
-      style={modern.portfolioRoot}
-    >
+    <View style={modern.portfolioRoot}>
+      <Image
+        source={require('@assets/images/background/backgroundhome.png')}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          width: '100%',
+          height: '100%',
+          opacity: 0.6,
+        }}
+        resizeMode="cover"
+      />
       <ScrollView
         alwaysBounceVertical
         contentContainerStyle={modern.screen}
@@ -191,7 +201,7 @@ export function PortfolioScreen({
               {
                 icon: (
                   <MaterialCommunityIcons
-                    color="#3867D6"
+                    color="#FFFFFF"
                     name="arrow-top-right"
                     size={25}
                   />
@@ -203,7 +213,7 @@ export function PortfolioScreen({
               {
                 icon: (
                   <MaterialCommunityIcons
-                    color="#3867D6"
+                    color="#FFFFFF"
                     name="arrow-bottom-left"
                     size={25}
                   />
@@ -213,7 +223,7 @@ export function PortfolioScreen({
                 onPress: onGoToReceive,
               },
               {
-                icon: <Ionicons color="#3867D6" name="card" size={24} />,
+                icon: <Ionicons color="#FFFFFF" name="card" size={24} />,
                 key: 'faucet',
                 label: wallet.isMainnet ? 'Deposit' : 'Faucet',
                 onPress: onGoToFaucet,
@@ -221,7 +231,7 @@ export function PortfolioScreen({
               {
                 icon: (
                   <MaterialCommunityIcons
-                    color="#3867D6"
+                    color="#FFFFFF"
                     name="bank-transfer-out"
                     size={25}
                   />
@@ -350,6 +360,6 @@ export function PortfolioScreen({
         onClose={() => setIsWalletModalVisible(false)}
         walletState={wallet}
       />
-    </ImageBackground>
+    </View>
   );
 }

@@ -8,3 +8,4 @@ export * from './ui/token';
 export * from './WalletPrimitives';
 export * from './WalletManagerModal';
 export * from './WalletRows';
+export * from './ui/primitives';

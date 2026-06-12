@@ -7,6 +7,7 @@ import {
   TokenIcon,
   PressScale,
   useSafeScreenInsetStyle,
+  ExplorerLink,
 } from '@components/wallet';
 import { formatDate, formatTokenAmount } from '@utils/format';
 import type { WalletState } from '@hooks/useWallet';
@@ -39,6 +40,7 @@ export function TransactionDetailScreen({
     <ScrollView
       contentContainerStyle={screenInsetStyle}
       showsVerticalScrollIndicator={false}
+      style={{ backgroundColor: '#000000' }}
     >
       <ModernScreenHeader title="Transaction Details" onBack={onBack} />
       <View style={modern.sectionCard}>
@@ -85,14 +87,7 @@ export function TransactionDetailScreen({
           <Text selectable style={modern.infoValue}>{transaction.hash}</Text>
         </View>
 
-        <PressScale
-          onPress={() => wallet.openUrl(transaction.explorerUrl)}
-          style={modern.secondaryModernButton}
-        >
-          <Text style={[modern.modernButtonText, modern.secondaryModernButtonText]}>
-            Open on Stellar Expert
-          </Text>
-        </PressScale>
+        <ExplorerLink onPress={() => wallet.openUrl(transaction.explorerUrl)} />
       </View>
     </ScrollView>
   );
@@ -100,7 +95,7 @@ export function TransactionDetailScreen({
 
 const styles = StyleSheet.create({
   statusSuccess: {
-    color: '#0ABF73',
+    color: '#B8FF45',
     fontWeight: 'bold',
   },
   summary: {
@@ -109,7 +104,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   summaryAmount: {
-    color: '#132A35',
+    color: '#FFFFFF',
     fontSize: 36,
     marginTop: 12,
   },

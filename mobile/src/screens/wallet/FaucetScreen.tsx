@@ -1,5 +1,6 @@
 import React from 'react';
 import { Alert, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import QRCode from 'react-native-qrcode-styled';
@@ -25,6 +26,7 @@ export function FaucetScreen({
   wallet: WalletState;
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
+  const insets = useSafeAreaInsets();
   const assets = getModernAssets(wallet.balances, wallet.visibleAssets);
   const address = wallet.wallet?.address || '';
   const networkLabel = wallet.isMainnet ? 'Mainnet' : 'Testnet';
@@ -49,20 +51,35 @@ export function FaucetScreen({
 
   return (
     <ScrollView
-      contentContainerStyle={screenInsetStyle}
+      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 48 }]}
+      style={styles.root}
       showsVerticalScrollIndicator={false}
     >
-      <ModernScreenHeader
-        onBack={onBack}
-        subtitle={
+      
+      <View style={[styles.hero, { paddingTop: insets.top + 12 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <PressScale onPress={onBack} style={styles.heroBackButton}>
+            <Ionicons color="#FFFFFF" name="chevron-back" size={24} />
+          </PressScale>
+          <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '900' }}>Funding</Text>
+          <View style={{ width: 40 }} />
+        </View>
+        <Text style={styles.heroEyebrow}>STELLAR WALLET</Text>
+        <Text style={{ color: '#FFFFFF', fontSize: 32, fontWeight: '900', letterSpacing: -0.4, marginTop: 8 }}>
+          {
           wallet.isMainnet
             ? 'Deposit assets or use VND orders for real XLM and USDC.'
             : 'Free XLM is for wallet testing. Orders test the payment flow.'
         }
-        title={wallet.isMainnet ? 'Deposit' : 'Faucet & Deposit'}
-      />
+        </Text>
+        <Text style={styles.heroSubtitle}>{
+          wallet.isMainnet
+            ? 'Deposit assets or use VND orders for real XLM and USDC.'
+            : 'Free XLM is for wallet testing. Orders test the payment flow.'
+        }</Text>
+      </View>
 
-      <View style={[modern.sectionCard, styles.heroCard]}>
+      <View style={[styles.receiptCard, styles.heroCard]}>
         <View style={styles.cardTopRow}>
           <View style={styles.heroIcon}>
             <Ionicons color="#0ABF73" name="card" size={26} />
@@ -80,14 +97,14 @@ export function FaucetScreen({
         <PressScale
           disabled={!wallet.wallet}
           onPress={onGoToRamp}
-          style={[modern.primaryModernButton, styles.fullButton]}
+          style={[styles.primaryButton, styles.fullButton]}
         >
-          <Text style={modern.modernButtonText}>Buy with VND</Text>
+          <Text style={styles.primaryButtonText}>Buy with VND</Text>
         </PressScale>
       </View>
 
       {!wallet.isMainnet ? (
-        <View style={modern.sectionCard}>
+        <View style={styles.receiptCardBottom}>
           <View style={styles.cardTopRow}>
             <View style={[styles.smallIcon, styles.testnetIcon]}>
               <Ionicons color="#3867D6" name="flash" size={22} />
@@ -103,12 +120,12 @@ export function FaucetScreen({
           <PressScale
             disabled={!wallet.wallet || wallet.isBusy}
             onPress={wallet.fundWallet}
-            style={[modern.secondaryModernButton, styles.fullButton]}
+            style={[styles.secondaryButton, styles.fullButton]}
           >
             <Text
               style={[
-                modern.modernButtonText,
-                modern.secondaryModernButtonText,
+                styles.primaryButtonText,
+                styles.secondaryButtonText,
               ]}
             >
               Get free Testnet XLM
@@ -117,8 +134,8 @@ export function FaucetScreen({
         </View>
       ) : null}
 
-      <View style={modern.sectionCard}>
-        <SectionHeader title="Wallet address" />
+      <View style={styles.receiptCardBottom}>
+        <Text style={styles.localSectionTitle}>{"Wallet address" }</Text>
         <View style={styles.addressCopy}>
           <Text style={styles.cardText}>
             {wallet.isMainnet
@@ -171,8 +188,8 @@ export function FaucetScreen({
         </View>
       </View>
 
-      <View style={modern.sectionCard}>
-        <SectionHeader title="Supported assets" />
+      <View style={styles.receiptCardBottom}>
+        <Text style={styles.localSectionTitle}>{"Supported assets" }</Text>
         {assets.map(asset => {
           const needsTrustline = !asset.isNative && !asset.trusted;
           const isXlm = asset.isNative;
@@ -209,9 +226,9 @@ export function FaucetScreen({
             >
               <View style={styles.assetLeft}>
                 <TokenIcon assetCode={asset.assetCode} imageUrl={asset.image} />
-                <View style={modern.assetModernBody}>
+                <View style={styles.assetBodyLocal}>
                   <View style={styles.assetTitleRow}>
-                    <Text style={modern.assetModernName}>
+                    <Text style={styles.assetNameLocal}>
                       {asset.assetCode}
                     </Text>
                     <View
@@ -236,7 +253,7 @@ export function FaucetScreen({
                     {formatTokenAmount(asset.balance, { compact: true })}{' '}
                     {asset.assetCode}
                   </Text>
-                  <Text style={modern.assetModernMeta}>{assetText}</Text>
+                  <Text style={styles.assetMetaLocal}>{assetText}</Text>
                 </View>
               </View>
               <PressScale
@@ -256,11 +273,11 @@ export function FaucetScreen({
                 }}
                 style={
                   needsTrustline
-                    ? [modern.assetAddButton, styles.assetButton]
-                    : [modern.assetFaucetButton, styles.assetButton]
+                    ? [styles.enableButton, styles.assetButton]
+                    : [styles.faucetButton, styles.assetButton]
                 }
               >
-                <Text style={modern.assetButtonText}>{actionLabel}</Text>
+                <Text style={styles.assetButtonText}>{actionLabel}</Text>
               </PressScale>
             </View>
           );
@@ -271,6 +288,91 @@ export function FaucetScreen({
 }
 
 const styles = StyleSheet.create({
+  localSectionTitle: { color: '#111827', fontSize: 18, fontWeight: '900', marginBottom: 12 },
+  assetBodyLocal: { flex: 1, gap: 3 },
+  assetNameLocal: { color: '#111827', fontSize: 15, fontWeight: '900' },
+  assetMetaLocal: { color: '#7D8795', fontSize: 12, fontWeight: '700', lineHeight: 17 },
+  enableButton: { alignItems: 'center', backgroundColor: '#111827', borderRadius: 17, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 9 },
+  faucetButton: { alignItems: 'center', backgroundColor: '#EEF4FF', borderRadius: 17, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 9 },
+  assetButtonText: { color: '#111827', fontSize: 12, fontWeight: '900' },
+
+  primaryButton: {
+    alignItems: 'center',
+    backgroundColor: '#B8FF45',
+    borderRadius: 28,
+    justifyContent: 'center',
+    minHeight: 58,
+  },
+  primaryButtonText: {
+    color: '#071421',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  secondaryButton: {
+    alignItems: 'center',
+    backgroundColor: '#111827',
+    borderRadius: 28,
+    justifyContent: 'center',
+    minHeight: 58,
+  },
+  secondaryButtonText: {
+    color: '#FFFFFF',
+  },
+
+  root: {
+    backgroundColor: '#F4F5F7',
+  },
+  content: {
+    backgroundColor: '#F4F5F7',
+  },
+  hero: {
+    backgroundColor: '#071421',
+    paddingBottom: 72,
+    paddingHorizontal: 18,
+  },
+  heroBackButton: {
+    alignItems: 'center',
+    borderColor: 'rgba(255,255,255,0.16)',
+    borderRadius: 20,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  heroEyebrow: {
+    color: 'rgba(255,255,255,0.58)',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.3,
+    marginTop: 24,
+  },
+  heroSubtitle: {
+    color: 'rgba(255,255,255,0.66)',
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
+    marginTop: 8,
+    maxWidth: 320,
+  },
+  receiptCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 30,
+    marginHorizontal: 16,
+    marginTop: -48,
+    padding: 20,
+    shadowColor: '#071421',
+    shadowOffset: { height: 14, width: 0 },
+    shadowOpacity: 0.12,
+    shadowRadius: 28,
+  },
+  receiptCardBottom: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 30,
+    marginHorizontal: 16,
+    marginTop: 16,
+    padding: 20,
+  },
+
   actionRow: {
     flexDirection: 'row',
     gap: 10,

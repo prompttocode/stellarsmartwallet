@@ -146,61 +146,38 @@ export function WalletHero({
                   : 'Testnet portfolio'}
               </Text>
               <Text style={modern.heroNetworkMeta}>
-                {network === 'mainnet'
-                  ? 'Stellar Mainnet · real assets'
-                  : 'Stellar Testnet · demo assets'}
+                {network === 'mainnet' ? '' : 'Stellar Testnet · demo assets'}
               </Text>
             </View>
+          </View>
+
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 12,
+              marginTop: 16,
+            }}
+          >
+            <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              style={[modern.heroAmount, { marginTop: 0 }]}
+            >
+              {hidden ? '••••' : portfolioValue}
+            </Text>
             <PressScale onPress={onHideToggle} style={modern.heroEyeButton}>
               <Ionicons
-                color="#3867D6"
+                color="#000000"
                 name={hidden ? 'eye-off-outline' : 'eye-outline'}
                 size={20}
               />
             </PressScale>
           </View>
-
-          <Text
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            style={modern.heroAmount}
-          >
-            {hidden ? '••••' : portfolioValue}
-          </Text>
           {!hidden && portfolioNote ? (
             <Text style={modern.heroPriceNote}>{portfolioNote}</Text>
           ) : null}
-
-          <View style={modern.heroAccountRow}>
-            <View style={modern.heroAccountMark}>
-              <Text style={modern.heroAccountMarkText}>S</Text>
-            </View>
-            <View style={modern.heroAccountCopy}>
-              <Text numberOfLines={1} style={modern.heroAccountTitle}>
-                Privy Stellar wallet
-              </Text>
-              <Text numberOfLines={1} style={modern.heroSubValue}>
-                {email || shortAddress(address)}
-              </Text>
-            </View>
-            <View
-              style={[
-                modern.heroNetworkBadge,
-                network === 'mainnet' ? modern.heroNetworkBadgeMainnet : null,
-              ]}
-            >
-              <Text
-                style={[
-                  modern.heroNetworkBadgeText,
-                  network === 'mainnet'
-                    ? modern.heroNetworkBadgeTextMainnet
-                    : null,
-                ]}
-              >
-                {network === 'mainnet' ? 'Mainnet' : 'Testnet'}
-              </Text>
-            </View>
-          </View>
 
           {children}
         </View>

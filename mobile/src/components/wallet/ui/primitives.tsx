@@ -96,11 +96,12 @@ export function AnimatedPillTabBar<T extends string>({
         {tabWidth > 0 ? (
           <Animated.View
             style={[
-              modern.tabIndicator,
-              { width: tabWidth - 10 },
+              { position: 'absolute', width: tabWidth, alignItems: 'center' },
               indicatorStyle,
             ]}
-          />
+          >
+            <View style={modern.tabIndicator} />
+          </Animated.View>
         ) : null}
         {tabs.map(tab => {
           const selected = activeKey === tab.key;
@@ -182,6 +183,21 @@ export function SectionHeader({
   );
 }
 
+export function ModernInfoLine({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={modern.infoRow}>
+      <Text style={modern.infoLabel}>{label}</Text>
+      <Text style={modern.infoRowValue}>{value}</Text>
+    </View>
+  );
+}
+
 export function ModernScreenHeader({
   onBack,
   subtitle,
@@ -195,7 +211,7 @@ export function ModernScreenHeader({
     <View style={modern.modernHeader}>
       {onBack ? (
         <PressScale onPress={onBack} style={modern.backButton}>
-          <Ionicons color="#24495A" name="chevron-back" size={26} />
+          <Ionicons color="#FFFFFF" name="chevron-back" size={24} />
         </PressScale>
       ) : null}
       <View style={modern.modernHeaderCopy}>
@@ -205,5 +221,24 @@ export function ModernScreenHeader({
         ) : null}
       </View>
     </View>
+  );
+}
+
+export function ExplorerLink({
+  disabled,
+  onPress,
+}: {
+  disabled?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <PressScale
+      disabled={disabled}
+      onPress={onPress}
+      style={modern.explorerButton}
+    >
+      <Ionicons color="#0F8EA3" name="open-outline" size={18} />
+      <Text style={modern.explorerText}>Open explorer</Text>
+    </PressScale>
   );
 }

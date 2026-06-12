@@ -11,7 +11,8 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
-  InfoLine,
+  ExplorerLink,
+  ModernInfoLine,
   ModernScreenHeader,
   PressScale,
   SectionHeader,
@@ -100,8 +101,22 @@ export function RampScreen({
     null,
   );
   const [, setClock] = useState(Date.now());
-  const order = wallet.activeRampOrder;
+  const rawOrder = wallet.activeRampOrder;
   const openedFromHistory = route?.params?.source === 'history';
+  const rawOrderReference = rawOrder?.code || rawOrder?.id || '';
+  const ignoredInitialClosedOrderRef = useRef<string | null>(
+    !openedFromHistory &&
+      Boolean(route?.params?.direction) &&
+      isRampOrderTerminal(rawOrder)
+      ? rawOrderReference
+      : null,
+  );
+  const ignoringInitialClosedOrder = Boolean(
+    ignoredInitialClosedOrderRef.current &&
+      rawOrderReference === ignoredInitialClosedOrderRef.current &&
+      isRampOrderTerminal(rawOrder),
+  );
+  const order = ignoringInitialClosedOrder ? null : rawOrder;
   const refreshRampOrderRef = useRef(wallet.refreshRampOrder);
   const orderReference = order?.code || order?.id || '';
   const terminal = isRampOrderTerminal(order);
@@ -146,6 +161,12 @@ export function RampScreen({
   useEffect(() => {
     refreshRampOrderRef.current = wallet.refreshRampOrder;
   }, [wallet.refreshRampOrder]);
+
+  useEffect(() => {
+    if (ignoringInitialClosedOrder) {
+      wallet.clearRampOrder().catch(() => null);
+    }
+  }, [ignoringInitialClosedOrder, wallet]);
 
   useEffect(() => {
     if (!order && route?.params?.direction) {
@@ -245,7 +266,10 @@ export function RampScreen({
           wallet.isMainnet ? 'public' : 'testnet'
         }/tx/${transactionHash}`
       : null;
-    const completed = Number(order.state) === 3;
+    const isCompleted = Number(order.state) === 3;
+    const isFailedOrCancelled =
+      Number(order.state) === 4 || Number(order.state) === 5;
+
     const stateLabel =
       RAMP_STATE_LABELS[Number(order.state)] || 'Unknown status';
     const processingLabel =
@@ -263,6 +287,7 @@ export function RampScreen({
       <View style={styles.orderScreen}>
         <ScrollView
           contentContainerStyle={screenInsetStyle}
+          style={{ backgroundColor: '#000000' }}
           showsVerticalScrollIndicator={false}
         >
           <ModernScreenHeader
@@ -277,8 +302,20 @@ export function RampScreen({
             <View style={styles.statusHeader}>
               <View style={styles.statusIcon}>
                 <Ionicons
-                  color={terminal ? '#24495A' : '#0ABF73'}
-                  name={terminal ? 'checkmark-circle' : 'time'}
+                  color={
+                    isCompleted
+                      ? '#B8FF45'
+                      : isFailedOrCancelled
+                      ? '#D84C5F'
+                      : '#F59E0B'
+                  }
+                  name={
+                    isCompleted
+                      ? 'checkmark-circle'
+                      : isFailedOrCancelled
+                      ? 'close-circle'
+                      : 'time'
+                  }
                   size={30}
                 />
               </View>
@@ -292,13 +329,13 @@ export function RampScreen({
               </View>
             </View>
             <View style={modern.reviewModernBox}>
-              <InfoLine
+              <ModernInfoLine
                 label={isSell ? 'You withdraw' : 'You buy'}
                 value={`${formatTokenAmount(String(order.amount))} ${
                   order.asset_code
                 }`}
               />
-              <InfoLine
+              <ModernInfoLine
                 label="Network"
                 value={
                   wallet.isMainnet
@@ -311,10 +348,10 @@ export function RampScreen({
 
           <View style={modern.sectionCard}>
             <SectionHeader title="Order details" />
-            <InfoLine label="Status" value={stateLabel} />
-            <InfoLine label="Current step" value={processingLabel} />
-            <InfoLine label="Order ID" value={String(order.id || '-')} />
-            <InfoLine label="Payment code" value={order.code || '-'} />
+            <ModernInfoLine label="Status" value={stateLabel} />
+            <ModernInfoLine label="Current step" value={processingLabel} />
+            <ModernInfoLine label="Order ID" value={String(order.id || '-')} />
+            <ModernInfoLine label="Payment code" value={order.code || '-'} />
           </View>
 
           {!isSell ? (
@@ -334,23 +371,23 @@ export function RampScreen({
                 </View>
               ) : null}
               <View style={modern.reviewModernBox}>
-                <InfoLine
+                <ModernInfoLine
                   label="Amount"
                   value={formatVnd(bankInfo?.vaAmount)}
                 />
-                <InfoLine
+                <ModernInfoLine
                   label="Bank"
                   value={bankInfo?.bankName || 'Waiting for provider'}
                 />
-                <InfoLine
+                <ModernInfoLine
                   label="Account name"
                   value={bankInfo?.bankAccountName || '-'}
                 />
-                <InfoLine
+                <ModernInfoLine
                   label="Account number"
                   value={bankInfo?.bankAccountNumber || '-'}
                 />
-                <InfoLine
+                <ModernInfoLine
                   label="Transfer content"
                   value={bankInfo?.transferContent || order.code}
                 />
@@ -391,13 +428,13 @@ export function RampScreen({
                 account. The Stellar memo must match the payment code.
               </Text>
               <View style={modern.reviewModernBox}>
-                <InfoLine
+                <ModernInfoLine
                   label="Amount"
                   value={`${formatTokenAmount(String(order.amount))} ${
                     order.asset_code
                   }`}
                 />
-                <InfoLine
+                <ModernInfoLine
                   label="Address"
                   value={
                     order.pay_data?.address
@@ -405,8 +442,8 @@ export function RampScreen({
                       : 'Waiting for provider'
                   }
                 />
-                <InfoLine label="Memo" value={order.code} />
-                <InfoLine
+                <ModernInfoLine label="Memo" value={order.code} />
+                <ModernInfoLine
                   label="Bank payout"
                   value={
                     order.payment_info?.bank_account_no ||
@@ -468,27 +505,8 @@ export function RampScreen({
           <View style={modern.sectionCard}>
             <SectionHeader title="Order actions" />
             <View style={modern.walletButtons}>
-              <PressScale
-                disabled={wallet.isBusy}
-                onPress={() => wallet.refreshRampOrder(orderReference)}
-                style={modern.primaryModernButton}
-              >
-                <Text style={modern.modernButtonText}>Refresh</Text>
-              </PressScale>
               {explorerUrl ? (
-                <PressScale
-                  onPress={() => wallet.openUrl(explorerUrl)}
-                  style={modern.secondaryModernButton}
-                >
-                  <Text
-                    style={[
-                      modern.modernButtonText,
-                      modern.secondaryModernButtonText,
-                    ]}
-                  >
-                    Explorer
-                  </Text>
-                </PressScale>
+                <ExplorerLink onPress={() => wallet.openUrl(explorerUrl)} />
               ) : null}
             </View>
             {canCancelOrder ? (
@@ -538,7 +556,7 @@ export function RampScreen({
                 <View
                   style={[
                     styles.resultIcon,
-                    completed
+                    isCompleted
                       ? styles.resultIconSuccess
                       : Number(order.state) === 5
                       ? styles.resultIconCancelled
@@ -546,15 +564,9 @@ export function RampScreen({
                   ]}
                 >
                   <Ionicons
-                    color={
-                      completed
-                        ? '#168A58'
-                        : Number(order.state) === 5
-                        ? '#6B7280'
-                        : '#C43D45'
-                    }
+                    color={isCompleted ? '#B8FF45' : Number(order.state) === 5 ? '#A1B0C8' : '#FF5252'}
                     name={
-                      completed
+                      isCompleted
                         ? 'checkmark'
                         : Number(order.state) === 5
                         ? 'remove'
@@ -564,14 +576,14 @@ export function RampScreen({
                   />
                 </View>
                 <Text style={styles.resultTitle}>
-                  {completed
+                  {isCompleted
                     ? 'Order completed'
                     : Number(order.state) === 5
                     ? 'Order cancelled'
                     : 'Order failed'}
                 </Text>
                 <Text style={styles.resultText}>
-                  {completed
+                  {isCompleted
                     ? `${isSell ? 'Withdraw' : 'Buy'} ${formatTokenAmount(
                         String(order.amount),
                       )} ${order.asset_code} completed successfully.`
@@ -648,6 +660,7 @@ export function RampScreen({
     <>
       <ScrollView
         contentContainerStyle={screenInsetStyle}
+        style={{ backgroundColor: '#000000' }}
         showsVerticalScrollIndicator={false}
       >
         <ModernScreenHeader
@@ -821,13 +834,16 @@ export function RampScreen({
               <Text style={styles.quoteAmount}>
                 {formatVnd(quote.total_vnd)}
               </Text>
-              <InfoLine
+              <ModernInfoLine
                 label="Rate"
                 value={`${formatVnd(quote.rate)} / ${quote.asset_code}`}
               />
-              <InfoLine label="Gross" value={formatVnd(quote.gross_vnd)} />
-              <InfoLine label="Fee" value={formatVnd(quote.fee_vnd)} />
-              <InfoLine
+              <ModernInfoLine
+                label="Gross"
+                value={formatVnd(quote.gross_vnd)}
+              />
+              <ModernInfoLine label="Fee" value={formatVnd(quote.fee_vnd)} />
+              <ModernInfoLine
                 label={
                   direction === 'buy' ? 'You transfer' : 'Estimated payout'
                 }
@@ -1000,8 +1016,8 @@ export function RampScreen({
 const styles = StyleSheet.create({
   assetChoice: {
     alignItems: 'center',
-    backgroundColor: '#F4F8FA',
-    borderColor: '#E2EBEF',
+    backgroundColor: '#1E232B',
+    borderColor: '#2A303A',
     borderRadius: 18,
     borderWidth: 1,
     flex: 1,
@@ -1011,11 +1027,11 @@ const styles = StyleSheet.create({
     minHeight: 64,
   },
   assetChoiceActive: {
-    backgroundColor: '#E7F9F1',
-    borderColor: '#0ABF73',
+    backgroundColor: 'rgba(184, 255, 69, 0.15)',
+    borderColor: '#B8FF45',
   },
   assetChoiceText: {
-    color: '#7E909A',
+    color: '#8A9099',
     fontSize: 16,
     fontWeight: '900',
   },
@@ -1030,7 +1046,7 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   availableText: {
-    color: '#132235',
+    color: '#ffffff',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -1051,7 +1067,7 @@ const styles = StyleSheet.create({
   },
   bankCheckSelected: {
     backgroundColor: '#0ABF73',
-    borderColor: '#0ABF73',
+    borderColor: '#B8FF45',
   },
   bankEmpty: {
     alignItems: 'center',
@@ -1088,7 +1104,7 @@ const styles = StyleSheet.create({
   },
   bankLogoBox: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#111318',
     borderRadius: 12,
     height: 48,
     justifyContent: 'center',
@@ -1096,14 +1112,14 @@ const styles = StyleSheet.create({
     width: 82,
   },
   bankName: {
-    color: '#132235',
+    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '900',
   },
   bankOption: {
     alignItems: 'center',
-    backgroundColor: '#F4F7F8',
-    borderColor: '#E0E7EA',
+    backgroundColor: '#1E222B',
+    borderColor: 'rgba(255,255,255,0.1)',
     borderRadius: 17,
     borderWidth: 1,
     flexDirection: 'row',
@@ -1119,12 +1135,12 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
   bankOptionSelected: {
-    backgroundColor: '#ECFAF5',
+    backgroundColor: '#000000',
     borderColor: '#0ABF73',
   },
   bankSearchBox: {
     alignItems: 'center',
-    backgroundColor: '#F1F4F5',
+    backgroundColor: '#1E232B',
     borderRadius: 16,
     flexDirection: 'row',
     gap: 9,
@@ -1133,13 +1149,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
   },
   bankSearchInput: {
-    color: '#18252C',
+    color: '#FFFFFF',
     flex: 1,
     fontSize: 15,
     paddingVertical: 0,
   },
   bankSheet: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#111318',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     maxHeight: '78%',
@@ -1149,7 +1165,7 @@ const styles = StyleSheet.create({
   },
   bankSheetClose: {
     alignItems: 'center',
-    backgroundColor: '#F1F3F4',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 18,
     height: 36,
     justifyContent: 'center',
@@ -1157,7 +1173,7 @@ const styles = StyleSheet.create({
   },
   bankSheetHandle: {
     alignSelf: 'center',
-    backgroundColor: '#D5DBDE',
+    backgroundColor: 'rgba(255,255,255,0.2)',
     borderRadius: 2,
     height: 4,
     marginBottom: 17,
@@ -1175,20 +1191,20 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   bankSheetSubtitle: {
-    color: '#849097',
+    color: '#8A9099',
     fontSize: 13,
     marginTop: 3,
   },
   bankSheetTitle: {
-    color: '#142129',
+    color: '#FFFFFF',
     fontSize: 22,
     fontWeight: '900',
     letterSpacing: -0.4,
   },
   selectedBankField: {
     alignItems: 'center',
-    backgroundColor: '#F4F7F8',
-    borderColor: '#E0E7EA',
+    backgroundColor: '#1E222B',
+    borderColor: 'rgba(255,255,255,0.1)',
     borderRadius: 17,
     borderWidth: 1,
     flexDirection: 'row',
@@ -1198,7 +1214,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   selectedBankFieldPressed: {
-    backgroundColor: '#EAF0F2',
+    backgroundColor: '#282C35',
   },
   remoteQr: {
     height: 220,
@@ -1206,22 +1222,22 @@ const styles = StyleSheet.create({
   },
   remoteQrCard: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderColor: '#DFE9ED',
+    backgroundColor: '#111318',
+    borderColor: 'rgba(255,255,255,0.1)',
     borderRadius: 24,
     borderWidth: 1,
     padding: 10,
   },
   feeWarning: {
     alignItems: 'flex-start',
-    backgroundColor: '#FFF7E8',
+    backgroundColor: 'rgba(255, 165, 0, 0.1)',
     borderRadius: 14,
     flexDirection: 'row',
     gap: 9,
     padding: 12,
   },
   feeWarningText: {
-    color: '#855114',
+    color: '#FFA500',
     flex: 1,
     fontSize: 12,
     fontWeight: '700',
@@ -1229,11 +1245,12 @@ const styles = StyleSheet.create({
   },
   orderScreen: {
     flex: 1,
+    backgroundColor: '#000000',
   },
   orderLockedBox: {
     alignItems: 'flex-start',
-    backgroundColor: '#EFF6F8',
-    borderColor: '#D9E7EC',
+    backgroundColor: 'rgba(184, 255, 69, 0.1)',
+    borderColor: 'rgba(184, 255, 69, 0.2)',
     borderRadius: 16,
     borderWidth: 1,
     flexDirection: 'row',
@@ -1241,27 +1258,27 @@ const styles = StyleSheet.create({
     padding: 13,
   },
   orderLockedText: {
-    color: '#24495A',
+    color: '#B8FF45',
     flex: 1,
     fontSize: 12,
     fontWeight: '700',
     lineHeight: 17,
   },
   quoteAmount: {
-    color: '#111318',
+    color: '#FFFFFF',
     fontSize: 30,
     fontWeight: '900',
     letterSpacing: -0.7,
     marginBottom: 4,
   },
   quoteCard: {
-    backgroundColor: '#F5F6F8',
+    backgroundColor: 'rgba(255,255,255,0.03)',
     borderRadius: 22,
     gap: 9,
     padding: 16,
   },
   quoteEyebrow: {
-    color: '#7B818A',
+    color: '#8A9099',
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 0.8,
@@ -1287,16 +1304,16 @@ const styles = StyleSheet.create({
     width: 54,
   },
   resultIconCancelled: {
-    backgroundColor: '#F0F1F3',
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
   resultIconFailure: {
-    backgroundColor: '#FBECEE',
+    backgroundColor: 'rgba(255,82,82,0.15)',
   },
   resultIconSuccess: {
-    backgroundColor: '#E9F7F0',
+    backgroundColor: 'rgba(184, 255, 69, 0.15)',
   },
   resultModal: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#111318',
     borderRadius: 28,
     maxWidth: 334,
     overflow: 'hidden',
@@ -1317,7 +1334,7 @@ const styles = StyleSheet.create({
   },
   resultOrderBadge: {
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 12,
     flexDirection: 'row',
     gap: 7,
@@ -1326,7 +1343,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   resultOrderId: {
-    color: '#262A30',
+    color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '700',
   },
@@ -1338,7 +1355,7 @@ const styles = StyleSheet.create({
   },
   resultPrimaryAction: {
     alignItems: 'center',
-    backgroundColor: '#101318',
+    backgroundColor: '#B8FF45',
     borderRadius: 16,
     justifyContent: 'center',
     minHeight: 54,
@@ -1349,13 +1366,13 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.985 }],
   },
   resultPrimaryActionText: {
-    color: '#FFFFFF',
+    color: '#000000',
     fontSize: 16,
     fontWeight: '700',
   },
   resultSecondaryAction: {
     alignItems: 'center',
-    backgroundColor: '#F2F3F5',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     borderRadius: 16,
     flexDirection: 'row',
     gap: 6,
@@ -1367,31 +1384,31 @@ const styles = StyleSheet.create({
     backgroundColor: '#E8E9EC',
   },
   resultSecondaryActionText: {
-    color: '#30343B',
+    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '600',
   },
   resultText: {
-    color: '#737982',
+    color: '#8A9099',
     fontSize: 15,
     lineHeight: 21,
     marginTop: 8,
     textAlign: 'center',
   },
   resultTitle: {
-    color: '#15181D',
+    color: '#FFFFFF',
     fontSize: 22,
     fontWeight: '700',
     letterSpacing: -0.35,
     textAlign: 'center',
   },
   segmentText: {
-    color: '#7E909A',
+    color: '#8A9099',
     fontSize: 13,
     fontWeight: '800',
   },
   segmentTextActive: {
-    color: '#24495A',
+    color: '#B8FF45',
   },
   statusHeader: {
     alignItems: 'center',
@@ -1400,15 +1417,15 @@ const styles = StyleSheet.create({
   },
   statusIcon: {
     alignItems: 'center',
-    backgroundColor: '#E7F9F1',
+    backgroundColor: 'rgba(184, 255, 69, 0.15)',
     borderRadius: 24,
     height: 48,
     justifyContent: 'center',
     width: 48,
   },
   testPaymentBox: {
-    backgroundColor: '#F4F8FF',
-    borderColor: '#DDE8FF',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: 'rgba(255,255,255,0.1)',
     borderRadius: 18,
     borderWidth: 1,
     gap: 12,
@@ -1418,12 +1435,12 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   testPaymentText: {
-    color: '#71839B',
+    color: '#8A9099',
     fontSize: 12,
     lineHeight: 17,
   },
   testPaymentTitle: {
-    color: '#24495A',
+    color: '#B8FF45',
     fontSize: 14,
     fontWeight: '900',
   },

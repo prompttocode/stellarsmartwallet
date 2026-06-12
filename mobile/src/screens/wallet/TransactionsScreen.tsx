@@ -132,6 +132,7 @@ export function TransactionsScreen({
 
   return (
     <ScrollView
+      style={{ backgroundColor: '#000000' }}
       contentContainerStyle={screenInsetStyle}
       showsVerticalScrollIndicator={false}
     >
@@ -230,20 +231,20 @@ const styles = StyleSheet.create({
   },
   orderIcon: {
     alignItems: 'center',
-    backgroundColor: '#EEF4FF',
+    backgroundColor: 'rgba(255,255,255,0.06)',
     borderRadius: 18,
     height: 42,
     justifyContent: 'center',
     width: 42,
   },
   orderIconClosed: {
-    backgroundColor: '#FFF0F2',
+    backgroundColor: 'rgba(255,69,90,0.15)',
   },
   orderIconCompleted: {
-    backgroundColor: '#E7F9F1',
+    backgroundColor: 'rgba(184,255,69,0.15)',
   },
   orderMeta: {
-    color: '#8A9AA3',
+    color: '#A1B0C8',
     fontSize: 12,
   },
   orderRight: {
@@ -254,27 +255,27 @@ const styles = StyleSheet.create({
   },
   orderRow: {
     alignItems: 'center',
-    borderBottomColor: '#EDF2F4',
+    borderBottomColor: 'rgba(255,255,255,0.06)',
     borderBottomWidth: 1,
     flexDirection: 'row',
     gap: 12,
     paddingVertical: 14,
   },
   orderStatus: {
-    color: '#3867D6',
+    color: '#FFFFFF',
     flexShrink: 1,
     fontSize: 11,
     fontWeight: '900',
     textAlign: 'right',
   },
   orderStatusClosed: {
-    color: '#D84C5F',
+    color: '#FF455A',
   },
   orderStatusCompleted: {
-    color: '#0ABF73',
+    color: '#B8FF45',
   },
   orderTitle: {
-    color: '#24495A',
+    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '900',
   },

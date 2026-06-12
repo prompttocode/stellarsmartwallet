@@ -8,6 +8,7 @@ import {
   TokenIcon,
   modern,
   useSafeScreenInsetStyle,
+  ExplorerLink,
 } from '@components/wallet';
 import type { AssetItem, BalanceItem } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
@@ -199,6 +200,7 @@ export function AssetDetailScreen({
   return (
     <ScrollView
       contentContainerStyle={screenInsetStyle}
+      style={{ backgroundColor: '#000000' }}
       showsVerticalScrollIndicator={false}
     >
       <ModernScreenHeader
@@ -370,14 +372,7 @@ export function AssetDetailScreen({
             ) : null}
           </>
         )}
-        <PressScale
-          disabled={!canOpenExplorer}
-          onPress={() => wallet.openUrl(assetExplorerUrl)}
-          style={styles.explorerButton}
-        >
-          <Ionicons color="#0F8EA3" name="open-outline" size={18} />
-          <Text style={styles.explorerText}>Open explorer</Text>
-        </PressScale>
+        <ExplorerLink disabled={!canOpenExplorer} onPress={() => wallet.openUrl(assetExplorerUrl)} />
       </View>
     </ScrollView>
   );
@@ -385,7 +380,7 @@ export function AssetDetailScreen({
 
 const styles = StyleSheet.create({
   assetCode: {
-    color: '#24495A',
+    color: '#FFFFFF',
     flexShrink: 1,
     fontSize: 30,
     fontWeight: '900',
@@ -397,7 +392,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   balanceCard: {
-    backgroundColor: '#F4F8FA',
+    backgroundColor: '#111318',
     borderRadius: 22,
     gap: 6,
     padding: 16,
@@ -408,7 +403,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   balanceValue: {
-    color: '#17233D',
+    color: '#FFFFFF',
     fontSize: 24,
     fontWeight: '900',
   },
@@ -421,7 +416,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   explorerText: {
-    color: '#0F8EA3',
+    color: '#B8FF45',
     fontSize: 13,
     fontWeight: '900',
   },
@@ -436,7 +431,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   infoValue: {
-    color: '#24495A',
+    color: '#FFFFFF',
     flex: 1,
     fontSize: 13,
     fontWeight: '900',

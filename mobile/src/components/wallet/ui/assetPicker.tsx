@@ -253,7 +253,7 @@ export function AssetPickerModal({
               </Text>
             </View>
             <PressScale onPress={onClose} style={modern.assetPickerClose}>
-              <Ionicons color="#24495A" name="close" size={20} />
+              <Ionicons color="#FFFFFF" name="close" size={20} />
             </PressScale>
           </View>
 
@@ -392,7 +392,7 @@ export function AssetPickerModal({
                       ) : null}
                       {selected ? (
                         <Ionicons
-                          color="#0ABF73"
+                          color="#B8FF45"
                           name="checkmark-circle"
                           size={18}
                         />

@@ -101,7 +101,7 @@ export function WalletConnectScreen({
               : null,
           ]}
         >
-          <Ionicons color="#FFFFFF" name="qr-code-outline" size={20} />
+          <Ionicons color="#111318" name="qr-code-outline" size={20} />
           <Text style={styles.scanButtonText}>
             {walletConnect.initializing ? 'Starting WalletConnect' : 'Scan QR'}
           </Text>
@@ -219,7 +219,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   detailValue: {
-    color: '#30353D',
+    color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',
   },
@@ -228,7 +228,7 @@ const styles = StyleSheet.create({
   },
   disconnectButton: {
     alignItems: 'center',
-    borderColor: '#F0D5D7',
+    borderColor: '#3D2527',
     borderRadius: 14,
     borderWidth: 1,
     flexDirection: 'row',
@@ -244,18 +244,18 @@ const styles = StyleSheet.create({
   },
   emptyCard: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#111318',
     borderRadius: 22,
     padding: 28,
   },
   emptyText: {
-    color: '#8B919A',
+    color: '#A1A1AA',
     fontSize: 13,
     marginTop: 5,
     textAlign: 'center',
   },
   emptyTitle: {
-    color: '#30353D',
+    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',
     marginTop: 11,
@@ -265,63 +265,63 @@ const styles = StyleSheet.create({
   },
   heroCard: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#111318',
     borderRadius: 26,
     padding: 22,
   },
   heroIcon: {
     alignItems: 'center',
-    backgroundColor: '#111318',
+    backgroundColor: '#1E232B',
     borderRadius: 25,
     height: 50,
     justifyContent: 'center',
     width: 50,
   },
   heroText: {
-    color: '#7E858F',
+    color: '#A1A1AA',
     fontSize: 13,
     lineHeight: 19,
     marginTop: 7,
     textAlign: 'center',
   },
   heroTitle: {
-    color: '#1B1F26',
+    color: '#FFFFFF',
     fontSize: 21,
     fontWeight: '900',
     marginTop: 15,
   },
   infoCard: {
-    backgroundColor: '#FFF7E9',
+    backgroundColor: '#2D2012',
     borderRadius: 18,
     flexDirection: 'row',
     gap: 11,
     padding: 15,
   },
   infoText: {
-    color: '#805D27',
+    color: '#FFB84D',
     fontSize: 12,
     lineHeight: 18,
     marginTop: 3,
   },
   infoTitle: {
-    color: '#75501A',
+    color: '#FFA933',
     fontSize: 14,
     fontWeight: '800',
   },
   networkBadge: {
-    backgroundColor: '#EEF0F2',
+    backgroundColor: '#1E232B',
     borderRadius: 10,
     paddingHorizontal: 9,
     paddingVertical: 6,
   },
   networkBadgeText: {
-    color: '#5D636C',
+    color: '#A1A1AA',
     fontSize: 10,
     fontWeight: '800',
   },
   scanButton: {
     alignItems: 'center',
-    backgroundColor: '#111318',
+    backgroundColor: '#B8FF45',
     borderRadius: 17,
     flexDirection: 'row',
     gap: 9,
@@ -331,16 +331,16 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   scanButtonText: {
-    color: '#FFFFFF',
+    color: '#111318',
     fontSize: 15,
     fontWeight: '800',
   },
   screen: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#000000',
     flex: 1,
   },
   sectionCount: {
-    color: '#8B919A',
+    color: '#A1A1AA',
     fontSize: 13,
     fontWeight: '800',
   },
@@ -352,35 +352,35 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3,
   },
   sectionTitle: {
-    color: '#272C33',
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '900',
   },
   securityCard: {
-    backgroundColor: '#EDEFF2',
+    backgroundColor: '#111318',
     borderRadius: 18,
     flexDirection: 'row',
     gap: 11,
     padding: 15,
   },
   securityText: {
-    color: '#666D76',
+    color: '#A1A1AA',
     fontSize: 12,
     lineHeight: 18,
     marginTop: 3,
   },
   securityTitle: {
-    color: '#30353D',
+    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '800',
   },
   sessionCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#111318',
     borderRadius: 22,
     padding: 16,
   },
   sessionDetails: {
-    backgroundColor: '#F5F6F8',
+    backgroundColor: '#1E232B',
     borderRadius: 14,
     gap: 9,
     marginTop: 14,
@@ -400,7 +400,7 @@ const styles = StyleSheet.create({
     width: 46,
   },
   sessionName: {
-    color: '#252A31',
+    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '800',
   },
@@ -427,7 +427,7 @@ const styles = StyleSheet.create({
   },
   walletPill: {
     alignItems: 'center',
-    backgroundColor: '#F1F3F5',
+    backgroundColor: '#1E232B',
     borderRadius: 14,
     flexDirection: 'row',
     gap: 7,
@@ -436,7 +436,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   walletPillText: {
-    color: '#626972',
+    color: '#A1A1AA',
     fontSize: 11,
     fontWeight: '700',
   },

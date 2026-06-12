@@ -112,6 +112,7 @@ export function AssetSearchScreen({
   return (
     <ScrollView
       contentContainerStyle={screenInsetStyle}
+      style={{ backgroundColor: '#000000' }}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
     >
@@ -185,8 +186,8 @@ export function AssetSearchScreen({
 const styles = StyleSheet.create({
   searchBox: {
     alignItems: 'center',
-    backgroundColor: '#F4F8FA',
-    borderColor: '#E2EBEF',
+    backgroundColor: '#1E232B',
+    borderColor: '#2A303A',
     borderRadius: 22,
     borderWidth: 1,
     flexDirection: 'row',
@@ -195,13 +196,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   searchHint: {
-    color: '#7E909A',
+    color: '#A1A1AA',
     fontSize: 13,
     lineHeight: 18,
     textAlign: 'center',
   },
   searchInput: {
-    color: '#24495A',
+    color: '#FFFFFF',
     flex: 1,
     fontSize: 16,
     fontWeight: '800',

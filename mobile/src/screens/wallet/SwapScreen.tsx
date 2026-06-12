@@ -7,7 +7,7 @@ import {
   AssetPickerModal,
   AssetSelectButton,
   getModernAssets,
-  InfoLine,
+  ModernInfoLine,
   ModernScreenHeader,
   PressScale,
   SectionHeader,
@@ -16,7 +16,7 @@ import {
 } from '@components/wallet';
 import type { SwapResult } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
-import { formatTokenAmount } from '@utils/format';
+import { formatTokenAmount, shortAddress } from '@utils/format';
 
 export function SwapScreen({ wallet }: { wallet: WalletState }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
@@ -139,6 +139,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
   if (lastSwap) {
     return (
       <ScrollView
+        style={{ backgroundColor: '#000000' }}
         contentContainerStyle={screenInsetStyle}
         showsVerticalScrollIndicator={false}
       >
@@ -150,7 +151,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
         />
         <View style={modern.sectionCard}>
           <View style={modern.successOrb}>
-            <Ionicons color="#0ABF73" name="checkmark" size={42} />
+            <Ionicons color="#B8FF45" name="checkmark" size={42} />
           </View>
           <Text style={modern.successModernTitle}>Swap complete</Text>
           <Text style={modern.successModernText}>
@@ -184,6 +185,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
   return (
     <>
       <ScrollView
+        style={{ backgroundColor: '#000000' }}
         contentContainerStyle={screenInsetStyle}
         showsVerticalScrollIndicator={false}
       >
@@ -236,7 +238,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
 
           <PressScale onPress={flipAssets} style={modern.swapMiddleButton}>
             <MaterialCommunityIcons
-              color="#0F8EA3"
+              color="#FFFFFF"
               name="swap-vertical"
               size={24}
             />
@@ -273,7 +275,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
           {reviewing && quote ? (
             <View style={modern.reviewModernBox}>
               <Text style={modern.reviewModernTitle}>Review swap</Text>
-              <InfoLine
+              <ModernInfoLine
                 label="Network"
                 value={
                   wallet.isMainnet
@@ -281,19 +283,19 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
                     : 'Testnet · testing only'
                 }
               />
-              <InfoLine
+              <ModernInfoLine
                 label="Amount"
                 value={`${formatTokenAmount(sellAmount)} ${sellCode}`}
               />
-              <InfoLine
+              <ModernInfoLine
                 label="Minimum receive"
                 value={`≈ ${formatTokenAmount(quote.toAmount)} ${buyCode}`}
               />
-              <InfoLine
+              <ModernInfoLine
                 label="Destination"
-                value={wallet.wallet?.address || 'Active wallet'}
+                value={wallet.wallet?.address ? shortAddress(wallet.wallet.address) : 'Active wallet'}
               />
-              <InfoLine label="Network fee" value="0.00001 XLM" />
+              <ModernInfoLine label="Network fee" value="0.00001 XLM" />
               <Text style={modern.reviewModernText}>
                 {wallet.isMainnet
                   ? 'Biometric confirmation is required before signing.'
