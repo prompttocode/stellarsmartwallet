@@ -1,5 +1,6 @@
 import React from 'react';
-import { ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import QRCode from 'react-native-qrcode-styled';
 import {
@@ -38,6 +39,12 @@ export function FaucetScreen({
         title: 'Stellar deposit address',
       });
     }
+  }
+
+  function copyAddress() {
+    if (!address) return;
+    Clipboard.setString(address);
+    Alert.alert('Copied', 'Wallet address copied to clipboard.');
   }
 
   return (
@@ -113,20 +120,17 @@ export function FaucetScreen({
       <View style={modern.sectionCard}>
         <SectionHeader title="Wallet address" />
         <View style={styles.addressCopy}>
-          <Text style={styles.cardTitle}>
-            {wallet.isMainnet ? 'Deposit address' : 'Testnet address'}
-          </Text>
           <Text style={styles.cardText}>
             {wallet.isMainnet
               ? 'Send XLM or enabled Stellar assets to this wallet.'
               : 'Use this address for Testnet sends, receives, and order deposits.'}
           </Text>
         </View>
-        <View style={[modern.qrCard, styles.compactQrCard]}>
+        <View style={styles.qrWrapper}>
           {address ? (
             <QRCode
               backgroundColor="#FFFFFF"
-              color="#0F8EA3"
+              color="#000000"
               data={address}
               padding={14}
               pieceSize={6}
@@ -140,28 +144,30 @@ export function FaucetScreen({
             {address || 'Create a wallet first'}
           </Text>
         </View>
-        <View style={modern.walletButtons}>
-          <PressScale
-            disabled={!address}
-            onPress={shareDepositAddress}
-            style={[modern.primaryModernButton, styles.splitButton]}
-          >
-            <Text style={modern.modernButtonText}>Share</Text>
-          </PressScale>
-          <PressScale
-            disabled={!canOpenExplorer}
-            onPress={() => wallet.openUrl(wallet.explorerAddressUrl)}
-            style={[modern.secondaryModernButton, styles.splitButton]}
-          >
-            <Text
+        <View style={styles.actionRow}>
+          <View style={styles.outlineButtonSlot}>
+            <PressScale
+              disabled={!address}
+              onPress={copyAddress}
               style={[
-                modern.modernButtonText,
-                modern.secondaryModernButtonText,
+                styles.outlineButton,
+                styles.primaryOutlineButton,
+                !address ? styles.disabledButton : null,
               ]}
             >
-              Explorer
-            </Text>
-          </PressScale>
+              <Text style={styles.outlineButtonText}>Copy</Text>
+            </PressScale>
+          </View>
+          <View style={styles.outlineButtonSlot}>
+            <PressScale
+              disabled={!canOpenExplorer}
+              onPress={() => wallet.openUrl(wallet.explorerAddressUrl)}
+              style={[styles.outlineButton, !canOpenExplorer ? styles.disabledButton : null]}
+            >
+              <Ionicons color="#071421" name="open-outline" size={18} />
+              <Text style={styles.outlineButtonText}>Explorer</Text>
+            </PressScale>
+          </View>
         </View>
       </View>
 
@@ -265,6 +271,11 @@ export function FaucetScreen({
 }
 
 const styles = StyleSheet.create({
+  actionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
   addressBox: {
     backgroundColor: '#F4F8FA',
     borderColor: '#E2EBEF',
@@ -275,12 +286,14 @@ const styles = StyleSheet.create({
   },
   addressCopy: {
     gap: 8,
+    marginBottom: 4,
   },
   addressText: {
     color: '#24495A',
     fontSize: 12,
     fontWeight: '800',
     lineHeight: 17,
+    textAlign: 'center',
   },
   assetBalance: {
     color: '#17233D',
@@ -350,10 +363,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 14,
   },
-  compactQrCard: {
-    height: 190,
-    marginVertical: 8,
-    width: '100%',
+  primaryOutlineButton: {
+    backgroundColor: '#B8FF45',
+    borderColor: '#B8FF45',
+  },
+  disabledButton: {
+    opacity: 0.45,
+  },
+  qrWrapper: {
+    alignItems: 'center',
+    marginVertical: 12,
   },
   fullButton: {
     marginTop: 10,
@@ -375,6 +394,24 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 14,
     width: 52,
+  },
+  outlineButton: {
+    alignItems: 'center',
+    borderColor: '#071421',
+    borderRadius: 25,
+    borderWidth: 1.4,
+    flexDirection: 'row',
+    gap: 7,
+    justifyContent: 'center',
+    minHeight: 52,
+  },
+  outlineButtonSlot: {
+    flex: 1,
+  },
+  outlineButtonText: {
+    color: '#071421',
+    fontSize: 14,
+    fontWeight: '900',
   },
   readyPill: {
     backgroundColor: '#E7F9F1',

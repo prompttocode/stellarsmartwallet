@@ -73,10 +73,7 @@ function operationRows(operation: WalletConnectOperationReview) {
       ];
     case 'pathPaymentStrictSend':
       return [
-        [
-          'Send',
-          `${operation.sendAmount} ${assetLabel(operation.sendAsset)}`,
-        ],
+        ['Send', `${operation.sendAmount} ${assetLabel(operation.sendAsset)}`],
         [
           'Minimum receive',
           `${operation.destinationMinimum} ${assetLabel(
@@ -232,9 +229,9 @@ export function WalletConnectOverlays({ wallet }: { wallet: WalletState }) {
                   </View>
                 </View>
                 <Text style={styles.helper}>
-                  This dApp can view your public address and request
-                  signatures. It cannot access your private key or approve
-                  transactions by itself.
+                  This dApp can view your public address and request signatures.
+                  It cannot access your private key or approve transactions by
+                  itself.
                 </Text>
                 <ActionButtons
                   approveLabel="Connect"
@@ -333,9 +330,7 @@ export function WalletConnectOverlays({ wallet }: { wallet: WalletState }) {
                       size={25}
                     />
                     <View style={styles.flex}>
-                      <Text style={styles.errorTitle}>
-                        Transaction blocked
-                      </Text>
+                      <Text style={styles.errorTitle}>Transaction blocked</Text>
                       <Text style={styles.errorText}>
                         {request.reviewError}
                       </Text>
@@ -428,9 +423,7 @@ export function WalletConnectOverlays({ wallet }: { wallet: WalletState }) {
           >
             <ActionButtons
               approveDisabled={!request?.review}
-              approveLabel={
-                wallet.isMainnet ? 'Approve with biometric' : 'Approve'
-              }
+              approveLabel={wallet.isMainnet ? 'Approve' : 'Approve'}
               onApprove={() => walletConnect.approveRequest()}
               onReject={() => walletConnect.rejectRequest()}
             />
@@ -467,11 +460,7 @@ export function WalletConnectOverlays({ wallet }: { wallet: WalletState }) {
                 style={styles.explorerButton}
               >
                 <Text style={styles.explorerButtonText}>View transaction</Text>
-                <Ionicons
-                  color="#1D5FC7"
-                  name="open-outline"
-                  size={17}
-                />
+                <Ionicons color="#1D5FC7" name="open-outline" size={17} />
               </TouchableOpacity>
             ) : null}
             <TouchableOpacity

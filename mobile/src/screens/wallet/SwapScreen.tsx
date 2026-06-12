@@ -310,7 +310,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
             <Text style={modern.modernButtonText}>
               {reviewing
                 ? wallet.isMainnet
-                  ? 'Confirm with biometric'
+                  ? 'Confirm swap'
                   : 'Confirm swap'
                 : 'Get Stellar quote'}
             </Text>

@@ -97,7 +97,7 @@ export function PortfolioScreen({
         valuation.unpricedAssetCount === 1 ? '' : 's'
       } not included · Market prices refresh every minute`
     : wallet.assetPricesUpdatedAt
-    ? 'Stellar market prices · Refreshes every minute'
+    ? ''
     : 'Waiting for market prices';
 
   function faucetAsset(assetCode: string) {

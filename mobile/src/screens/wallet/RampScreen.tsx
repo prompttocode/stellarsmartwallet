@@ -252,6 +252,12 @@ export function RampScreen({
       RAMP_PROCESSING_LABELS[Number(order.processing_state)] ||
       'Waiting for provider';
     const orderAction = isSell ? 'Withdraw' : 'Buy';
+    const cryptoTransferSubmitted =
+      isSell &&
+      (Boolean(order.sell_transaction_hash || order.transaction_hash) ||
+        Number(order.processing_state) === 14 ||
+        Number(order.processing_state) === 16);
+    const canCancelOrder = !terminal && !cryptoTransferSubmitted;
 
     return (
       <View style={styles.orderScreen}>
@@ -452,7 +458,7 @@ export function RampScreen({
                   {order.sell_transaction_hash
                     ? 'Crypto transfer submitted'
                     : wallet.isMainnet
-                    ? 'Send with biometric'
+                    ? 'Send crypto now'
                     : 'Send crypto now'}
                 </Text>
               </PressScale>
@@ -485,7 +491,7 @@ export function RampScreen({
                 </PressScale>
               ) : null}
             </View>
-            {!terminal ? (
+            {canCancelOrder ? (
               <PressScale
                 disabled={wallet.isBusy}
                 onPress={() => wallet.cancelRampOrder(orderReference)}
@@ -500,7 +506,7 @@ export function RampScreen({
                   Cancel order
                 </Text>
               </PressScale>
-            ) : (
+            ) : terminal ? (
               <PressScale
                 onPress={wallet.clearRampOrder}
                 style={modern.primaryModernButton}
@@ -509,7 +515,19 @@ export function RampScreen({
                   Create another order
                 </Text>
               </PressScale>
-            )}
+            ) : cryptoTransferSubmitted ? (
+              <View style={styles.orderLockedBox}>
+                <Ionicons
+                  color="#24495A"
+                  name="lock-closed-outline"
+                  size={18}
+                />
+                <Text style={styles.orderLockedText}>
+                  Crypto transfer submitted. This order can no longer be
+                  cancelled in the app.
+                </Text>
+              </View>
+            ) : null}
           </View>
         </ScrollView>
 
@@ -1211,6 +1229,23 @@ const styles = StyleSheet.create({
   },
   orderScreen: {
     flex: 1,
+  },
+  orderLockedBox: {
+    alignItems: 'flex-start',
+    backgroundColor: '#EFF6F8',
+    borderColor: '#D9E7EC',
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 9,
+    padding: 13,
+  },
+  orderLockedText: {
+    color: '#24495A',
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
   },
   quoteAmount: {
     color: '#111318',

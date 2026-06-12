@@ -190,8 +190,7 @@ export function SendScreen({
             style={modern.primaryModernButton}
           >
             <Text style={modern.modernButtonText}>
-              {wallet.busy ||
-                (wallet.isMainnet ? 'Confirm with biometric' : 'Send')}
+              {wallet.busy || (wallet.isMainnet ? 'Confirm' : 'Send')}
             </Text>
           </PressScale>
         </View>

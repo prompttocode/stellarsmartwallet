@@ -12,7 +12,6 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import {
   ModernScreenHeader,
-  PressScale,
   useSafeScreenInsetStyle,
 } from '@components/wallet';
 import { useWalletConnect } from '@contexts/WalletConnectContext';
@@ -84,7 +83,8 @@ export function WalletConnectScreen({
               : 'Reown project ID not configured'}
           </Text>
         </View>
-        <PressScale
+        <TouchableOpacity
+          activeOpacity={0.78}
           disabled={
             !walletConnect.configured ||
             walletConnect.initializing ||
@@ -105,7 +105,7 @@ export function WalletConnectScreen({
           <Text style={styles.scanButtonText}>
             {walletConnect.initializing ? 'Starting WalletConnect' : 'Scan QR'}
           </Text>
-        </PressScale>
+        </TouchableOpacity>
       </View>
 
       {!walletConnect.configured ? (
