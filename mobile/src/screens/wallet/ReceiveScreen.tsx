@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PressScale, TokenIcon, getWalletAssets } from '@components/wallet';
 import type { AssetItem, BalanceItem } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
-import { formatTokenAmount, shortAddress } from '@utils/format';
+import { formatTokenAmount } from '@utils/format';
 
 function getAssetKey(asset: AssetItem) {
   return asset.isNative
@@ -31,6 +31,18 @@ function getReceiveAssets(balances: BalanceItem[], visibleAssets: AssetItem[]) {
     }));
 
   return [...walletAssets, ...importantReceiveAssets];
+}
+
+function shortDepositAddress(address?: string) {
+  if (!address) {
+    return 'Not available';
+  }
+
+  if (address.length <= 6) {
+    return address;
+  }
+
+  return `${address.slice(0, 2)}...${address.slice(-4)}`;
 }
 
 export function ReceiveScreen({
@@ -107,7 +119,7 @@ export function ReceiveScreen({
           </View>
           <View style={styles.metaItem}>
             <Text style={styles.metaLabel}>Wallet</Text>
-            <Text style={styles.metaValue}>{shortAddress(address)}</Text>
+            <Text style={styles.metaValue}>{shortDepositAddress(address)}</Text>
           </View>
           <View style={styles.metaItem}>
             <Text style={styles.metaLabel}>Status</Text>

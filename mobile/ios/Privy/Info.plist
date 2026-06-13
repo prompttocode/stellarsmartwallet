@@ -48,6 +48,10 @@
 	<string>Ứng dụng cần quyền truy cập Camera để quét mã QR địa chỉ ví.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Ứng dụng cần FaceID để xác thực bảo mật trước khi giao dịch.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Ứng dụng cần quyền lưu mã QR thanh toán vào thư viện ảnh.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Ứng dụng cần quyền truy cập thư viện ảnh để lưu mã QR thanh toán.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIAppFonts</key>

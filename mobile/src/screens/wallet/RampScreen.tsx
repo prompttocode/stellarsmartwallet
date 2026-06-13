@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Image,
   Modal,
   Pressable,
@@ -9,6 +10,9 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as MediaLibrary from 'expo-media-library';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
   ExplorerLink,
@@ -82,15 +86,24 @@ export function RampScreen({
   wallet,
 }: {
   onBack: () => void;
-  route?: { params?: { direction?: RampDirection; source?: 'history' } };
+  route?: {
+    params?: {
+      amount?: string;
+      assetCode?: RampAssetCode;
+      direction?: RampDirection;
+      source?: 'history';
+    };
+  };
   wallet: WalletState;
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
   const [direction, setDirection] = useState<RampDirection>(
     route?.params?.direction === 'sell' ? 'sell' : 'buy',
   );
-  const [assetCode, setAssetCode] = useState<RampAssetCode>('XLM');
-  const [amount, setAmount] = useState('10');
+  const [assetCode, setAssetCode] = useState<RampAssetCode>(
+    route?.params?.assetCode || 'XLM',
+  );
+  const [amount, setAmount] = useState(route?.params?.amount || '10');
   const [quote, setQuote] = useState<RampQuote | null>(null);
   const [bankId, setBankId] = useState('970422');
   const [bankPickerVisible, setBankPickerVisible] = useState(false);
@@ -169,11 +182,27 @@ export function RampScreen({
   }, [ignoringInitialClosedOrder, wallet]);
 
   useEffect(() => {
-    if (!order && route?.params?.direction) {
-      setDirection(route.params.direction);
+    if (!order && route?.params) {
+      if (route.params.direction) {
+        setDirection(route.params.direction);
+      }
+
+      if (route.params.assetCode) {
+        setAssetCode(route.params.assetCode);
+      }
+
+      if (route.params.amount) {
+        setAmount(route.params.amount);
+      }
+
       setQuote(null);
     }
-  }, [order, route?.params?.direction]);
+  }, [
+    order,
+    route?.params?.amount,
+    route?.params?.assetCode,
+    route?.params?.direction,
+  ]);
 
   useEffect(() => {
     const timer = setInterval(() => setClock(Date.now()), 1000);
@@ -244,9 +273,64 @@ export function RampScreen({
     }
   }
 
+  function copyTransferValue(label: string, value?: string | number | null) {
+    const text = String(value ?? '').trim();
+
+    if (!text || text === '-' || /^waiting/i.test(text)) {
+      return;
+    }
+
+    Clipboard.setString(text);
+    Alert.alert('Copied', `${label} copied to clipboard.`);
+  }
+
+  async function savePaymentQr(qrUrl?: string | null, orderCode?: string) {
+    if (!qrUrl) {
+      return;
+    }
+
+    try {
+      const permission = await MediaLibrary.requestPermissionsAsync(true, [
+        'photo',
+      ]);
+
+      if (!permission.granted) {
+        Alert.alert(
+          'Permission needed',
+          'Allow photo library access to save the payment QR.',
+        );
+        return;
+      }
+
+      if (!FileSystem.cacheDirectory) {
+        throw new Error('Cache directory is unavailable.');
+      }
+
+      const safeOrderCode = String(orderCode || Date.now()).replace(
+        /[^a-zA-Z0-9_-]/g,
+        '',
+      );
+      const fileUri = `${FileSystem.cacheDirectory}payment-qr-${safeOrderCode}.png`;
+      const download = await FileSystem.downloadAsync(qrUrl, fileUri);
+
+      await MediaLibrary.saveToLibraryAsync(download.uri);
+      Alert.alert('Saved', 'Payment QR saved to your Photos/Gallery.');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Could not save payment QR.';
+
+      Alert.alert('Save failed', message);
+    }
+  }
+
   if (order) {
     const bankInfo = order.body?.bankInfo;
     const isSell = order.order_type === 'sell';
+    const transferAmount = formatVnd(bankInfo?.vaAmount);
+    const transferBankName = bankInfo?.bankName || 'Waiting for provider';
+    const transferAccountName = bankInfo?.bankAccountName || '-';
+    const transferAccountNumber = bankInfo?.bankAccountNumber || '-';
+    const transferContent = bankInfo?.transferContent || order.code;
     const canBypassTestPayment =
       !wallet.isMainnet &&
       !isSell &&
@@ -362,34 +446,72 @@ export function RampScreen({
                 countdown expires.
               </Text>
               {order.body?.qr_link ? (
-                <View style={styles.remoteQrCard}>
-                  <Image
-                    resizeMode="contain"
-                    source={{ uri: order.body.qr_link }}
-                    style={styles.remoteQr}
-                  />
-                </View>
+                <>
+                  <View style={styles.remoteQrCard}>
+                    <Image
+                      resizeMode="contain"
+                      source={{ uri: order.body.qr_link }}
+                      style={styles.remoteQr}
+                    />
+                  </View>
+                  <PressScale
+                    onPress={() =>
+                      savePaymentQr(order.body?.qr_link, order.code)
+                    }
+                    style={[
+                      modern.secondaryModernButton,
+                      styles.qrActionButton,
+                    ]}
+                  >
+                    <Ionicons
+                      color="#FFFFFF"
+                      name="download-outline"
+                      size={18}
+                    />
+                    <Text
+                      style={[
+                        modern.modernButtonText,
+                        modern.secondaryModernButtonText,
+                      ]}
+                    >
+                      Save QR
+                    </Text>
+                  </PressScale>
+                </>
               ) : null}
               <View style={modern.reviewModernBox}>
                 <ModernInfoLine
                   label="Amount"
-                  value={formatVnd(bankInfo?.vaAmount)}
+                  onPress={() => copyTransferValue('Amount', transferAmount)}
+                  value={transferAmount}
                 />
                 <ModernInfoLine
                   label="Bank"
-                  value={bankInfo?.bankName || 'Waiting for provider'}
+                  onPress={() => copyTransferValue('Bank', transferBankName)}
+                  valueNumberOfLines={2}
+                  valueStyle={styles.bankTransferValue}
+                  value={transferBankName}
                 />
                 <ModernInfoLine
                   label="Account name"
-                  value={bankInfo?.bankAccountName || '-'}
+                  onPress={() =>
+                    copyTransferValue('Account name', transferAccountName)
+                  }
+                  value={transferAccountName}
                 />
                 <ModernInfoLine
                   label="Account number"
-                  value={bankInfo?.bankAccountNumber || '-'}
+                  onPress={() =>
+                    copyTransferValue('Account number', transferAccountNumber)
+                  }
+                  value={transferAccountNumber}
                 />
                 <ModernInfoLine
                   label="Transfer content"
-                  value={bankInfo?.transferContent || order.code}
+                  onPress={() =>
+                    copyTransferValue('Transfer content', transferContent)
+                  }
+                  value={transferContent}
                 />
               </View>
               {canBypassTestPayment ? (
@@ -1138,6 +1260,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
     borderColor: '#0ABF73',
   },
+  bankTransferValue: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 15,
+    marginLeft: 12,
+    textAlign: 'right',
+  },
   bankSearchBox: {
     alignItems: 'center',
     backgroundColor: '#1E232B',
@@ -1282,6 +1411,12 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '900',
     letterSpacing: 0.8,
+  },
+  qrActionButton: {
+    flex: 0,
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
   },
   resultActions: {
     gap: 10,

@@ -25,8 +25,14 @@ import {
 } from '@components/wallet';
 import { WalletManagerModal } from '@components/wallet';
 import { useCurrencyConfig } from '@contexts/CurrencyContext';
-import type { BalanceItem } from '@app-types';
+import type { BalanceItem, RampAssetCode, RampDirection } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
+
+type RampPreset = {
+  amount?: string;
+  assetCode?: RampAssetCode;
+  direction?: RampDirection;
+};
 
 
 
@@ -48,7 +54,7 @@ export function PortfolioScreen({
   onGoToSend: (assetCode?: string) => void;
   onGoToWithdraw: () => void;
   onGoToFaucet: () => void;
-  onGoToRamp: () => void;
+  onGoToRamp: (preset?: RampPreset) => void;
   onGoToAssetSearch: () => void;
   onGoToAssetDetail: (asset: BalanceItem) => void;
   onGoToWallets: () => void;
@@ -248,7 +254,15 @@ export function PortfolioScreen({
           {/* <PromoCarousel network={wallet.network} /> */}
 
           {wallet.isMainnet && !wallet.walletActive ? (
-            <ActivateWalletNotice onPress={onGoToReceive} />
+            <ActivateWalletNotice
+              onPress={() =>
+                onGoToRamp({
+                  amount: '5',
+                  assetCode: 'XLM',
+                  direction: 'buy',
+                })
+              }
+            />
           ) : null}
 
           <View style={modern.sectionCard}>

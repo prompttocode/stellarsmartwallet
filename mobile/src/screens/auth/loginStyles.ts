@@ -3,293 +3,231 @@ import { StyleSheet } from 'react-native';
 export const loginStyles = StyleSheet.create({
   background: {
     flex: 1,
+    backgroundColor: '#050505',
   },
-  backgroundImage: {
-    opacity: 1,
-  },
-  backdrop: {
-    backgroundColor: 'rgba(3, 12, 24, 0.28)',
+  safe: {
     flex: 1,
   },
   content: {
     flexGrow: 1,
-    justifyContent: 'center',
-    paddingVertical: 28,
   },
-  hero: {
-    gap: 25,
-    paddingHorizontal: 22,
+  stepContainer: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 32,
+    justifyContent: 'space-between',
   },
-  brandRow: {
+  
+  // Header / Top icon
+  topIconContainer: {
     alignItems: 'center',
+    marginTop: 10,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#1C1C1E',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  
+  // Graphic
+  graphicContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: 250,
+  },
+  graphicImage: {
+    width: '100%',
+    height: 250,
+    opacity: 0.8,
+  },
+
+  // Welcome Text
+  welcomeTextContainer: {
+    alignItems: 'center',
+    marginBottom: 40,
+    marginTop: 20,
+  },
+  welcomeTitle: {
+    color: '#FFFFFF',
+    fontSize: 38,
+    fontWeight: '700',
+    marginBottom: 8,
+    letterSpacing: 0.5,
+  },
+  welcomeSubtitle: {
+    color: '#8E8E93',
+    fontSize: 16,
+    fontWeight: '400',
+    textAlign: 'center',
+  },
+  sessionStatusBox: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(184, 255, 69, 0.08)',
+    borderColor: 'rgba(184, 255, 69, 0.18)',
+    borderRadius: 18,
+    borderWidth: 1,
     flexDirection: 'row',
     gap: 12,
+    marginTop: 12,
+    maxWidth: 320,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-  brandMark: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderColor: 'rgba(255,255,255,0.58)',
-    borderRadius: 14,
-    borderWidth: 1,
-    height: 44,
-    justifyContent: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { height: 8, width: 0 },
-    shadowOpacity: 0.14,
-    shadowRadius: 18,
-    width: 44,
-  },
-  brandCopy: {
+  sessionStatusCopy: {
     flex: 1,
+    gap: 2,
   },
-  brandName: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '800',
-    letterSpacing: -0.2,
-  },
-  brandMeta: {
-    color: 'rgba(255,255,255,0.68)',
+  sessionStatusText: {
+    color: '#8E8E93',
     fontSize: 12,
-    fontWeight: '600',
-    marginTop: 1,
+    lineHeight: 16,
   },
-  heroTextBlock: {
-    gap: 7,
-    paddingHorizontal: 2,
-  },
-  eyebrow: {
-    color: 'rgba(255,255,255,0.65)',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.4,
-  },
-  heroTitle: {
+  sessionStatusTitle: {
     color: '#FFFFFF',
-    fontSize: 32,
-    fontWeight: '800',
-    letterSpacing: -0.8,
-    lineHeight: 37,
-  },
-  heroSubtitle: {
-    color: 'rgba(255,255,255,0.76)',
     fontSize: 14,
-    lineHeight: 20,
-    maxWidth: 315,
-  },
-  loginGroup: {
-    gap: 20,
-    width: '100%',
-  },
-  sheet: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 26,
-    marginHorizontal: 16,
-    paddingBottom: 22,
-    paddingHorizontal: 18,
-    paddingTop: 20,
-    shadowColor: '#000000',
-    shadowOffset: { height: 12, width: 0 },
-    shadowOpacity: 0.18,
-    shadowRadius: 30,
-  },
-  stepHeader: {
-    gap: 5,
-    marginBottom: 18,
-  },
-  stepKicker: {
-    color: '#2D5FC6',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1,
-  },
-  stepTitle: {
-    color: '#111318',
-    fontSize: 27,
-    fontWeight: '800',
-    letterSpacing: -0.7,
-    lineHeight: 32,
-  },
-  stepSubtitle: {
-    color: '#737985',
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  form: {
-    gap: 12,
-  },
-  inputLabel: {
-    color: '#343942',
-    fontSize: 13,
     fontWeight: '700',
+  },
+
+  // Buttons
+  buttonContainer: {
+    gap: 16,
+    marginBottom: 32,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 56,
+    borderRadius: 28,
+    width: '100%',
+    gap: 10,
+  },
+  actionButtonLight: {
+    backgroundColor: '#FFFFFF',
+  },
+  actionButtonDark: {
+    backgroundColor: '#2C2C2E',
+  },
+  actionButtonDisabled: {
+    opacity: 0.5,
+  },
+  actionButtonText: {
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  actionButtonTextLight: {
+    color: '#000000',
+  },
+  actionButtonTextDark: {
+    color: '#FFFFFF',
+  },
+  actionButtonTextDisabled: {},
+  googleIcon: {
+    width: 20,
+    height: 20,
+  },
+
+  // Footer
+  footerContainer: {
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  footerText: {
+    color: '#636366',
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  footerLink: {
+    textDecorationLine: 'underline',
+    color: '#8E8E93',
+  },
+
+  // Form Container (for email/otp)
+  formContainer: {
+    flex: 1,
+    gap: 20,
   },
   input: {
-    backgroundColor: '#F5F6F8',
-    borderColor: '#E5E7EB',
+    backgroundColor: '#1C1C1E',
     borderRadius: 16,
-    borderWidth: 1,
-    color: '#111318',
-    fontSize: 16,
-    minHeight: 54,
-    paddingHorizontal: 16,
-  },
-  primaryButton: {
-    alignItems: 'center',
-    backgroundColor: '#111318',
-    borderRadius: 16,
-    flexDirection: 'row',
-    gap: 9,
-    justifyContent: 'center',
-    minHeight: 54,
-    paddingHorizontal: 16,
-  },
-  primaryButtonDisabled: {
-    backgroundColor: '#D9DCE1',
-  },
-  primaryButtonText: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 17,
+    height: 56,
+    paddingHorizontal: 20,
+    width: '100%',
   },
-  primaryButtonTextDisabled: {
-    color: '#878C95',
-  },
-  googleButton: {
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderColor: '#D9DCE1',
-    borderRadius: 16,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 10,
-    justifyContent: 'center',
-    minHeight: 54,
-    paddingHorizontal: 14,
-  },
-  googleButtonDisabled: {
-    backgroundColor: '#F5F6F8',
-  },
-  googleText: {
-    color: '#20242B',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  disabledText: {
-    color: '#878C95',
-  },
-  divider: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 10,
-    marginVertical: 2,
-  },
-  dividerLine: {
-    backgroundColor: '#E7E9ED',
-    flex: 1,
-    height: 1,
-  },
-  dividerText: {
-    color: '#9297A0',
-    fontSize: 12,
-    fontWeight: '700',
-  },
+  
+  // OTP
   otpWrap: {
-    alignItems: 'center',
     flexDirection: 'row',
-    gap: 7,
     justifyContent: 'space-between',
-    minHeight: 56,
-    position: 'relative',
+    marginBottom: 10,
   },
   otpHiddenInput: {
-    height: 1,
-    opacity: 0.01,
     position: 'absolute',
-    width: 1,
+    width: 0,
+    height: 0,
+    opacity: 0,
   },
   otpCell: {
     alignItems: 'center',
-    backgroundColor: '#F5F6F8',
-    borderColor: '#E2E5E9',
-    borderRadius: 14,
-    borderWidth: 1,
-    flex: 1,
-    height: 54,
+    backgroundColor: '#1C1C1E',
+    borderRadius: 12,
+    height: 56,
     justifyContent: 'center',
-  },
-  otpCellActive: {
-    borderColor: '#111318',
-    borderWidth: 2,
+    width: 48,
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   otpCellFilled: {
-    backgroundColor: '#F0F1F3',
-    borderColor: '#ADB2BA',
+    borderColor: '#3A3A3C',
+  },
+  otpCellActive: {
+    borderColor: '#FFFFFF',
+    backgroundColor: '#2C2C2E',
   },
   otpDigit: {
-    color: '#101828',
-    fontSize: 22,
-    fontWeight: '900',
-    lineHeight: 26,
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '600',
   },
-  sentBox: {
-    backgroundColor: '#F5F6F8',
-    borderColor: '#E7E9ED',
-    borderRadius: 14,
-    borderWidth: 1,
-    gap: 4,
-    marginBottom: 12,
-    padding: 13,
-  },
-  sentLabel: {
-    color: '#777D87',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  sentEmail: {
-    color: '#111318',
-    fontSize: 15,
-    fontWeight: '800',
-  },
+
+  // Links
   linkRow: {
     alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 2,
+    marginTop: 10,
   },
   textButton: {
-    borderRadius: 8,
-    paddingVertical: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
   },
   textButtonText: {
-    color: '#20242B',
-    fontSize: 13,
-    fontWeight: '800',
+    color: '#8E8E93',
+    fontSize: 15,
+    fontWeight: '500',
   },
+
+  // Error
   messageBox: {
-    alignItems: 'flex-start',
-    backgroundColor: '#FFF1F2',
-    borderRadius: 12,
+    alignItems: 'center',
     flexDirection: 'row',
+    justifyContent: 'center',
     gap: 8,
-    padding: 11,
+    marginTop: 10,
   },
   errorText: {
-    color: '#B42318',
-    flex: 1,
-    fontSize: 12,
-    fontWeight: '700',
-    lineHeight: 18,
-  },
-  safe: {
-    backgroundColor: 'transparent',
-    flex: 1,
-  },
-  googleIcon: {
-    height: 21,
-    width: 21,
-  },
-  brandImage: {
-    height: 24,
-    width: 24,
+    color: '#FF453A',
+    fontSize: 14,
   },
 });

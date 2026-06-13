@@ -32,6 +32,7 @@
     "expo-application": "^55.0.15",
     "expo-crypto": "^55.0.15",
     "expo-linking": "^55.0.15",
+    "expo-media-library": "~55.0.17",
     "expo-secure-store": "^55.0.14",
     "expo-web-browser": "^55.0.16",
     "fast-text-encoding": "^1.0.6",

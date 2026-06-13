@@ -1,5 +1,12 @@
 import React, { ReactNode, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleProp, Text, View, ViewStyle } from 'react-native';
+import {
+  Pressable,
+  StyleProp,
+  Text,
+  TextStyle,
+  View,
+  ViewStyle,
+} from 'react-native';
 import Animated, {
   interpolate,
   useAnimatedStyle,
@@ -185,16 +192,41 @@ export function SectionHeader({
 
 export function ModernInfoLine({
   label,
+  onPress,
   value,
+  valueNumberOfLines,
+  valueStyle,
 }: {
   label: string;
+  onPress?: () => void;
   value: string;
+  valueNumberOfLines?: number;
+  valueStyle?: StyleProp<TextStyle>;
 }) {
-  return (
+  const content = (
     <View style={modern.infoRow}>
       <Text style={modern.infoLabel}>{label}</Text>
-      <Text style={modern.infoRowValue}>{value}</Text>
+      <Text
+        numberOfLines={valueNumberOfLines}
+        style={[modern.infoRowValue, valueStyle]}
+      >
+        {value}
+      </Text>
     </View>
+  );
+
+  if (!onPress) {
+    return content;
+  }
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => (pressed ? { opacity: 0.72 } : null)}
+    >
+      {content}
+    </Pressable>
   );
 }
 

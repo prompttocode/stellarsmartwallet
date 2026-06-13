@@ -28,7 +28,12 @@ import { TransactionDetailScreen } from '@screens/wallet/TransactionDetailScreen
 import { TransactionsScreen } from '@screens/wallet/TransactionsScreen';
 import { ScanScreen } from '@screens/wallet/ScanScreen';
 import { WalletConnectScreen } from '@screens/wallet/WalletConnectScreen';
-import type { BalanceItem, RampOrder } from '@app-types';
+import type {
+  BalanceItem,
+  RampAssetCode,
+  RampDirection,
+  RampOrder,
+} from '@app-types';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -38,6 +43,12 @@ async function clearClosedRampOrder(wallet: WalletState) {
     await wallet.clearRampOrder();
   }
 }
+
+type RampNavigationPreset = {
+  amount?: string;
+  assetCode?: RampAssetCode;
+  direction?: RampDirection;
+};
 
 function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const [barWidth, setBarWidth] = useState(0);
@@ -133,9 +144,13 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
               navigation.navigate('Ramp', { direction: 'sell' });
             }}
             onGoToFaucet={() => navigation.navigate('Faucet')}
-            onGoToRamp={async () => {
+            onGoToRamp={async (preset: RampNavigationPreset = {}) => {
               await clearClosedRampOrder(wallet);
-              navigation.navigate('Ramp', { direction: 'buy' });
+              navigation.navigate('Ramp', {
+                amount: preset.amount,
+                assetCode: preset.assetCode,
+                direction: preset.direction || 'buy',
+              });
             }}
             onGoToAssetSearch={() => navigation.navigate('AssetSearch')}
             onGoToAssetDetail={(asset: BalanceItem) =>

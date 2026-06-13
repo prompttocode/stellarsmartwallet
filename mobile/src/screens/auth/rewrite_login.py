@@ -1,6 +1,215 @@
-import React, { useEffect, useRef, useState } from 'react';
+import os
+
+login_styles_ts = """import { StyleSheet } from 'react-native';
+
+export const loginStyles = StyleSheet.create({
+  background: {
+    flex: 1,
+    backgroundColor: '#050505',
+  },
+  safe: {
+    flex: 1,
+  },
+  content: {
+    flexGrow: 1,
+  },
+  stepContainer: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 32,
+    justifyContent: 'space-between',
+  },
+  
+  // Header / Top icon
+  topIconContainer: {
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#1C1C1E',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  
+  // Graphic
+  graphicContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: 250,
+  },
+  graphicImage: {
+    width: '100%',
+    height: 250,
+    opacity: 0.8,
+  },
+
+  // Welcome Text
+  welcomeTextContainer: {
+    alignItems: 'center',
+    marginBottom: 40,
+    marginTop: 20,
+  },
+  welcomeTitle: {
+    color: '#FFFFFF',
+    fontSize: 38,
+    fontWeight: '700',
+    marginBottom: 8,
+    letterSpacing: 0.5,
+  },
+  welcomeSubtitle: {
+    color: '#8E8E93',
+    fontSize: 16,
+    fontWeight: '400',
+    textAlign: 'center',
+  },
+
+  // Buttons
+  buttonContainer: {
+    gap: 16,
+    marginBottom: 32,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 56,
+    borderRadius: 28,
+    width: '100%',
+    gap: 10,
+  },
+  actionButtonLight: {
+    backgroundColor: '#FFFFFF',
+  },
+  actionButtonDark: {
+    backgroundColor: '#2C2C2E',
+  },
+  actionButtonDisabled: {
+    opacity: 0.5,
+  },
+  actionButtonText: {
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  actionButtonTextLight: {
+    color: '#000000',
+  },
+  actionButtonTextDark: {
+    color: '#FFFFFF',
+  },
+  actionButtonTextDisabled: {},
+  googleIcon: {
+    width: 20,
+    height: 20,
+  },
+
+  // Footer
+  footerContainer: {
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  footerText: {
+    color: '#636366',
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  footerLink: {
+    textDecorationLine: 'underline',
+    color: '#8E8E93',
+  },
+
+  // Form Container (for email/otp)
+  formContainer: {
+    flex: 1,
+    gap: 20,
+  },
+  input: {
+    backgroundColor: '#1C1C1E',
+    borderRadius: 16,
+    color: '#FFFFFF',
+    fontSize: 17,
+    height: 56,
+    paddingHorizontal: 20,
+    width: '100%',
+  },
+  
+  // OTP
+  otpWrap: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  otpHiddenInput: {
+    position: 'absolute',
+    width: 0,
+    height: 0,
+    opacity: 0,
+  },
+  otpCell: {
+    alignItems: 'center',
+    backgroundColor: '#1C1C1E',
+    borderRadius: 12,
+    height: 56,
+    justifyContent: 'center',
+    width: 48,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  otpCellFilled: {
+    borderColor: '#3A3A3C',
+  },
+  otpCellActive: {
+    borderColor: '#FFFFFF',
+    backgroundColor: '#2C2C2E',
+  },
+  otpDigit: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '600',
+  },
+
+  // Links
+  linkRow: {
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  textButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  textButtonText: {
+    color: '#8E8E93',
+    fontSize: 15,
+    fontWeight: '500',
+  },
+
+  // Error
+  messageBox: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  errorText: {
+    color: '#FF453A',
+    fontSize: 14,
+  },
+});
+"""
+
+login_screen_tsx = """import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   Pressable,
   ScrollView,
@@ -49,11 +258,7 @@ function ActionButton({
     >
       {icon ? (
         <Ionicons
-          color={
-            disabled
-              ? '#7D8796'
-              : iconColor || (variant === 'dark' ? '#FFFFFF' : '#000000')
-          }
+          color={disabled ? '#7D8796' : (iconColor || (variant === 'dark' ? '#FFFFFF' : '#000000'))}
           name={icon}
           size={20}
         />
@@ -61,9 +266,7 @@ function ActionButton({
       <Text
         style={[
           styles.actionButtonText,
-          variant === 'dark'
-            ? styles.actionButtonTextDark
-            : styles.actionButtonTextLight,
+          variant === 'dark' ? styles.actionButtonTextDark : styles.actionButtonTextLight,
           disabled ? styles.actionButtonTextDisabled : null,
         ]}
       >
@@ -97,13 +300,7 @@ function GoogleButton({
         source={require('@assets/images/social/google.png')}
         style={styles.googleIcon}
       />
-      <Text
-        style={[
-          styles.actionButtonText,
-          styles.actionButtonTextDark,
-          disabled ? styles.actionButtonTextDisabled : null,
-        ]}
-      >
+      <Text style={[styles.actionButtonText, styles.actionButtonTextDark, disabled ? styles.actionButtonTextDisabled : null]}>
         {label}
       </Text>
     </Pressable>
@@ -193,97 +390,47 @@ function LoginMessage({ wallet }: { wallet: WalletState }) {
   );
 }
 
-function SessionStatus({
-  detail,
-  label,
-}: {
-  detail: string;
-  label: string;
-}) {
-  return (
-    <View style={styles.sessionStatusBox}>
-      <ActivityIndicator color="#B8FF45" size="small" />
-      <View style={styles.sessionStatusCopy}>
-        <Text style={styles.sessionStatusTitle}>{label}</Text>
-        <Text style={styles.sessionStatusText}>{detail}</Text>
-      </View>
-    </View>
-  );
-}
-
 function WelcomeStep({ wallet, onSelectEmail }: { wallet: WalletState, onSelectEmail: () => void }) {
   const googleBusy = wallet.busy === 'Sign in with Google';
-  const restoringSession = wallet.busy === 'Restoring session';
-  const preparingPrivy = !wallet.isReady;
-  const status = restoringSession
-    ? {
-        detail: 'You will enter your wallet automatically when it is ready.',
-        label: 'Restoring your session',
-      }
-    : preparingPrivy
-    ? {
-        detail: 'Secure sign-in is loading. This usually takes a moment.',
-        label: 'Preparing sign-in',
-      }
-    : null;
-  const googleLabel = restoringSession
-    ? 'Restoring session...'
-    : preparingPrivy
-    ? 'Preparing sign-in...'
-    : googleBusy
-    ? 'Opening Google...'
-    : 'Continue with Google';
 
   return (
     <View style={styles.stepContainer}>
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <View style={{ marginBottom: 40 }}>
-          <Ionicons name="planet" size={32} color="#FFFFFF" />
-        </View>
-
-        <View style={{ alignItems: 'center', marginBottom: 20 }}>
-          <Text style={styles.welcomeTitle}>Welcome</Text>
-          <Text style={styles.welcomeSubtitle}>Your journey starts from here</Text>
-        </View>
-
-        {status ? (
-          <SessionStatus detail={status.detail} label={status.label} />
-        ) : null}
+      <View style={styles.topIconContainer}>
+        <Ionicons name="planet" size={28} color="#FFFFFF" />
       </View>
 
-      <View>
-        <View style={styles.buttonContainer}>
-          <ActionButton 
-            disabled={preparingPrivy || wallet.isBusy}
-            label="Continue with Email" 
-            onPress={onSelectEmail} 
-            variant="light" 
-          />
-          <GoogleButton
-            disabled={!wallet.isReady || wallet.isBusy}
-            label={googleLabel}
-            onPress={wallet.loginWithGoogle}
-          />
-        </View>
+      <View style={styles.graphicContainer}>
+        <Image source={loginHeroImage} style={styles.graphicImage} resizeMode="contain" />
+      </View>
 
-        <View style={styles.footerContainer}>
-          <Text style={styles.footerText}>
-            By pressing on "Continue with..." you agree{`
-`}to our <Text style={styles.footerLink}>Terms of Service</Text> and <Text style={styles.footerLink}>Privacy Policy</Text>
-          </Text>
-        </View>
+      <View style={styles.welcomeTextContainer}>
+        <Text style={styles.welcomeTitle}>Welcome</Text>
+        <Text style={styles.welcomeSubtitle}>Your journey starts from here</Text>
+      </View>
+
+      <View style={styles.buttonContainer}>
+        <ActionButton 
+          label="Continue with Email" 
+          onPress={onSelectEmail} 
+          variant="light" 
+        />
+        <GoogleButton
+          disabled={!wallet.isReady || wallet.isBusy}
+          label={googleBusy ? 'Opening Google...' : 'Continue with Google'}
+          onPress={wallet.loginWithGoogle}
+        />
+      </View>
+
+      <View style={styles.footerContainer}>
+        <Text style={styles.footerText}>
+          By pressing on "Continue with..." you agree{`\\n`}to our <Text style={styles.footerLink}>Terms of Service</Text> and <Text style={styles.footerLink}>Privacy Policy</Text>
+        </Text>
       </View>
     </View>
   );
 }
 
-function EmailLoginStep({
-  wallet,
-  onBack,
-}: {
-  wallet: WalletState;
-  onBack: () => void;
-}) {
+function EmailLoginStep({ wallet, onBack }: { wallet: WalletState, onBack: () => void }) {
   return (
     <View style={styles.stepContainer}>
       <View style={styles.headerRow}>
@@ -294,9 +441,7 @@ function EmailLoginStep({
 
       <View style={styles.welcomeTextContainer}>
         <Text style={styles.welcomeTitle}>Sign in</Text>
-        <Text style={styles.welcomeSubtitle}>
-          Enter your email to receive a code
-        </Text>
+        <Text style={styles.welcomeSubtitle}>Enter your email to receive a code</Text>
       </View>
 
       <View style={styles.formContainer}>
@@ -340,8 +485,7 @@ function OtpLoginStep({ wallet }: { wallet: WalletState }) {
       <View style={styles.welcomeTextContainer}>
         <Text style={styles.welcomeTitle}>Verification</Text>
         <Text style={styles.welcomeSubtitle}>
-          We sent a code to{`\n`}
-          <Text style={{ color: '#FFFFFF' }}>{wallet.email}</Text>
+          We sent a code to{`\\n`}<Text style={{color: '#FFFFFF'}}>{wallet.email}</Text>
         </Text>
       </View>
 
@@ -389,18 +533,19 @@ export function LoginScreen({ wallet }: { wallet: WalletState }) {
           {wallet.codeSent ? (
             <OtpLoginStep wallet={wallet} />
           ) : showEmailStep ? (
-            <EmailLoginStep
-              wallet={wallet}
-              onBack={() => setShowEmailStep(false)}
-            />
+            <EmailLoginStep wallet={wallet} onBack={() => setShowEmailStep(false)} />
           ) : (
-            <WelcomeStep
-              wallet={wallet}
-              onSelectEmail={() => setShowEmailStep(true)}
-            />
+            <WelcomeStep wallet={wallet} onSelectEmail={() => setShowEmailStep(true)} />
           )}
         </ScrollView>
       </SafeAreaView>
     </View>
   );
 }
+"""
+
+with open('loginStyles.ts', 'w') as f:
+    f.write(login_styles_ts)
+
+with open('LoginScreen.tsx', 'w') as f:
+    f.write(login_screen_tsx)
