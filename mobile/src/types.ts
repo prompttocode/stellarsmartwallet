@@ -40,6 +40,17 @@ export type WalletAccount = {
   wallets?: Wallet[];
 };
 
+export type KycStatus = 'not_started' | 'verified';
+
+export type KycSummary = {
+  cccdLast4?: string;
+  fullName?: string;
+  phone?: string;
+  providerUserId?: string;
+  status: KycStatus;
+  verifiedAt?: string;
+};
+
 export type AssetItem = {
   assetCode: string;
   assetIssuer: string | null;
@@ -128,10 +139,13 @@ export type SessionResponse = {
   activeWalletId?: string;
   balance: Balance;
   balances: BalanceItem[];
+  kyc?: KycSummary;
   network?: StellarNetwork;
   transactions: TransactionItem[];
   wallets?: Wallet[];
 };
+
+export type KycApiResponse = RampApiResponse<KycSummary>;
 
 export type ReceiverResponse = {
   contact: Contact;

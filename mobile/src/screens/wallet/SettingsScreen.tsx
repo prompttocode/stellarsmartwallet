@@ -151,9 +151,11 @@ function DetailRow({
 }
 
 export function SettingsScreen({
+  onOpenKyc,
   onOpenWalletConnect,
   wallet,
 }: {
+  onOpenKyc: () => void;
   onOpenWalletConnect: () => void;
   wallet: WalletState;
 }) {
@@ -176,6 +178,7 @@ export function SettingsScreen({
   const email = wallet.account?.email || 'No email';
   const profileInitial = email.charAt(0).toUpperCase() || 'S';
   const networkLabel = wallet.isMainnet ? 'Mainnet' : 'Testnet';
+  const kycVerified = wallet.kyc.status === 'verified';
   const walletKind = activeWallet
     ? activeWallet.kind === 'watch_only'
       ? 'Watch-only wallet'
@@ -483,7 +486,32 @@ export function SettingsScreen({
           />
           <View style={styles.divider} />
           <SettingsRow
+            disabled={kycVerified}
             icon="shield-checkmark-outline"
+            onPress={kycVerified ? undefined : onOpenKyc}
+            subtitle={kycVerified ? 'Verified for VND buy and withdrawal' : 'Required before buying or withdrawing with VND'}
+            title="Identity verification"
+            trailing={
+              <View style={styles.rowTrailing}>
+                <Text
+                  style={[
+                    styles.rowValue,
+                    kycVerified ? styles.rowValueSuccess : styles.rowValueWarning,
+                  ]}
+                >
+                  {kycVerified ? 'Verified' : 'Not verified'}
+                </Text>
+                <Ionicons
+                  color={kycVerified ? '#59D98E' : '#A1B0C8'}
+                  name={kycVerified ? 'checkmark-circle' : 'chevron-forward'}
+                  size={20}
+                />
+              </View>
+            }
+          />
+          <View style={styles.divider} />
+          <SettingsRow
+            icon="lock-closed-outline"
             onPress={() => setDetailSheet('security')}
             subtitle="Biometric signing and Privy custody"
             title="Security"
@@ -1081,6 +1109,12 @@ const styles = StyleSheet.create({
     color: '#A1B0C8',
     fontSize: 13,
     fontWeight: '800',
+  },
+  rowValueSuccess: {
+    color: '#B8FF45',
+  },
+  rowValueWarning: {
+    color: '#FFB020',
   },
   screen: {
     backgroundColor: '#000000',

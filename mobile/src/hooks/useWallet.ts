@@ -21,6 +21,8 @@ import type {
   ExportWalletResult,
   FundNftResult,
   Health,
+  KycApiResponse,
+  KycSummary,
   RampApiResponse,
   RampAssetCode,
   RampDirection,
@@ -57,6 +59,7 @@ const PREFERRED_NETWORK_STORAGE_KEY = 'privy-wallet-preferred-network';
 const RAMP_ORDER_STORAGE_PREFIX = 'privy-ramp-order';
 const MARKET_PRICE_REFRESH_MS = 60_000;
 const DEFAULT_NETWORK: StellarNetwork = 'mainnet';
+const DEFAULT_KYC: KycSummary = { status: 'not_started' };
 
 function getAssetIdentity(asset: AssetItem) {
   return asset.isNative
@@ -253,6 +256,7 @@ export function useWallet() {
   >(null);
   const [collectibles, setCollectibles] = useState<CollectibleItem[]>([]);
   const [account, setAccount] = useState<WalletAccount | null>(null);
+  const [kyc, setKyc] = useState<KycSummary>(DEFAULT_KYC);
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [activeWalletId, setActiveWalletId] = useState<string | null>(null);
   const [balances, setBalances] = useState<BalanceItem[]>([]);
@@ -582,6 +586,7 @@ export function useWallet() {
 
   function clearWalletSession(nextMessage?: string) {
     setAccount(null);
+    setKyc(DEFAULT_KYC);
     setWallets([]);
     setActiveWalletId(null);
     setBalances([]);
@@ -619,6 +624,7 @@ export function useWallet() {
 
       setPreferredNetwork(sessionNetwork);
       setAccount(session.account);
+      setKyc(session.kyc || DEFAULT_KYC);
       setWallets(sessionWallets);
       setActiveWalletId(nextActiveWalletId);
       setBalances(session.balances || session.balance.balances || []);
@@ -709,6 +715,57 @@ export function useWallet() {
           Authorization: `Bearer ${identityToken}`,
         }
       : undefined;
+  }
+
+  async function refreshKycStatus() {
+    return run(
+      'Refreshing KYC status',
+      async () => {
+        const headers = await getAuthHeaders(true);
+        const result = await api<KycApiResponse>('/api/kyc/status', {
+          headers,
+        });
+        const nextKyc = result.data || DEFAULT_KYC;
+
+        setKyc(nextKyc);
+
+        return nextKyc;
+      },
+      { showAlert: false },
+    );
+  }
+
+  async function submitKycIdCard({
+    imageBackBase64,
+    imageFrontBase64,
+    phone,
+  }: {
+    imageBackBase64: string;
+    imageFrontBase64: string;
+    phone?: string;
+  }) {
+    if (!account) {
+      throw new Error('Sign in before verifying your identity.');
+    }
+
+    return run('Submitting KYC', async () => {
+      const headers = await getAuthHeaders(true);
+      const result = await api<KycApiResponse>('/api/kyc/id-card', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          imageBackBase64,
+          imageFrontBase64,
+          phone,
+        }),
+      });
+      const nextKyc = result.data || DEFAULT_KYC;
+
+      setKyc(nextKyc);
+      setMessage('Identity verification completed.');
+
+      return nextKyc;
+    });
   }
 
   useEffect(() => {
@@ -1639,6 +1696,10 @@ export function useWallet() {
     }
 
     return run(`Creating ${direction} order`, async () => {
+      if (kyc.status !== 'verified') {
+        throw new Error('KYC_REQUIRED');
+      }
+
       if (!wallet.canSign && direction === 'sell') {
         throw new Error('A watch-only wallet cannot send assets.');
       }
@@ -2128,6 +2189,7 @@ export function useWallet() {
     isMainnet,
     isReady,
     importWallet,
+    kyc,
     loginWithGoogle,
     loginState,
     logout,
@@ -2146,6 +2208,7 @@ export function useWallet() {
     recipient,
     recipientContact,
     recipientSelectedBalance,
+    refreshKycStatus,
     refreshPrivySecuritySession,
     refreshAssetPrices,
     refreshRampOrder,
@@ -2160,6 +2223,7 @@ export function useWallet() {
     sendAsset,
     sendRampOrderPayment,
     sendEmailCode,
+    submitKycIdCard,
     selectWallet,
     setAmount,
     setCode,

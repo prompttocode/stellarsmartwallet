@@ -277,7 +277,7 @@ export function FaucetScreen({
                     : [styles.faucetButton, styles.assetButton]
                 }
               >
-                <Text style={styles.assetButtonText}>{actionLabel}</Text>
+                <Text style={needsTrustline ? styles.enableButtonText : styles.assetButtonText}>{actionLabel}</Text>
               </PressScale>
             </View>
           );
@@ -293,6 +293,7 @@ const styles = StyleSheet.create({
   assetNameLocal: { color: '#111827', fontSize: 15, fontWeight: '900' },
   assetMetaLocal: { color: '#7D8795', fontSize: 12, fontWeight: '700', lineHeight: 17 },
   enableButton: { alignItems: 'center', backgroundColor: '#111827', borderRadius: 17, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 9 },
+  enableButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
   faucetButton: { alignItems: 'center', backgroundColor: '#EEF4FF', borderRadius: 17, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 9 },
   assetButtonText: { color: '#111827', fontSize: 12, fontWeight: '900' },
 

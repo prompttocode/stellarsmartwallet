@@ -9,6 +9,10 @@ export function getErrorMessage(error: unknown) {
       'This order can no longer be confirmed. Refresh the order to see its latest status.',
     INVALID_ADMIN_CODE:
       'The Testnet confirmation service is not configured correctly.',
+    KYC_REQUIRED:
+      'Please verify your identity before buying or withdrawing with VND.',
+    KYC_PHOTO_TOO_LARGE:
+      'The CCCD photos are too large. Please retake them closer to the card and try again.',
     ORDER_NOT_FOUND: 'The payment provider could not find this order.',
   };
   const friendly = friendlyMessages[normalized];

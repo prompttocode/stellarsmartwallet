@@ -22,6 +22,7 @@ import { SwapScreen } from '@screens/wallet/SwapScreen';
 import { FaucetScreen } from '@screens/wallet/FaucetScreen';
 import { RampScreen } from '@screens/wallet/RampScreen';
 import { SettingsScreen } from '@screens/wallet/SettingsScreen';
+import { KycScreen } from '@screens/wallet/KycScreen';
 import { AssetDetailScreen } from '@screens/wallet/AssetDetailScreen';
 import { AssetSearchScreen } from '@screens/wallet/AssetSearchScreen';
 import { TransactionDetailScreen } from '@screens/wallet/TransactionDetailScreen';
@@ -216,6 +217,7 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
       >
         {({ navigation }: any) => (
           <SettingsScreen
+            onOpenKyc={() => navigation.navigate('Kyc')}
             onOpenWalletConnect={() =>
               navigation.navigate('WalletConnect')
             }
@@ -279,6 +281,7 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
             <Stack.Screen name="Ramp">
               {({ route, navigation }: any) => (
                 <RampScreen
+                  onOpenKyc={() => navigation.navigate('Kyc')}
                   route={route}
                   wallet={wallet}
                   onBack={() => {
@@ -348,6 +351,14 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                 <WalletConnectScreen
                   onBack={() => navigation.goBack()}
                   onScan={() => navigation.navigate('Scan')}
+                  wallet={wallet}
+                />
+              )}
+            </Stack.Screen>
+            <Stack.Screen name="Kyc">
+              {({ navigation }: any) => (
+                <KycScreen
+                  onBack={() => navigation.goBack()}
                   wallet={wallet}
                 />
               )}
