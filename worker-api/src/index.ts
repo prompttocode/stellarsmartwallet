@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import { getAllowedOrigin, makeError, type WorkerBindings } from './core';
 import { registerBaseRoutes } from './routes/base';
 import { registerCollectibleRoutes } from './routes/collectibles';
+import { registerKycRoutes } from './routes/kyc';
 import { registerRampRoutes } from './routes/ramp';
 import { registerStellarRoutes } from './routes/stellar';
 import { registerWalletConnectRoutes } from './routes/walletconnect';
@@ -48,6 +49,7 @@ app.onError((error, c) => {
 });
 
 registerBaseRoutes(app);
+registerKycRoutes(app);
 registerStellarRoutes(app);
 registerCollectibleRoutes(app);
 registerRampRoutes(app);

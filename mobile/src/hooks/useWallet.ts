@@ -1041,12 +1041,11 @@ export function useWallet() {
     return run(
       isMainnet ? 'Creating Mainnet wallet' : 'Creating Testnet wallet',
       async () => {
-        const headers = await getAuthHeaders(isMainnet);
+        const headers = await getAuthHeaders(true);
         const session = await api<SessionResponse>('/api/wallets', {
           method: 'POST',
           headers,
           body: JSON.stringify({
-            email: account.email,
             fund: !isMainnet,
             network,
           }),
@@ -1076,9 +1075,11 @@ export function useWallet() {
     }
 
     return run('Switching wallet', async () => {
-      const session = await api<SessionResponse>('/api/demo/wallets/select', {
+      const headers = await getAuthHeaders(true);
+      const session = await api<SessionResponse>('/api/wallets/select', {
         method: 'POST',
-        body: JSON.stringify({ email: account.email, network, walletId }),
+        headers,
+        body: JSON.stringify({ network, walletId }),
       });
 
       resetRecipientState();
@@ -1094,11 +1095,12 @@ export function useWallet() {
     }
 
     return run('Renaming wallet', async () => {
-      const session = await api<SessionResponse>('/api/demo/wallets/rename', {
+      const headers = await getAuthHeaders(true);
+      const session = await api<SessionResponse>('/api/wallets/rename', {
         method: 'POST',
+        headers,
         body: JSON.stringify({
           displayName,
-          email: account.email,
           network,
           walletId,
         }),
@@ -1116,9 +1118,11 @@ export function useWallet() {
     }
 
     return run('Archiving wallet', async () => {
-      const session = await api<SessionResponse>('/api/demo/wallets/archive', {
+      const headers = await getAuthHeaders(true);
+      const session = await api<SessionResponse>('/api/wallets/archive', {
         method: 'POST',
-        body: JSON.stringify({ email: account.email, network, walletId }),
+        headers,
+        body: JSON.stringify({ network, walletId }),
       });
 
       resetRecipientState();

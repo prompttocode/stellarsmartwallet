@@ -1,4 +1,4 @@
-import type { Hono } from 'hono';
+import type { Context, Hono } from 'hono';
 import {
   assertAccountWallet,
   assertSecretKey,
@@ -31,7 +31,6 @@ import {
   privyRequest,
   readJsonBody,
   requireAccountContext,
-  requireDemoAccountByEmail,
   sanitizeWalletName,
   saveAccount,
   saveContact,
@@ -194,7 +193,7 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     const network = normalizeNetwork(body.network);
     const account = await requireAccountContext(c.env, c.req.header('authorization'), body, {
       network,
-      requireAuth: shouldRequireMainnetAuth(network),
+      requireAuth: true,
     });
     const nextWalletNumber = (account.wallets || []).length + 1;
     const displayName =
@@ -352,10 +351,161 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     });
   });
 
+  const selectWallet = async (c: Context<WorkerBindings>) => {
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const account = await requireAccountContext(
+      c.env,
+      c.req.header('authorization'),
+      body,
+      {
+        network,
+        requireAuth: true,
+      },
+    );
+    const walletId = String(body.walletId || '').trim();
+    const targetWallet = getVisibleWallets(account).find(
+      wallet => wallet.id === walletId,
+    );
+
+    if (!targetWallet) {
+      throw makeError('Active wallet not found', 404);
+    }
+
+    const nextAccount = await saveAccount(
+      c.env,
+      normalizeAccountWallets(
+        {
+          ...account,
+          activeWalletId: targetWallet.id,
+          wallet: targetWallet,
+        },
+        targetWallet.network,
+      ),
+    );
+
+    return c.json(
+      await buildAccountSession(c.env, nextAccount, targetWallet.network),
+    );
+  };
+
+  const renameWallet = async (c: Context<WorkerBindings>) => {
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const account = await requireAccountContext(
+      c.env,
+      c.req.header('authorization'),
+      body,
+      {
+        network,
+        requireAuth: true,
+      },
+    );
+    const walletId = String(body.walletId || '').trim();
+    const targetWallet = getVisibleWallets(account).find(
+      wallet => wallet.id === walletId,
+    );
+
+    if (!targetWallet) {
+      throw makeError('Wallet not found for rename', 404);
+    }
+
+    const displayName = sanitizeWalletName(
+      body.displayName,
+      targetWallet.displayName || 'Wallet',
+    );
+    const wallets = (account.wallets || []).map(wallet =>
+      wallet.id === walletId ? { ...wallet, displayName } : wallet,
+    );
+    const nextAccount = await saveAccount(
+      c.env,
+      normalizeAccountWallets(
+        {
+          ...account,
+          wallet:
+            account.wallet?.id === walletId
+              ? { ...account.wallet, displayName }
+              : account.wallet,
+          wallets,
+        },
+        targetWallet.network,
+      ),
+    );
+
+    return c.json(
+      await buildAccountSession(c.env, nextAccount, targetWallet.network),
+    );
+  };
+
+  const archiveWallet = async (c: Context<WorkerBindings>) => {
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const account = await requireAccountContext(
+      c.env,
+      c.req.header('authorization'),
+      body,
+      {
+        network,
+        requireAuth: true,
+      },
+    );
+    const walletId = String(body.walletId || '').trim();
+    const visibleWallets = getVisibleWallets(account);
+    const targetWallet = visibleWallets.find(wallet => wallet.id === walletId);
+
+    if (!targetWallet) {
+      throw makeError('Wallet not found for archive', 404);
+    }
+
+    if (visibleWallets.length <= 1) {
+      throw makeError('Cannot archive the last wallet in the account', 400);
+    }
+
+    const remainingWallets = visibleWallets.filter(
+      wallet => wallet.id !== walletId,
+    );
+    const activeWallet =
+      remainingWallets.find(wallet => wallet.network === targetWallet.network) ||
+      remainingWallets[0];
+    const wallets = (account.wallets || []).map(wallet =>
+      wallet.id === walletId
+        ? { ...wallet, archived: true, archivedAt: nowIso() }
+        : wallet,
+    );
+    const nextAccount = await saveAccount(
+      c.env,
+      normalizeAccountWallets(
+        {
+          ...account,
+          activeWalletId: activeWallet.id,
+          wallet: activeWallet,
+          wallets,
+        },
+        activeWallet.network,
+      ),
+    );
+
+    return c.json(
+      await buildAccountSession(c.env, nextAccount, activeWallet.network),
+    );
+  };
+
+  app.post('/api/wallets/select', selectWallet);
+  app.post('/api/wallets/rename', renameWallet);
+  app.post('/api/wallets/archive', archiveWallet);
+
   app.post('/api/demo/wallets', async c => {
     const body = await readJsonBody(c);
     const network = normalizeNetwork(body.network);
-    const account = await requireDemoAccountByEmail(c.env, body.email, network);
+    const account = await requireAccountContext(
+      c.env,
+      c.req.header('authorization'),
+      body,
+      {
+        network,
+        requireAuth: true,
+      },
+    );
     const nextWalletNumber = (account.wallets || []).length + 1;
     const displayName = sanitizeWalletName(
       body.displayName,
@@ -392,105 +542,9 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     return c.json(await buildAccountSession(c.env, nextAccount, network), 201);
   });
 
-  app.post('/api/demo/wallets/select', async c => {
-    const body = await readJsonBody(c);
-    const network = normalizeNetwork(body.network);
-    const account = await requireDemoAccountByEmail(c.env, body.email, network);
-    const walletId = String(body.walletId || '').trim();
-    const targetWallet = getVisibleWallets(account).find(wallet => wallet.id === walletId);
-
-    if (!targetWallet) {
-      throw makeError('Active wallet not found', 404);
-    }
-
-    const nextAccount = await saveAccount(
-      c.env,
-      normalizeAccountWallets(
-        {
-          ...account,
-          activeWalletId: targetWallet.id,
-          wallet: targetWallet,
-        },
-        targetWallet.network,
-      ),
-    );
-
-    return c.json(await buildAccountSession(c.env, nextAccount, targetWallet.network));
-  });
-
-  app.post('/api/demo/wallets/rename', async c => {
-    const body = await readJsonBody(c);
-    const network = normalizeNetwork(body.network);
-    const account = await requireDemoAccountByEmail(c.env, body.email, network);
-    const walletId = String(body.walletId || '').trim();
-    const targetWallet = getVisibleWallets(account).find(wallet => wallet.id === walletId);
-
-    if (!targetWallet) {
-      throw makeError('Wallet not found for rename', 404);
-    }
-
-    const displayName = sanitizeWalletName(body.displayName, targetWallet.displayName || 'Wallet');
-    const wallets = (account.wallets || []).map(wallet =>
-      wallet.id === walletId ? { ...wallet, displayName } : wallet,
-    );
-    const nextAccount = await saveAccount(
-      c.env,
-      normalizeAccountWallets(
-        {
-          ...account,
-          wallet:
-            account.wallet?.id === walletId
-              ? { ...account.wallet, displayName }
-              : account.wallet,
-          wallets,
-        },
-        targetWallet.network,
-      ),
-    );
-
-    return c.json(await buildAccountSession(c.env, nextAccount, targetWallet.network));
-  });
-
-  app.post('/api/demo/wallets/archive', async c => {
-    const body = await readJsonBody(c);
-    const network = normalizeNetwork(body.network);
-    const account = await requireDemoAccountByEmail(c.env, body.email, network);
-    const walletId = String(body.walletId || '').trim();
-    const visibleWallets = getVisibleWallets(account);
-    const targetWallet = visibleWallets.find(wallet => wallet.id === walletId);
-
-    if (!targetWallet) {
-      throw makeError('Wallet not found for archive', 404);
-    }
-
-    if (visibleWallets.length <= 1) {
-      throw makeError('Cannot archive the last wallet in the account', 400);
-    }
-
-    const remainingWallets = visibleWallets.filter(wallet => wallet.id !== walletId);
-    const activeWallet =
-      remainingWallets.find(wallet => wallet.network === targetWallet.network) ||
-      remainingWallets[0];
-    const wallets = (account.wallets || []).map(wallet =>
-      wallet.id === walletId
-        ? { ...wallet, archived: true, archivedAt: nowIso() }
-        : wallet,
-    );
-    const nextAccount = await saveAccount(
-      c.env,
-      normalizeAccountWallets(
-        {
-          ...account,
-          activeWalletId: activeWallet.id,
-          wallet: activeWallet,
-          wallets,
-        },
-        activeWallet.network,
-      ),
-    );
-
-    return c.json(await buildAccountSession(c.env, nextAccount, activeWallet.network));
-  });
+  app.post('/api/demo/wallets/select', selectWallet);
+  app.post('/api/demo/wallets/rename', renameWallet);
+  app.post('/api/demo/wallets/archive', archiveWallet);
 
   app.post('/api/demo/receiver', async c => {
     const body = await readJsonBody(c);

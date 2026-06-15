@@ -41,6 +41,7 @@
     "react": "19.1.1",
     "react-native": "0.82.0",
     "react-native-biometrics": "^3.0.1",
+    "react-native-document-scanner-plugin": "^2.0.4",
     "react-native-draggable-flatlist": "^4.0.3",
     "react-native-gesture-handler": "^3.0.0",
     "react-native-get-random-values": "^2.0.0",

@@ -56,6 +56,30 @@ export type AccountRecord = {
   wallets?: WalletRecord[];
 };
 
+export type KycStatus = 'not_started' | 'verified';
+
+export type AccountKycRecord = {
+  accountEmail: string;
+  cccdHash?: string | null;
+  cccdLast4?: string | null;
+  createdAt?: string;
+  dob?: string | null;
+  fullName?: string | null;
+  phone?: string | null;
+  providerUserId: string;
+  status: 'verified';
+  updatedAt?: string;
+};
+
+export type KycSummary = {
+  cccdLast4?: string;
+  fullName?: string;
+  phone?: string;
+  providerUserId?: string;
+  status: KycStatus;
+  verifiedAt?: string;
+};
+
 export type AssetDefinition = {
   assetCode: string;
   assetIssuer: string | null;
@@ -697,6 +721,145 @@ export async function saveIssuer(env: Env, assetCode: string, issuer: DemoIssuer
   return item;
 }
 
+function normalizeKycRow(row?: Record<string, unknown> | null): AccountKycRecord | null {
+  if (!row) {
+    return null;
+  }
+
+  const accountEmail = normalizeEmail(row.account_email);
+  const providerUserId = String(row.provider_user_id || '').trim();
+  const status = String(row.status || '').trim();
+
+  if (!accountEmail || !providerUserId || status !== 'verified') {
+    return null;
+  }
+
+  return {
+    accountEmail,
+    cccdHash: row.cccd_hash ? String(row.cccd_hash) : null,
+    cccdLast4: row.cccd_last4 ? String(row.cccd_last4) : null,
+    createdAt: row.created_at ? String(row.created_at) : undefined,
+    dob: row.dob ? String(row.dob) : null,
+    fullName: row.full_name ? String(row.full_name) : null,
+    phone: row.phone ? String(row.phone) : null,
+    providerUserId,
+    status: 'verified',
+    updatedAt: row.updated_at ? String(row.updated_at) : undefined,
+  };
+}
+
+export function summarizeKyc(record?: AccountKycRecord | null): KycSummary {
+  if (!record) {
+    return { status: 'not_started' };
+  }
+
+  return {
+    ...(record.cccdLast4 ? { cccdLast4: record.cccdLast4 } : null),
+    ...(record.fullName ? { fullName: record.fullName } : null),
+    ...(record.phone ? { phone: record.phone } : null),
+    providerUserId: record.providerUserId,
+    status: record.status,
+    ...(record.updatedAt ? { verifiedAt: record.updatedAt } : null),
+  };
+}
+
+export async function getKycForAccount(env: Env, emailValue: unknown) {
+  const email = normalizeEmail(emailValue);
+
+  if (!email || !env.DB) {
+    return null;
+  }
+
+  const row = await env.DB.prepare(
+    `SELECT *
+     FROM account_kyc
+     WHERE account_email = ?
+     LIMIT 1`,
+  )
+    .bind(email)
+    .first<Record<string, unknown>>();
+
+  return normalizeKycRow(row);
+}
+
+export async function getKycSummaryForAccount(env: Env, emailValue: unknown) {
+  return summarizeKyc(await getKycForAccount(env, emailValue));
+}
+
+export async function saveAccountKyc(
+  env: Env,
+  record: Omit<AccountKycRecord, 'createdAt' | 'status' | 'updatedAt'>,
+) {
+  const now = nowIso();
+  const item: AccountKycRecord = {
+    ...record,
+    accountEmail: normalizeEmail(record.accountEmail),
+    providerUserId: String(record.providerUserId || '').trim(),
+    status: 'verified',
+    updatedAt: now,
+  };
+
+  if (!isEmailLike(item.accountEmail)) {
+    throw makeError('Invalid account email', 400);
+  }
+
+  if (!item.providerUserId) {
+    throw makeError('Missing KYC provider user id', 502);
+  }
+
+  const existing = await getKycForAccount(env, item.accountEmail);
+
+  await env.DB.prepare(
+    `INSERT INTO account_kyc (
+       account_email,
+       provider_user_id,
+       status,
+       full_name,
+       phone,
+       cccd_last4,
+       cccd_hash,
+       dob,
+       created_at,
+       updated_at
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(account_email) DO UPDATE SET
+       provider_user_id = excluded.provider_user_id,
+       status = excluded.status,
+       full_name = excluded.full_name,
+       phone = excluded.phone,
+       cccd_last4 = excluded.cccd_last4,
+       cccd_hash = excluded.cccd_hash,
+       dob = excluded.dob,
+       updated_at = excluded.updated_at`,
+  )
+    .bind(
+      item.accountEmail,
+      item.providerUserId,
+      item.status,
+      item.fullName || null,
+      item.phone || null,
+      item.cccdLast4 || null,
+      item.cccdHash || null,
+      item.dob || null,
+      existing?.createdAt || now,
+      now,
+    )
+    .run();
+
+  return (await getKycForAccount(env, item.accountEmail)) || item;
+}
+
+export async function requireVerifiedKyc(env: Env, emailValue: unknown) {
+  const kyc = await getKycForAccount(env, emailValue);
+
+  if (!kyc || kyc.status !== 'verified' || !kyc.providerUserId) {
+    throw makeError('KYC_REQUIRED', 403);
+  }
+
+  return kyc;
+}
+
 export async function saveContact(env: Env, contact: { funded: boolean; label: string; wallet: WalletRecord }) {
   const item = {
     id: contact.wallet.id,
@@ -829,6 +992,38 @@ export function getBearerToken(headerValue: string | undefined, body: Record<str
   const match = String(headerValue || '').match(/^Bearer\s+(.+)$/i);
 
   return String(body.identityToken || match?.[1] || '').trim();
+}
+
+export async function requireAuthenticatedAccount(
+  env: Env,
+  authorizationHeader: string | undefined,
+) {
+  const identityToken = getBearerToken(authorizationHeader, {});
+
+  if (!identityToken) {
+    throw makeError('Privy session is required for this action', 401);
+  }
+
+  const user = await getPrivyClient(env).users().get({
+    id_token: identityToken,
+  });
+  const email = getEmailFromPrivyUser(user);
+  const userId = String((user as { id?: string })?.id || '');
+
+  if (!isEmailLike(email)) {
+    throw makeError('This Privy account does not have a valid email', 400);
+  }
+
+  const account = await getAccountByEmail(env, email);
+
+  if (!account) {
+    throw makeError('Wallet account not found', 404);
+  }
+
+  return saveAccount(env, {
+    ...account,
+    ...(userId ? { id: userId } : null),
+  });
 }
 
 export async function requireAccountContext(
@@ -2336,6 +2531,7 @@ export async function buildAccountSession(
       xlm: balanceResult.xlm,
     },
     balances: balanceResult.balances,
+    kyc: await getKycSummaryForAccount(env, normalizedAccount.email),
     network,
     transactions: await getAccountHistory(env, activeWallet.address, network),
     wallets: visibleWallets,

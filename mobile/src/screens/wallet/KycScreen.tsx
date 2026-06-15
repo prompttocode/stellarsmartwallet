@@ -1,8 +1,9 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Alert,
   Image,
-  LayoutChangeEvent,
+  PermissionsAndroid,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,14 +11,11 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import * as FileSystem from 'expo-file-system/legacy';
 import {
-  Camera,
-  type Orientation,
-  useCameraDevice,
-  useCameraFormat,
-  useCameraPermission,
-} from 'react-native-vision-camera';
+  default as DocumentScanner,
+  ResponseType,
+  ScanDocumentResponseStatus,
+} from 'react-native-document-scanner-plugin';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -28,23 +26,11 @@ import {
 import type { WalletState } from '@hooks/useWallet';
 
 type CaptureSide = 'front' | 'back';
-type Step = 'intro' | 'capture';
-type Size = { height: number; width: number };
-type Rect = { height: number; width: number; x: number; y: number };
+type Step = 'intro' | 'guide' | 'preview';
 
 const ID_CARD_ASPECT_RATIO = 85.6 / 54;
 const GUIDE_WIDTH_RATIO = 0.86;
 const GUIDE_MAX_WIDTH = 460;
-const GUIDE_BOTTOM_OFFSET = 30;
-const CAPTURE_IMAGE_QUALITY = 100;
-
-function getFileUri(path: string) {
-  return path.startsWith('file://') ? path : `file://${path}`;
-}
-
-function getFilePath(uri: string) {
-  return uri.replace(/^file:\/\//, '');
-}
 
 function sideLabel(side: CaptureSide) {
   return side === 'front' ? 'front side' : 'back side';
@@ -56,165 +42,6 @@ function sideHint(side: CaptureSide) {
     : 'Back: fingerprints and MRZ code.';
 }
 
-function getGuideRect(frame: Size): Rect | null {
-  if (!frame.width || !frame.height) {
-    return null;
-  }
-
-  let width = Math.min(frame.width * GUIDE_WIDTH_RATIO, GUIDE_MAX_WIDTH);
-  let height = width / ID_CARD_ASPECT_RATIO;
-  const maxHeight = frame.height * 0.76;
-
-  if (height > maxHeight) {
-    height = maxHeight;
-    width = height * ID_CARD_ASPECT_RATIO;
-  }
-
-  return {
-    height,
-    width,
-    x: (frame.width - width) / 2,
-    y: Math.max(0, (frame.height - GUIDE_BOTTOM_OFFSET - height) / 2),
-  };
-}
-
-function getCenterCropRect(image: Size, aspectRatio: number): Rect {
-  let width = image.width;
-  let height = width / aspectRatio;
-
-  if (height > image.height) {
-    height = image.height;
-    width = height * aspectRatio;
-  }
-
-  return {
-    height,
-    width,
-    x: (image.width - width) / 2,
-    y: (image.height - height) / 2,
-  };
-}
-
-function getImageCropRect(image: Size, frame?: Size | null): Rect {
-  const guide = frame ? getGuideRect(frame) : null;
-
-  if (!guide) {
-    return getCenterCropRect(image, ID_CARD_ASPECT_RATIO);
-  }
-
-  const scale = Math.max(frame!.width / image.width, frame!.height / image.height);
-  const displayedWidth = image.width * scale;
-  const displayedHeight = image.height * scale;
-  const offsetX = (displayedWidth - frame!.width) / 2;
-  const offsetY = (displayedHeight - frame!.height) / 2;
-  const x = Math.max(0, (guide.x + offsetX) / scale);
-  const y = Math.max(0, (guide.y + offsetY) / scale);
-  const width = Math.min(image.width - x, guide.width / scale);
-  const height = Math.min(image.height - y, guide.height / scale);
-
-  if (width < 20 || height < 20) {
-    return getCenterCropRect(image, ID_CARD_ASPECT_RATIO);
-  }
-
-  return { height, width, x, y };
-}
-
-function getOrientedImageSize(image: Size, orientation: Orientation): Size {
-  if (
-    orientation === 'landscape-left' ||
-    orientation === 'landscape-right'
-  ) {
-    return { height: image.width, width: image.height };
-  }
-
-  return image;
-}
-
-function mapDisplayCropToRaw(
-  crop: Rect,
-  rawImage: Size,
-  orientation: Orientation,
-): Rect {
-  switch (orientation) {
-    case 'landscape-right':
-      return {
-        height: crop.width,
-        width: crop.height,
-        x: crop.y,
-        y: rawImage.height - crop.x - crop.width,
-      };
-    case 'landscape-left':
-      return {
-        height: crop.width,
-        width: crop.height,
-        x: rawImage.width - crop.y - crop.height,
-        y: crop.x,
-      };
-    case 'portrait-upside-down':
-      return {
-        height: crop.height,
-        width: crop.width,
-        x: rawImage.width - crop.x - crop.width,
-        y: rawImage.height - crop.y - crop.height,
-      };
-    default:
-      return crop;
-  }
-}
-
-function getUprightRotation(orientation: Orientation) {
-  switch (orientation) {
-    case 'landscape-right':
-      return 90;
-    case 'landscape-left':
-      return -90;
-    case 'portrait-upside-down':
-      return 180;
-    default:
-      return 0;
-  }
-}
-
-async function cropPhotoToGuide(
-  uri: string,
-  orientation: Orientation,
-  frame?: Size | null,
-) {
-  try {
-    const { loadImage } = await import('react-native-nitro-image');
-    const image = await loadImage({ filePath: getFilePath(uri) });
-    const rawImage = { height: image.height, width: image.width };
-    const displayCrop = getImageCropRect(
-      getOrientedImageSize(rawImage, orientation),
-      frame,
-    );
-    const crop = mapDisplayCropToRaw(displayCrop, rawImage, orientation);
-    const cropped = await image.cropAsync(
-      Math.round(crop.x),
-      Math.round(crop.y),
-      Math.round(crop.x + crop.width),
-      Math.round(crop.y + crop.height),
-    );
-    const rotation = getUprightRotation(orientation);
-    const upright =
-      rotation === 0 ? cropped : await cropped.rotateAsync(rotation, false);
-    const croppedPath = await upright.saveToTemporaryFileAsync(
-      'jpg',
-      CAPTURE_IMAGE_QUALITY,
-    );
-
-    return getFileUri(croppedPath);
-  } catch {
-    return uri;
-  }
-}
-
-async function prepareKycImageBase64(uri: string) {
-  return FileSystem.readAsStringAsync(uri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-}
-
 export function KycScreen({
   onBack,
   wallet,
@@ -224,21 +51,18 @@ export function KycScreen({
 }) {
   const insets = useSafeAreaInsets();
   const screenInsetStyle = useSafeScreenInsetStyle();
-  const cameraRef = useRef<Camera>(null);
-  const device = useCameraDevice('back');
-  const cameraFormat = useCameraFormat(device, [
-    { photoResolution: 'max' },
-  ]);
-  const { hasPermission, requestPermission } = useCameraPermission();
   const [step, setStep] = useState<Step>('intro');
   const [captureSide, setCaptureSide] = useState<CaptureSide>('front');
-  const [frontUri, setFrontUri] = useState('');
-  const [backUri, setBackUri] = useState('');
+  const [frontBase64, setFrontBase64] = useState('');
+  const [backBase64, setBackBase64] = useState('');
   const [phone, setPhone] = useState('');
-  const [cameraFrameSize, setCameraFrameSize] = useState<Size | null>(null);
-  const [capturing, setCapturing] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const currentUri = captureSide === 'front' ? frontUri : backUri;
+  const currentBase64 =
+    captureSide === 'front' ? frontBase64 : backBase64;
+  const currentPreviewUri = currentBase64
+    ? `data:image/jpeg;base64,${currentBase64}`
+    : '';
   const cameraHeaderStyle = useMemo(
     () => [styles.cameraHeader, { paddingTop: insets.top + 8 }],
     [insets.top],
@@ -248,9 +72,9 @@ export function KycScreen({
   function resetCaptureSession() {
     setStep('intro');
     setCaptureSide('front');
-    setFrontUri('');
-    setBackUri('');
-    setCapturing(false);
+    setFrontBase64('');
+    setBackBase64('');
+    setScanning(false);
     setSubmitting(false);
   }
 
@@ -264,68 +88,100 @@ export function KycScreen({
   }
 
   function handleCaptureBack() {
-    if (captureSide === 'back') {
-      setBackUri('');
+    if (step === 'guide' && captureSide === 'back' && frontBase64) {
       setCaptureSide('front');
+      setStep('preview');
+      return;
+    }
+
+    if (step === 'preview') {
+      setStep('guide');
       return;
     }
 
     returnToIntro();
   }
 
-  async function continueToCamera() {
-    if (!hasPermission) {
-      const granted = await requestPermission();
-
-      if (!granted) {
-        Alert.alert(
-          'Camera permission required',
-          'Please allow camera access to capture your ID card.',
-        );
-        return;
-      }
+  async function requestScannerPermission() {
+    if (Platform.OS !== 'android') {
+      return true;
     }
 
-    setStep('capture');
+    const permission = PermissionsAndroid.PERMISSIONS.CAMERA;
+    const hasPermission = await PermissionsAndroid.check(permission);
+
+    if (hasPermission) {
+      return true;
+    }
+
+    const result = await PermissionsAndroid.request(permission);
+
+    return result === PermissionsAndroid.RESULTS.GRANTED;
   }
 
-  async function capturePhoto() {
-    if (!cameraRef.current || capturing) {
-      return;
+  async function scanSide(side: CaptureSide) {
+    if (scanning) {
+      return false;
     }
 
-    setCapturing(true);
+    const hasPermission = await requestScannerPermission();
+
+    if (!hasPermission) {
+      Alert.alert(
+        'Camera permission required',
+        'Please allow camera access to scan your ID card.',
+      );
+      return false;
+    }
+
+    setScanning(true);
 
     try {
-      const photo = await cameraRef.current.takePhoto({
-        flash: 'off',
+      const result = await DocumentScanner.scanDocument({
+        croppedImageQuality: 100,
+        maxNumDocuments: 1,
+        responseType: ResponseType.Base64,
       });
-      const uri = await cropPhotoToGuide(
-        getFileUri(photo.path),
-        photo.orientation,
-        cameraFrameSize,
-      );
+      const scannedImage = result.scannedImages?.[0];
 
-      if (captureSide === 'front') {
-        setFrontUri(uri);
-        return;
+      if (
+        result.status === ScanDocumentResponseStatus.Cancel ||
+        !scannedImage
+      ) {
+        return false;
       }
 
-      setBackUri(uri);
+      if (side === 'front') {
+        setFrontBase64(scannedImage);
+      } else {
+        setBackBase64(scannedImage);
+      }
+
+      setCaptureSide(side);
+      setStep('preview');
+      return true;
+    } catch (error) {
+      Alert.alert(
+        'Unable to scan document',
+        error instanceof Error
+          ? error.message
+          : 'Please try scanning your CCCD again.',
+      );
+      return false;
     } finally {
-      setCapturing(false);
+      setScanning(false);
     }
   }
 
-  function handleCameraFrameLayout(event: LayoutChangeEvent) {
-    const { height, width } = event.nativeEvent.layout;
-
-    setCameraFrameSize({ height, width });
+  async function continueToCamera() {
+    setCaptureSide('front');
+    setStep('guide');
   }
 
-  function acceptCurrentPhoto() {
+  async function acceptCurrentPhoto() {
     if (captureSide === 'front') {
       setCaptureSide('back');
+      setStep('guide');
       return;
     }
 
@@ -333,29 +189,20 @@ export function KycScreen({
   }
 
   function retakeCurrentPhoto() {
-    if (captureSide === 'front') {
-      setFrontUri('');
-      return;
-    }
-
-    setBackUri('');
+    scanSide(captureSide).catch(() => null);
   }
 
   async function submitKyc() {
-    if (!frontUri || !backUri || submitting) {
+    if (!frontBase64 || !backBase64 || submitting) {
       return;
     }
 
     setSubmitting(true);
 
     try {
-      const [imageFrontBase64, imageBackBase64] = await Promise.all([
-        prepareKycImageBase64(frontUri),
-        prepareKycImageBase64(backUri),
-      ]);
       const result = await wallet.submitKycIdCard({
-        imageBackBase64,
-        imageFrontBase64,
+        imageBackBase64: backBase64,
+        imageFrontBase64: frontBase64,
         phone: phone.replace(/\D/g, ''),
       });
 
@@ -376,15 +223,17 @@ export function KycScreen({
           {
             onPress: () => {
               setCaptureSide('front');
-              setFrontUri('');
-              setBackUri('');
+              setFrontBase64('');
+              setBackBase64('');
+              scanSide('front').catch(() => null);
             },
             text: 'Retake front',
           },
           {
             onPress: () => {
               setCaptureSide('back');
-              setBackUri('');
+              setBackBase64('');
+              scanSide('back').catch(() => null);
             },
             text: 'Retake back',
           },
@@ -459,6 +308,86 @@ export function KycScreen({
     );
   }
 
+  if (step === 'guide') {
+    const isFront = captureSide === 'front';
+
+    return (
+      <View
+        style={[
+          styles.guideScreen,
+          {
+            paddingBottom: insets.bottom + 16,
+            paddingTop: insets.top + 12,
+          },
+        ]}
+      >
+        <ModernScreenHeader
+          onBack={handleCaptureBack}
+          subtitle={`Step ${isFront ? '1' : '2'} of 2`}
+          title={`Scan ${sideLabel(captureSide)}`}
+        />
+
+        <View style={styles.guideMain}>
+          <View style={styles.sideGuide}>
+            <View
+              style={[
+                styles.sideGuideCard,
+                { aspectRatio: ID_CARD_ASPECT_RATIO },
+              ]}
+            >
+              <Ionicons
+                color="#111827"
+                name={isFront ? 'person-outline' : 'finger-print-outline'}
+                size={44}
+              />
+              <View style={styles.sideGuideLines}>
+                <View style={styles.sideGuideLineLong} />
+                <View style={styles.sideGuideLineShort} />
+                <View style={styles.sideGuideLineMedium} />
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.guideCopy}>
+            <Text style={styles.guideTitle}>
+              {isFront ? 'Prepare the front side' : 'Prepare the back side'}
+            </Text>
+            <Text style={styles.guideText}>
+              {isFront
+                ? 'Place the portrait and ID-number side facing up.'
+                : 'Place the fingerprints and MRZ-code side facing up.'}
+            </Text>
+          </View>
+
+          <View style={[styles.checklistCard, styles.guideChecklist]}>
+            {[
+              'Scan only this side of the CCCD.',
+              'Keep all four corners visible and avoid glare.',
+              'Tap Save or the checkmark after capture.',
+            ].map(item => (
+              <View key={item} style={[styles.checkRow, styles.guideCheckRow]}>
+                <Ionicons color="#B8FF45" name="checkmark-circle" size={19} />
+                <Text style={styles.checkText}>{item}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        <PressScale
+          disabled={scanning}
+          onPress={() => scanSide(captureSide)}
+          style={[styles.primaryButton, styles.primaryButtonStretch]}
+        >
+          <Text style={styles.primaryButtonText}>
+            {scanning
+              ? 'Opening scanner...'
+              : `Scan ${sideLabel(captureSide)}`}
+          </Text>
+        </PressScale>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.cameraScreen}>
       <View style={cameraHeaderStyle}>
@@ -475,92 +404,76 @@ export function KycScreen({
         </View>
       </View>
 
-      {!hasPermission ? (
-        <View style={styles.cameraFallback}>
-          <Text style={styles.cameraFallbackTitle}>Camera permission required</Text>
-          <Text style={styles.cameraFallbackText}>
-            Allow camera access to continue verification.
-          </Text>
-          <PressScale
-            onPress={requestPermission}
-            style={[styles.primaryButton, styles.primaryButtonStretch]}
-          >
-            <Text style={styles.primaryButtonText}>Allow camera</Text>
-          </PressScale>
-        </View>
-      ) : !device ? (
-        <View style={styles.cameraFallback}>
-          <Text style={styles.cameraFallbackTitle}>No camera found</Text>
-          <Text style={styles.cameraFallbackText}>
-            This device does not have an available back camera.
-          </Text>
-        </View>
-      ) : (
-        <View onLayout={handleCameraFrameLayout} style={styles.cameraFrame}>
-          {currentUri ? (
-            <View style={styles.capturedPreviewLayer}>
-              <View
-                style={[
-                  styles.capturedCardPreview,
-                  { aspectRatio: ID_CARD_ASPECT_RATIO },
-                ]}
-              >
-                <Image source={{ uri: currentUri }} style={styles.previewImage} />
-                <View pointerEvents="none" style={styles.capturedGuideBorder}>
-                  <View style={styles.cornerTopLeft} />
-                  <View style={styles.cornerTopRight} />
-                  <View style={styles.cornerBottomLeft} />
-                  <View style={styles.cornerBottomRight} />
-                </View>
-              </View>
-            </View>
-          ) : (
-            <Camera
-              ref={cameraRef}
-              device={device}
-              format={cameraFormat}
-              isActive
-              outputOrientation="preview"
-              photo
-              photoQualityBalance="quality"
-              style={StyleSheet.absoluteFill}
-            />
-          )}
-          {!currentUri ? (
-            <View pointerEvents="none" style={styles.guideLayer}>
-              <View style={styles.sideHintPill}>
-                <Text style={styles.sideHintText}>{sideHint(captureSide)}</Text>
-              </View>
-              <View
-                style={[
-                  styles.cardGuide,
-                  { aspectRatio: ID_CARD_ASPECT_RATIO },
-                ]}
-              >
+      <View style={styles.cameraFrame}>
+        {currentPreviewUri ? (
+          <View style={styles.capturedPreviewLayer}>
+            <View
+              style={[
+                styles.capturedCardPreview,
+                { aspectRatio: ID_CARD_ASPECT_RATIO },
+              ]}
+            >
+              <Image
+                source={{ uri: currentPreviewUri }}
+                style={styles.previewImage}
+              />
+              <View pointerEvents="none" style={styles.capturedGuideBorder}>
                 <View style={styles.cornerTopLeft} />
                 <View style={styles.cornerTopRight} />
                 <View style={styles.cornerBottomLeft} />
                 <View style={styles.cornerBottomRight} />
               </View>
             </View>
-          ) : null}
-        </View>
-      )}
+          </View>
+        ) : (
+          <View style={styles.cameraFallback}>
+            <Ionicons color="#B8FF45" name="scan-outline" size={42} />
+            <Text style={styles.cameraFallbackTitle}>
+              Scan {sideLabel(captureSide)}
+            </Text>
+            <Text style={styles.cameraFallbackText}>
+              The scanner will detect the CCCD edges and correct perspective
+              automatically.
+            </Text>
+            <PressScale
+              disabled={scanning}
+              onPress={() => scanSide(captureSide)}
+              style={[styles.primaryButton, styles.scanAgainButton]}
+            >
+              <Text style={styles.primaryButtonText}>
+                {scanning ? 'Opening scanner...' : 'Open scanner'}
+              </Text>
+            </PressScale>
+          </View>
+        )}
+      </View>
 
       <View style={[styles.cameraActions, { paddingBottom: insets.bottom + 16 }]}>
         <View style={styles.progressRow}>
-          <View style={[styles.progressDot, frontUri ? styles.progressDone : null]} />
+          <View
+            style={[
+              styles.progressDot,
+              frontBase64 ? styles.progressDone : null,
+            ]}
+          />
           <Text style={styles.progressText}>Front</Text>
-          <View style={[styles.progressDot, backUri ? styles.progressDone : null]} />
+          <View
+            style={[
+              styles.progressDot,
+              backBase64 ? styles.progressDone : null,
+            ]}
+          />
           <Text style={styles.progressText}>Back</Text>
         </View>
 
-        {currentUri ? (
+        {currentPreviewUri ? (
           <View style={styles.actionRow}>
             <Pressable
+              disabled={scanning || submitting}
               onPress={retakeCurrentPhoto}
               style={({ pressed }) => [
                 styles.actionButtonSlot,
+                scanning || submitting ? styles.disabledButton : null,
                 pressed ? styles.pressedButton : null,
               ]}
             >
@@ -569,18 +482,22 @@ export function KycScreen({
               </View>
             </Pressable>
             <Pressable
-              disabled={submitting || wallet.isBusy}
+              disabled={scanning || submitting || wallet.isBusy}
               onPress={acceptCurrentPhoto}
               style={({ pressed }) => [
                 styles.actionButtonSlot,
-                submitting || wallet.isBusy ? styles.disabledButton : null,
+                scanning || submitting || wallet.isBusy
+                  ? styles.disabledButton
+                  : null,
                 pressed ? styles.pressedButton : null,
               ]}
             >
               <View style={styles.primaryButton}>
                 <Text style={styles.primaryButtonText}>
                   {captureSide === 'front'
-                    ? 'Use front'
+                    ? scanning
+                      ? 'Opening scanner...'
+                      : 'Use front'
                     : submitting || wallet.isBusy
                     ? 'Submitting...'
                     : 'Submit'}
@@ -588,15 +505,7 @@ export function KycScreen({
               </View>
             </Pressable>
           </View>
-        ) : (
-          <PressScale
-            disabled={capturing}
-            onPress={capturePhoto}
-            style={styles.captureButton}
-          >
-            <View style={styles.captureInner} />
-          </PressScale>
-        )}
+        ) : null}
       </View>
     </View>
   );
@@ -680,33 +589,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
     lineHeight: 34,
   },
-  captureButton: {
-    alignItems: 'center',
-    alignSelf: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 38,
-    height: 76,
-    justifyContent: 'center',
-    width: 76,
-  },
-  captureInner: {
-    borderColor: '#111827',
-    borderRadius: 30,
-    borderWidth: 2,
-    height: 60,
-    width: 60,
-  },
-  cardGuide: {
-    borderColor: 'rgba(255,255,255,0.55)',
-    borderRadius: 18,
-    borderWidth: 1,
-    maxWidth: GUIDE_MAX_WIDTH,
-    width: `${GUIDE_WIDTH_RATIO * 100}%`,
-  },
   capturedCardPreview: {
     backgroundColor: '#111827',
     borderColor: 'rgba(255,255,255,0.3)',
-    borderRadius: 18,
+    borderRadius: 0,
     borderWidth: 1,
     maxWidth: GUIDE_MAX_WIDTH,
     overflow: 'hidden',
@@ -715,7 +601,7 @@ const styles = StyleSheet.create({
   capturedGuideBorder: {
     ...StyleSheet.absoluteFillObject,
     borderColor: 'rgba(255,255,255,0.55)',
-    borderRadius: 18,
+    borderRadius: 0,
     borderWidth: 1,
   },
   capturedPreviewLayer: {
@@ -723,7 +609,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     left: 0,
-    paddingBottom: GUIDE_BOTTOM_OFFSET,
+    paddingHorizontal: 18,
     position: 'absolute',
     right: 0,
     top: 0,
@@ -798,16 +684,6 @@ const styles = StyleSheet.create({
   disabledButton: {
     opacity: 0.55,
   },
-  guideLayer: {
-    alignItems: 'center',
-    bottom: 0,
-    justifyContent: 'center',
-    left: 0,
-    paddingBottom: GUIDE_BOTTOM_OFFSET,
-    position: 'absolute',
-    right: 0,
-    top: 0,
-  },
   heroCard: {
     alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.06)',
@@ -834,6 +710,43 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '900',
   },
+  guideChecklist: {
+    borderRadius: 16,
+    gap: 4,
+    padding: 12,
+  },
+  guideCheckRow: {
+    minHeight: 29,
+  },
+  guideCopy: {
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+  },
+  guideMain: {
+    flex: 1,
+    gap: 12,
+    justifyContent: 'center',
+    minHeight: 0,
+  },
+  guideScreen: {
+    backgroundColor: '#000000',
+    flex: 1,
+    gap: 12,
+    paddingHorizontal: 16,
+  },
+  guideText: {
+    color: '#A1B0C8',
+    fontSize: 14,
+    lineHeight: 19,
+    textAlign: 'center',
+  },
+  guideTitle: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
   input: {
     backgroundColor: '#000000',
     borderColor: 'rgba(255,255,255,0.1)',
@@ -858,7 +771,7 @@ const styles = StyleSheet.create({
   previewImage: {
     backgroundColor: '#000000',
     height: '100%',
-    resizeMode: 'cover',
+    resizeMode: 'contain',
     width: '100%',
   },
   pressedButton: {
@@ -905,6 +818,10 @@ const styles = StyleSheet.create({
   screen: {
     backgroundColor: '#000000',
   },
+  scanAgainButton: {
+    marginTop: 8,
+    maxWidth: 260,
+  },
   secondaryButton: {
     alignItems: 'center',
     backgroundColor: '#161A20',
@@ -919,22 +836,39 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
   },
-  sideHintPill: {
-    backgroundColor: 'rgba(0,0,0,0.62)',
-    borderColor: 'rgba(255,255,255,0.14)',
-    borderRadius: 18,
-    borderWidth: 1,
-    marginBottom: 16,
-    maxWidth: GUIDE_MAX_WIDTH,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    width: `${GUIDE_WIDTH_RATIO * 100}%`,
+  sideGuide: {
+    alignItems: 'center',
+    paddingVertical: 4,
   },
-  sideHintText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '800',
-    lineHeight: 18,
-    textAlign: 'center',
+  sideGuideCard: {
+    alignItems: 'center',
+    backgroundColor: '#E8EDF2',
+    borderColor: '#FFFFFF',
+    borderRadius: 0,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 16,
+    maxWidth: 380,
+    paddingHorizontal: 24,
+    width: '78%',
+  },
+  sideGuideLineLong: {
+    backgroundColor: '#667085',
+    height: 8,
+    width: '100%',
+  },
+  sideGuideLineMedium: {
+    backgroundColor: '#98A2B3',
+    height: 8,
+    width: '76%',
+  },
+  sideGuideLines: {
+    flex: 1,
+    gap: 12,
+  },
+  sideGuideLineShort: {
+    backgroundColor: '#98A2B3',
+    height: 8,
+    width: '58%',
   },
 });

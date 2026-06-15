@@ -9,6 +9,22 @@ CREATE TABLE IF NOT EXISTS accounts (
 CREATE INDEX IF NOT EXISTS idx_accounts_account_id
   ON accounts(account_id);
 
+CREATE TABLE IF NOT EXISTS account_kyc (
+  account_email TEXT PRIMARY KEY,
+  provider_user_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  full_name TEXT,
+  phone TEXT,
+  cccd_last4 TEXT,
+  cccd_hash TEXT,
+  dob TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_kyc_provider_user_id
+  ON account_kyc(provider_user_id);
+
 CREATE TABLE IF NOT EXISTS contacts (
   id TEXT PRIMARY KEY,
   data TEXT NOT NULL,

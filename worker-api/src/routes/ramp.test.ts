@@ -50,9 +50,15 @@ vi.mock("../core", () => ({
     email: "user@example.com",
     id: "account-1",
   })),
+  requireVerifiedKyc: vi.fn(async () => ({
+    accountEmail: "user@example.com",
+    providerUserId: "provider-user-1",
+    status: "verified",
+  })),
   shouldRequireMainnetAuth: (network: string) => network === "mainnet",
 }));
 
+import { requireVerifiedKyc } from "../core";
 import { registerRampRoutes } from "./ramp";
 
 type TestEnv = {
@@ -208,6 +214,11 @@ function feeResponse() {
 describe("payment ramp routes", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.mocked(requireVerifiedKyc).mockResolvedValue({
+      accountEmail: "user@example.com",
+      providerUserId: "provider-user-1",
+      status: "verified",
+    });
   });
 
   it("quotes buy orders with rate and minimum fee", async () => {
@@ -304,11 +315,37 @@ describe("payment ramp routes", () => {
       chain_id: 1,
       recipient: "GUSER",
       token_address: "",
-      user_id: "account-1",
+      user_id: "provider-user-1",
     });
     expect(fetchMock.mock.calls.at(-1)?.[1]?.headers).toEqual(
       expect.objectContaining({})
     );
+  });
+
+  it("requires KYC before creating a deposit order", async () => {
+    vi.mocked(requireVerifiedKyc).mockRejectedValueOnce(
+      Object.assign(new Error("KYC_REQUIRED"), { status: 403 })
+    );
+
+    const response = await createApp().request(
+      "/api/ramp/orders/deposit",
+      {
+        body: JSON.stringify({
+          amount: "10",
+          assetCode: "XLM",
+          network: "testnet",
+          sourceAddress: "GUSER",
+          sourceWalletId: "wallet-1",
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+      env
+    );
+    const body = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(403);
+    expect(body.error).toBe("KYC_REQUIRED");
   });
 
   it("creates a withdrawal order with normalized bank data", async () => {
@@ -363,7 +400,7 @@ describe("payment ramp routes", () => {
         full_name: "NGUYEN VAN A",
       },
       token_address: "GMAINUSDC",
-      user_id: "account-1",
+      user_id: "provider-user-1",
     });
   });
 

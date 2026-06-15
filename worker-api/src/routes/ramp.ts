@@ -11,6 +11,7 @@ import {
   normalizeNetwork,
   readJsonBody,
   requireAccountContext,
+  requireVerifiedKyc,
   shouldRequireMainnetAuth,
   type Env,
   type StellarNetwork,
@@ -641,7 +642,7 @@ async function getOrderContext(
     body,
     {
       network,
-      requireAuth: shouldRequireMainnetAuth(network),
+      requireAuth: true,
     }
   );
 
@@ -677,6 +678,7 @@ async function buildOrderPayload(
   const amount = assertAmount(body.amount);
   const assetCode = normalizeRampAsset(body.assetCode);
   const context = await getOrderContext(c, body, direction === "sell");
+  const kyc = await requireVerifiedKyc(c.env, context.account.email);
   const asset = await getSupportedAsset(c.env, {
     assetCode,
     network: context.network,
@@ -723,7 +725,7 @@ async function buildOrderPayload(
     chain_id: context.network === "testnet" ? 1 : 0,
     context,
     token_address: asset.assetIssuer || "",
-    user_id: context.account.id || context.account.email,
+    user_id: kyc.providerUserId,
   };
 }
 

@@ -48,12 +48,17 @@ Replay protection: requests older than 5 minutes are rejected.
 
 ## Rate Endpoints
 
-Rate endpoints return **our** prices, not raw exchange prices. Rates are based on Binance P2P median with spread + fee applied. Rates are cached for 30 seconds. These endpoints are public (no authentication required).
+Rate endpoints return **our** prices, not raw exchange prices. Rates are based on Binance P2P median with spread + fee applied. Rates are cached for 30 seconds. These endpoints require `Partner-App-Key` authentication. Fees are calculated as token config fee + partner-specific fee.
 
 ### Get USDC/VND Rate
 
 ```
 GET /api/rate/usdt_vnd
+```
+
+**Headers:**
+```
+Partner-App-Key: <your-partner-key>
 ```
 
 **Response (200):**
@@ -74,6 +79,11 @@ GET /api/rate/usdt_vnd
 GET /api/rate/xlm_vnd
 ```
 
+**Headers:**
+```
+Partner-App-Key: <your-partner-key>
+```
+
 **Response (200):**
 ```json
 {
@@ -85,6 +95,8 @@ GET /api/rate/xlm_vnd
   "min_fee_vnd": 5000
 }
 ```
+
+> **Note:** `fee_rate_buy` and `fee_rate_sell` are the combined rate (token config fee + partner fee). `min_fee_vnd` is read from the token config in the database.
 
 ---
 
@@ -265,6 +277,118 @@ Partner-App-Key: <your-partner-key>
   }
 }
 ```
+
+---
+
+### 2b. Create Deposit Order V2 (Buy Crypto — using Payment Method)
+
+```
+POST /api/orders/deposit_v2
+```
+
+**Headers:**
+```
+Content-Type: application/json
+Partner-App-Key: <your-partner-key>
+```
+
+**Body:**
+```json
+{
+  "amount": "100",
+  "chain_id": 1,
+  "asset_code": "USDC",
+  "token_address": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+  "callback": "https://your-server.com/webhook",
+  "user_id": 1,
+  "payment_method_id": 2
+}
+```
+
+**Parameters:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| amount | string | Yes | Amount to buy (e.g. "100") |
+| chain_id | integer | Yes | Network: 1=Stellar testnet, 0=Stellar mainnet |
+| asset_code | string | Yes | Token code: `USDC` or `XLM` |
+| token_address | string | No* | Token issuer. Required for USDC, empty for XLM |
+| callback | string | Yes | Webhook URL for state changes |
+| user_id | integer | Yes | ID of the registered user |
+| payment_method_id | integer | Yes | ID of user's CRYPTO payment method |
+
+*The `recipient` is automatically read from the payment method's `wallet_address` field.*
+
+**Validation:**
+- `user_id` must exist in the users table
+- `payment_method_id` must belong to `user_id`
+- Payment method must have `type = "CRYPTO"`
+- Payment method must have a non-empty `wallet_address`
+
+**Response (200):** Same format as `POST /api/orders/deposit`
+
+**Additional Error Codes:**
+| Code | Description |
+|------|-------------|
+| `USER_NOT_FOUND` | User ID does not exist |
+| `PAYMENT_METHOD_NOT_FOUND` | Payment method not found or doesn't belong to user |
+| `PAYMENT_METHOD_TYPE_MISMATCH` | Payment method must be CRYPTO type |
+| `PAYMENT_METHOD_MISSING_WALLET` | Payment method has no wallet address |
+
+---
+
+### 2c. Create Withdrawal Order V2 (Sell Crypto — using Payment Method)
+
+```
+POST /api/orders/withdrawal_v2
+```
+
+**Headers:**
+```
+Content-Type: application/json
+Partner-App-Key: <your-partner-key>
+```
+
+**Body:**
+```json
+{
+  "amount": "100",
+  "chain_id": 1,
+  "asset_code": "USDC",
+  "token_address": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+  "callback": "https://your-server.com/webhook",
+  "user_id": 1,
+  "payment_method_id": 1
+}
+```
+
+**Parameters:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| amount | string | Yes | Amount to sell |
+| chain_id | integer | Yes | Network: 1=Stellar testnet, 0=Stellar mainnet |
+| asset_code | string | Yes | Token code: `USDC` or `XLM` |
+| token_address | string | No* | Token issuer. Required for USDC, empty for XLM |
+| callback | string | Yes | Webhook URL for state changes |
+| user_id | integer | Yes | ID of the registered user |
+| payment_method_id | integer | Yes | ID of user's BANK payment method |
+
+*The `payment_info` (bank_id, full_name, account_number) is automatically read from the payment method.*
+
+**Validation:**
+- `user_id` must exist in the users table
+- `payment_method_id` must belong to `user_id`
+- Payment method must have `type = "BANK"`
+- Payment method must have `bank_id`, `full_name`, and `bank_account` populated
+
+**Response (200):** Same format as `POST /api/orders/withdrawal`
+
+**Additional Error Codes:**
+| Code | Description |
+|------|-------------|
+| `USER_NOT_FOUND` | User ID does not exist |
+| `PAYMENT_METHOD_NOT_FOUND` | Payment method not found or doesn't belong to user |
+| `PAYMENT_METHOD_TYPE_MISMATCH` | Payment method must be BANK type |
+| `PAYMENT_METHOD_MISSING_BANK_INFO` | Payment method is missing bank details |
 
 ---
 
@@ -627,7 +751,7 @@ GET /api/landing/p2p-history?days=7
 ### Bypass Buy Payment
 
 ```
-POST /bypass-payment
+POST /api/bypass/bypass-payment
 ```
 
 **Body:**
@@ -655,7 +779,7 @@ Possible errors: `INVALID_ADMIN_CODE`, `ORDER_NOT_FOUND`, `NOT_BUY_ORDER`, `ORDE
 ### Bypass Sell Payment
 
 ```
-POST /bypass-sell-payment
+POST /api/bypass/bypass-sell-payment
 ```
 
 **Body:**
@@ -1265,3 +1389,333 @@ Content-Type: application/json
 
 **Error (400):** `New password must be at least 8 characters`
 **Error (401):** `Current password is incorrect`
+
+---
+
+## User & KYC Endpoints
+
+All user endpoints require `Partner-App-Key` authentication.
+
+### KYC with CCCD (ID Card)
+
+```
+POST /api/users/kyc/id-card
+```
+
+**Headers:**
+```
+Content-Type: multipart/form-data
+Partner-App-Key: <your-partner-key>
+```
+
+**Form Data (multipart/form-data):**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| image_front | file | Yes | Front side of Vietnamese ID card (CCCD), JPEG/PNG |
+| image_back | file | Yes | Back side of Vietnamese ID card (CCCD), JPEG/PNG |
+| phone | string | No* | Phone number |
+| email | string | No* | Email address |
+
+*At least one of `phone` or `email` is required.
+
+**Flow:**
+1. Images received as multipart files
+2. Files uploaded to S3 for persistent storage (audit)
+3. Raw image buffers sent directly to FPT AI Vision API for OCR (no URL needed — FPT receives file bytes directly)
+4. If a user with the same ID number already exists, returns the existing user
+5. Otherwise creates a new user record and returns it
+
+**Response (201):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "id_number": "001234567890",
+    "name": "NGUYEN VAN A",
+    "dob": "1990-01-15",
+    "sex": "Nam",
+    "nationality": "Việt Nam",
+    "home": "Hà Nội",
+    "address": "123 Đường ABC, Quận XYZ",
+    "doe": "2030-01-15",
+    "phone": "0901234567",
+    "email": "user@example.com",
+    "created_at": "2026-06-13T10:00:00.000Z",
+    "updated_at": "2026-06-13T10:00:00.000Z"
+  }
+}
+```
+
+**Error (400):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "At least one of phone or email is required",
+    "retriable": false,
+    "trace_id": "req-123"
+  }
+}
+```
+
+---
+
+### Get User Info
+
+```
+GET /api/users/:identifier?type=id
+```
+
+**Headers:**
+```
+Partner-App-Key: <your-partner-key>
+```
+
+**Parameters:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| identifier | string (path) | Yes | The value to search by |
+| type | string (query) | No | Lookup field: `id`, `phone`, `email`, or `cccd` (default: `id`) |
+
+**Examples:**
+```
+GET /api/users/1?type=id
+GET /api/users/0901234567?type=phone
+GET /api/users/user@example.com?type=email
+GET /api/users/001234567890?type=cccd
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "id_number": "001234567890",
+    "name": "NGUYEN VAN A",
+    "dob": "1990-01-15",
+    "sex": "Nam",
+    "nationality": "Việt Nam",
+    "home": "Hà Nội",
+    "address": "123 Đường ABC, Quận XYZ",
+    "doe": "2030-01-15",
+    "phone": "0901234567",
+    "email": "user@example.com",
+    "created_at": "2026-06-13T10:00:00.000Z",
+    "updated_at": "2026-06-13T10:00:00.000Z"
+  }
+}
+```
+
+**Error (404):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "USER_NOT_FOUND",
+    "message": "User not found",
+    "retriable": false,
+    "trace_id": "req-123"
+  }
+}
+```
+
+---
+
+## Payment Method Endpoints
+
+All payment method endpoints require `Partner-App-Key` authentication.
+
+### List Payment Methods
+
+```
+GET /api/users/:user_id/payment
+```
+
+**Headers:**
+```
+Partner-App-Key: <your-partner-key>
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "user_id": 1,
+      "type": "BANK",
+      "wallet_address": null,
+      "bank_id": 970422,
+      "full_name": "NGUYEN VAN A",
+      "bank_account": "0123456789",
+      "created_at": "2026-06-13T10:00:00.000Z",
+      "updated_at": "2026-06-13T10:00:00.000Z"
+    },
+    {
+      "id": 2,
+      "user_id": 1,
+      "type": "CRYPTO",
+      "wallet_address": "GABC123...YZ",
+      "bank_id": null,
+      "full_name": null,
+      "bank_account": null,
+      "created_at": "2026-06-13T10:00:00.000Z",
+      "updated_at": "2026-06-13T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+### Add Payment Method
+
+```
+POST /api/users/:user_id/payment
+```
+
+**Headers:**
+```
+Content-Type: application/json
+Partner-App-Key: <your-partner-key>
+```
+
+**Body (Bank):**
+```json
+{
+  "type": "BANK",
+  "bank_id": 970422,
+  "full_name": "NGUYEN VAN A",
+  "bank_account": "0123456789"
+}
+```
+
+**Body (Crypto):**
+```json
+{
+  "type": "CRYPTO",
+  "wallet_address": "GABC123...YZ"
+}
+```
+
+**Parameters:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| type | string | Yes | `BANK` or `CRYPTO` |
+| wallet_address | string | No* | Crypto wallet address (required if type=CRYPTO) |
+| bank_id | integer | No* | Bank BIN code (required if type=BANK) |
+| full_name | string | No* | Account holder name (required if type=BANK) |
+| bank_account | string | No* | Bank account number (required if type=BANK) |
+
+**Response (201):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 3,
+    "user_id": 1,
+    "type": "BANK",
+    "wallet_address": null,
+    "bank_id": 970422,
+    "full_name": "NGUYEN VAN A",
+    "bank_account": "0123456789",
+    "created_at": "2026-06-13T10:00:00.000Z",
+    "updated_at": "2026-06-13T10:00:00.000Z"
+  }
+}
+```
+
+---
+
+### Update Payment Method
+
+```
+PATCH /api/users/:user_id/payment/:payment_id
+```
+
+**Headers:**
+```
+Content-Type: application/json
+Partner-App-Key: <your-partner-key>
+```
+
+**Body (all fields optional):**
+```json
+{
+  "bank_id": 970415,
+  "full_name": "NGUYEN VAN B",
+  "bank_account": "9876543210"
+}
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 3,
+    "user_id": 1,
+    "type": "BANK",
+    "wallet_address": null,
+    "bank_id": 970415,
+    "full_name": "NGUYEN VAN B",
+    "bank_account": "9876543210",
+    "created_at": "2026-06-13T10:00:00.000Z",
+    "updated_at": "2026-06-13T10:05:00.000Z"
+  }
+}
+```
+
+**Error (404):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "PAYMENT_METHOD_NOT_FOUND",
+    "message": "Payment method not found",
+    "retriable": false,
+    "trace_id": "req-123"
+  }
+}
+```
+
+---
+
+### Delete Payment Method
+
+```
+DELETE /api/users/:user_id/payment/:payment_id
+```
+
+**Headers:**
+```
+Partner-App-Key: <your-partner-key>
+```
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 3,
+    "deleted": true
+  }
+}
+```
+
+**Error (404):**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "PAYMENT_METHOD_NOT_FOUND",
+    "message": "Payment method not found",
+    "retriable": false,
+    "trace_id": "req-123"
+  }
+}
+```

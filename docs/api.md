@@ -140,7 +140,7 @@ Body session thường dùng:
 | API | Dùng để | Thành công | Thất bại |
 | --- | --- | --- | --- |
 | `GET /api/wallets` | Liệt kê Stellar wallets đang có trên Privy. | `200 { wallets }` | `500/502` lỗi Privy/env. |
-| `POST /api/wallets` | Tạo ví Stellar mới cho account hiện tại. Testnet có thể auto fund, mainnet phải nạp XLM thật. | `201 SessionResponse` | `401` mainnet thiếu token, `404` account không tồn tại, `500/502` lỗi Privy/backend. |
+| `POST /api/wallets` | Tạo ví Stellar mới cho account hiện tại. Luôn bắt buộc Privy Bearer token. Testnet có thể auto fund, mainnet phải nạp XLM thật. | `201 SessionResponse` | `401` thiếu/hết hạn token, `404` account không tồn tại, `500/502` lỗi Privy/backend. |
 | `POST /api/wallets/import` | Import Stellar secret key `S...` vào Privy. | `201 SessionResponse` | `400` secret sai, `401` thiếu token, `502` Privy chưa hỗ trợ import cho app. |
 | `POST /api/wallets/watch-only` | Thêm ví chỉ xem bằng public address `G...`. Ví này không ký giao dịch. | `201 SessionResponse` | `400` address sai, `401` mainnet thiếu token, `404` account không tồn tại. |
 | `POST /api/wallets/export` | Export private key/seed phrase. App cần biometric và xác nhận `EXPORT` trước khi gọi. | `200 { network, secret, type }` | `400` thiếu `EXPORT`, `401` thiếu token, `403` ví không thuộc account, `404` không thấy ví, `502` Privy chưa bật client export. |
@@ -160,25 +160,40 @@ Body tạo/watch/import/export ví thường dùng:
 }
 ```
 
-## Demo Wallet APIs
+Các API quản lý ví gửi token qua header và backend tự lấy email từ token:
+
+```http
+Authorization: Bearer <privy_identity_token>
+```
+
+Body không cần truyền `email`:
+
+```json
+{
+  "network": "testnet",
+  "walletId": "wallet_id",
+  "displayName": "Wallet name"
+}
+```
+
+## Wallet Management APIs
 
 | API | Dùng để | Thành công | Thất bại |
 | --- | --- | --- | --- |
 | `POST /api/demo/account` | Seed nhanh Privy user và Stellar wallet demo. | `201 { account }` | `400` email sai, `500/502` lỗi Privy/backend. |
-| `POST /api/demo/wallets` | Tạo thêm ví demo cho account email. | `201 SessionResponse` | `400` email sai, `404` account không tồn tại, `500/502` lỗi Privy/backend. |
-| `POST /api/demo/wallets/select` | Đổi ví active. | `200 SessionResponse` | `404` không tìm thấy ví active. |
-| `POST /api/demo/wallets/rename` | Đổi tên ví. | `200 SessionResponse` | `404` không tìm thấy ví. |
-| `POST /api/demo/wallets/archive` | Ẩn ví khỏi danh sách. | `200 SessionResponse` | `400` nếu ẩn ví cuối cùng, `404` không tìm thấy ví. |
+| `POST /api/wallets/select` | Đổi ví active. Bắt buộc Privy Bearer token. | `200 SessionResponse` | `401` thiếu/hết hạn token, `404` không tìm thấy ví active. |
+| `POST /api/wallets/rename` | Đổi tên ví. Bắt buộc Privy Bearer token. | `200 SessionResponse` | `401` thiếu/hết hạn token, `404` không tìm thấy ví. |
+| `POST /api/wallets/archive` | Ẩn ví khỏi danh sách. Bắt buộc Privy Bearer token. | `200 SessionResponse` | `400` nếu ẩn ví cuối cùng, `401` thiếu/hết hạn token, `404` không tìm thấy ví. |
+| `POST /api/demo/wallets` | Endpoint tương thích cũ để tạo thêm ví; vẫn bắt buộc Privy Bearer token. | `201 SessionResponse` | `401` thiếu/hết hạn token, `404` account không tồn tại, `500/502` lỗi Privy/backend. |
+| `POST /api/demo/wallets/select` | Alias tương thích cũ của `/api/wallets/select`; bắt buộc token. | `200 SessionResponse` | `401`, `404`. |
+| `POST /api/demo/wallets/rename` | Alias tương thích cũ của `/api/wallets/rename`; bắt buộc token. | `200 SessionResponse` | `401`, `404`. |
+| `POST /api/demo/wallets/archive` | Alias tương thích cũ của `/api/wallets/archive`; bắt buộc token. | `200 SessionResponse` | `400`, `401`, `404`. |
 | `POST /api/demo/receiver` | Tạo ví người nhận testnet, fund XLM test và add trustline demo để test send token. | `201 { contact, balance }` | `500/502` lỗi Privy/Friendbot/Horizon. |
 
-Body demo wallet thường dùng:
+Body tạo receiver demo thường dùng:
 
 ```json
 {
-  "email": "user@example.com",
-  "network": "testnet",
-  "walletId": "wallet_id",
-  "displayName": "Wallet name",
   "label": "Người nhận demo"
 }
 ```
