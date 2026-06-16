@@ -9,7 +9,8 @@
     "server": "npm --prefix be run start",
     "start": "npm --prefix mobile run start",
     "test": "npm --prefix mobile run test",
-    "db:migrate-json": "npm --prefix be run db:migrate-json"
+    "db:migrate-json": "npm --prefix be run db:migrate-json",
+    "deploy": "npm --prefix be run deploy"
   },
   "engines": {
     "node": ">=20"
