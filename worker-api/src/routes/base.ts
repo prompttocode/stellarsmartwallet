@@ -501,58 +501,6 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
   app.post('/api/wallets/rename', renameWallet);
   app.post('/api/wallets/archive', archiveWallet);
 
-  app.post('/api/demo/wallets', async c => {
-    const body = await readJsonBody(c);
-    const network = normalizeNetwork(body.network);
-    const account = await requireAccountContext(
-      c.env,
-      c.req.header('authorization'),
-      body,
-      {
-        network,
-        requireAuth: true,
-      },
-    );
-    const nextWalletNumber = (account.wallets || []).length + 1;
-    const displayName = sanitizeWalletName(
-      body.displayName,
-      `Stellar ${network} ${nextWalletNumber}`,
-    );
-    const wallet = normalizeWallet(
-      await createSignableStellarWallet(c.env, account.email, displayName),
-      {
-        archived: false,
-        canSign: true,
-        displayName,
-        kind: 'privy',
-        network,
-      },
-    );
-
-    if (network === 'testnet' && body.fund !== false) {
-      await friendbotFund(c.env, wallet.address, network);
-    }
-
-    const nextAccount = await saveAccount(
-      c.env,
-      normalizeAccountWallets(
-        {
-          ...account,
-          activeWalletId: wallet.id,
-          wallet,
-          wallets: [...(account.wallets || []), wallet],
-        },
-        network,
-      ),
-    );
-
-    return c.json(await buildAccountSession(c.env, nextAccount, network), 201);
-  });
-
-  app.post('/api/demo/wallets/select', selectWallet);
-  app.post('/api/demo/wallets/rename', renameWallet);
-  app.post('/api/demo/wallets/archive', archiveWallet);
-
   app.post('/api/demo/receiver', async c => {
     const body = await readJsonBody(c);
     const network: StellarNetwork = 'testnet';

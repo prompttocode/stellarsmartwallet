@@ -728,6 +728,10 @@ export function useWallet() {
   }, [isReady, userKey]);
 
   async function getAuthHeaders(required = false) {
+    if (!required) {
+      return undefined;
+    }
+
     const identityToken = await getTokenWithRetry(getIdentityToken);
     setPrivySessionReady(Boolean(identityToken));
 
@@ -1799,7 +1803,7 @@ export function useWallet() {
         });
       }
 
-      const headers = await getAuthHeaders(isMainnet);
+      const headers = await getAuthHeaders(true);
       const endpoint =
         direction === 'buy'
           ? '/api/ramp/orders/deposit'
@@ -1832,7 +1836,6 @@ export function useWallet() {
 
   async function fetchRampOrder(orderReference: string) {
     const params = new URLSearchParams();
-    const headers = await getAuthHeaders(isMainnet);
 
     if (account && wallet) {
       params.set('email', account.email);
@@ -1854,7 +1857,6 @@ export function useWallet() {
       `/api/ramp/orders/${encodeURIComponent(orderReference)}${
         query ? `?${query}` : ''
       }`,
-      { headers },
     );
     const nextOrder = mergeRampOrderDetails(activeRampOrder, result.data);
     const completedNow =
@@ -1938,7 +1940,7 @@ export function useWallet() {
     }
 
     return run('Confirming test payment', async () => {
-      const headers = await getAuthHeaders(false);
+      const headers = await getAuthHeaders(true);
       const result = await api<RampApiResponse<RampOrder>>(
         `/api/ramp/orders/${encodeURIComponent(orderReference)}/bypass-payment`,
         {
@@ -1980,7 +1982,7 @@ export function useWallet() {
     }
 
     return run('Confirming test crypto receipt', async () => {
-      const headers = await getAuthHeaders(false);
+      const headers = await getAuthHeaders(true);
       const result = await api<RampApiResponse<RampOrder>>(
         `/api/ramp/orders/${encodeURIComponent(
           orderReference,

@@ -187,10 +187,6 @@ Body không cần truyền `email`:
 | `POST /api/wallets/select` | Đổi ví active. Bắt buộc Privy Bearer token. | `200 SessionResponse` | `401` thiếu/hết hạn token, `404` không tìm thấy ví active. |
 | `POST /api/wallets/rename` | Đổi tên ví. Bắt buộc Privy Bearer token. | `200 SessionResponse` | `401` thiếu/hết hạn token, `404` không tìm thấy ví. |
 | `POST /api/wallets/archive` | Ẩn ví khỏi danh sách. Bắt buộc Privy Bearer token. | `200 SessionResponse` | `400` nếu ẩn ví cuối cùng, `401` thiếu/hết hạn token, `404` không tìm thấy ví. |
-| `POST /api/demo/wallets` | Endpoint tương thích cũ để tạo thêm ví; vẫn bắt buộc Privy Bearer token. | `201 SessionResponse` | `401` thiếu/hết hạn token, `404` account không tồn tại, `500/502` lỗi Privy/backend. |
-| `POST /api/demo/wallets/select` | Alias tương thích cũ của `/api/wallets/select`; bắt buộc token. | `200 SessionResponse` | `401`, `404`. |
-| `POST /api/demo/wallets/rename` | Alias tương thích cũ của `/api/wallets/rename`; bắt buộc token. | `200 SessionResponse` | `401`, `404`. |
-| `POST /api/demo/wallets/archive` | Alias tương thích cũ của `/api/wallets/archive`; bắt buộc token. | `200 SessionResponse` | `400`, `401`, `404`. |
 | `POST /api/demo/receiver` | Tạo ví người nhận testnet, fund XLM test và add trustline demo để test send token. | `201 { contact, balance }` | `500/502` lỗi Privy/Friendbot/Horizon. |
 
 Body tạo receiver demo thường dùng:

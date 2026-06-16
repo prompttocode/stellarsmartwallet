@@ -68,10 +68,6 @@ Nhom session/wallet:
 - `POST /api/wallets/select` (Privy Bearer token required)
 - `POST /api/wallets/rename` (Privy Bearer token required)
 - `POST /api/wallets/archive` (Privy Bearer token required)
-- `POST /api/demo/wallets` (legacy compatibility, Privy Bearer token required)
-- `POST /api/demo/wallets/select` (legacy alias, Privy Bearer token required)
-- `POST /api/demo/wallets/rename` (legacy alias, Privy Bearer token required)
-- `POST /api/demo/wallets/archive` (legacy alias, Privy Bearer token required)
 - `POST /api/demo/receiver`
 
 Nhom Stellar:
