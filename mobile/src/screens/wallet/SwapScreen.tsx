@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, Text, TextInput, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import ReactNativeBiometrics from 'react-native-biometrics';
@@ -114,11 +114,14 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
           });
 
           if (!success) {
-            Alert.alert('Authentication failed', 'The swap was not submitted.');
+            wallet.showErrorDialog(
+              'The swap was not submitted.',
+              'Authentication failed',
+            );
             return;
           }
         } catch {
-          Alert.alert('Biometric error', 'Please try again.');
+          wallet.showErrorDialog('Please try again.', 'Biometric error');
           return;
         }
       }

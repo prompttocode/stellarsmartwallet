@@ -1,6 +1,7 @@
-import React, { ReactNode, useState } from 'react';
+import React, { ReactNode, useEffect, useState } from 'react';
 import {
   Alert,
+  AppState,
   Modal,
   ScrollView,
   Share,
@@ -168,6 +169,9 @@ export function SettingsScreen({
   const [toolMode, setToolMode] = useState<ToolMode>(null);
   const [toolValue, setToolValue] = useState('');
   const [toolName, setToolName] = useState('');
+  const [backupVisible, setBackupVisible] = useState(false);
+  const [backupConfirmation, setBackupConfirmation] = useState('');
+  const [recoverySecret, setRecoverySecret] = useState('');
 
   const activeWallet =
     wallet.wallets.find(item => item.id === wallet.activeWalletId) ||
@@ -193,13 +197,31 @@ export function SettingsScreen({
     setToolName('');
   }
 
+  function closeBackupModal() {
+    setBackupVisible(false);
+    setBackupConfirmation('');
+    setRecoverySecret('');
+  }
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextState => {
+      if (nextState !== 'active') {
+        setBackupVisible(false);
+        setBackupConfirmation('');
+        setRecoverySecret('');
+      }
+    });
+
+    return () => subscription.remove();
+  }, []);
+
   async function requirePrivyToolSession() {
     const hasPrivyToken = await wallet.refreshPrivySecuritySession();
 
     if (!hasPrivyToken) {
       Alert.alert(
         'Privy sign-in required',
-        'Importing a Stellar secret key needs an active Privy session. Please sign out and sign in again with email OTP or Google.',
+        'This security action needs an active Privy session. Please sign out and sign in again with email OTP or Google.',
       );
       closeToolModal();
       return false;
@@ -221,6 +243,62 @@ export function SettingsScreen({
     setTimeout(() => {
       openTool(mode).catch(() => null);
     }, 260);
+  }
+
+  async function openBackupRecovery() {
+    if (!activeWallet?.canSign) {
+      Alert.alert(
+        'Recovery key unavailable',
+        'Watch-only wallets do not contain a private recovery key.',
+      );
+      return;
+    }
+
+    if (!(await requirePrivyToolSession())) {
+      return;
+    }
+
+    setDetailSheet(null);
+    setBackupConfirmation('');
+    setRecoverySecret('');
+    setTimeout(() => setBackupVisible(true), 260);
+  }
+
+  async function revealRecoveryKey() {
+    if (backupConfirmation.trim() !== 'EXPORT') {
+      Alert.alert('Confirmation required', 'Enter EXPORT exactly to continue.');
+      return;
+    }
+
+    const result = await wallet.exportWalletSecret(
+      backupConfirmation.trim(),
+    );
+
+    if (
+      result &&
+      activeWallet &&
+      result.address === activeWallet.address &&
+      result.secret.startsWith('S')
+    ) {
+      setRecoverySecret(result.secret);
+    } else if (result) {
+      Alert.alert(
+        'Recovery key rejected',
+        'The exported key did not match the selected Stellar wallet.',
+      );
+    }
+  }
+
+  function copyRecoveryKey() {
+    if (!recoverySecret) {
+      return;
+    }
+
+    Clipboard.setString(recoverySecret);
+    Alert.alert(
+      'Recovery key copied',
+      'Paste it into secure offline storage or a trusted password manager. Clipboard contents may be visible to other apps.',
+    );
   }
 
   async function submitTool() {
@@ -359,6 +437,107 @@ export function SettingsScreen({
                 </Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
+  function renderBackupModal() {
+    return (
+      <Modal
+        animationType="fade"
+        onRequestClose={closeBackupModal}
+        transparent
+        visible={backupVisible}
+      >
+        <View style={styles.centerModalOverlay}>
+          <View style={styles.toolModal}>
+            <View style={styles.toolModalIcon}>
+              <Ionicons color="#FFFFFF" name="key-outline" size={24} />
+            </View>
+            <Text style={styles.toolModalTitle}>
+              {recoverySecret ? 'Recovery key' : 'Back up recovery key'}
+            </Text>
+            {recoverySecret ? (
+              <>
+                <Text style={styles.toolModalText}>
+                  This Stellar secret key restores the selected wallet through
+                  Import wallet. Anyone who has it can control the funds.
+                </Text>
+                <View style={styles.recoveryKeyBox}>
+                  <Text style={styles.recoveryKeyLabel}>
+                    STELLAR SECRET KEY
+                  </Text>
+                  <Text selectable style={styles.recoveryKeyText}>
+                    {recoverySecret}
+                  </Text>
+                </View>
+                <Text style={styles.recoveryAddress}>
+                  Wallet: {activeWallet?.address || 'Unavailable'}
+                </Text>
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    onPress={copyRecoveryKey}
+                    style={styles.modalSecondaryButton}
+                  >
+                    <Text style={styles.modalSecondaryText}>Copy key</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={closeBackupModal}
+                    style={styles.modalPrimaryButton}
+                  >
+                    <Text style={styles.modalPrimaryText}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.toolModalText}>
+                  The app will ask for biometric confirmation, then show the
+                  Stellar S... key once. Store it offline and never share it.
+                </Text>
+                <View style={styles.recoveryWarning}>
+                  <Ionicons
+                    color="#FFB020"
+                    name="warning-outline"
+                    size={20}
+                  />
+                  <Text style={styles.recoveryWarningText}>
+                    Support staff will never ask for this key.
+                  </Text>
+                </View>
+                <TextInput
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  onChangeText={setBackupConfirmation}
+                  placeholder="Type EXPORT"
+                  placeholderTextColor="#9499A2"
+                  style={styles.input}
+                  value={backupConfirmation}
+                />
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    onPress={closeBackupModal}
+                    style={styles.modalSecondaryButton}
+                  >
+                    <Text style={styles.modalSecondaryText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    disabled={wallet.isBusy}
+                    onPress={revealRecoveryKey}
+                    style={[
+                      styles.modalPrimaryButton,
+                      wallet.isBusy ? styles.rowDisabled : null,
+                    ]}
+                  >
+                    <Text style={styles.modalPrimaryText}>
+                      {wallet.isBusy ? wallet.busy : 'Reveal key'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -717,6 +896,18 @@ export function SettingsScreen({
           </Text>
         </View>
         <View style={styles.detailGroup}>
+          <SettingsRow
+            disabled={!activeWallet?.canSign}
+            icon="key-outline"
+            onPress={openBackupRecovery}
+            subtitle={
+              activeWallet?.canSign
+                ? 'Reveal the Stellar S... key for independent recovery'
+                : 'Unavailable for watch-only wallets'
+            }
+            title="Backup recovery key"
+          />
+          <View style={styles.divider} />
           <DetailRow
             icon="finger-print"
             label="Mainnet transactions"
@@ -768,8 +959,8 @@ export function SettingsScreen({
           <View style={styles.divider} />
           <DetailRow
             icon="lock-closed-outline"
-            label="Recovery phrase"
-            value="Unavailable for Privy-created Stellar wallets"
+            label="Wallet recovery"
+            value="Use Backup recovery key to export the Stellar S... key. Restore it later with Import wallet."
           />
         </View>
       </BottomSheet>
@@ -781,6 +972,7 @@ export function SettingsScreen({
       />
 
       {renderToolModal()}
+      {renderBackupModal()}
     </>
   );
 }
@@ -1066,6 +1258,49 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 5,
+  },
+  recoveryAddress: {
+    color: '#A1B0C8',
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 9,
+  },
+  recoveryKeyBox: {
+    backgroundColor: '#000000',
+    borderColor: 'rgba(184,255,69,0.3)',
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 8,
+    marginTop: 16,
+    padding: 14,
+  },
+  recoveryKeyLabel: {
+    color: '#B8FF45',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  recoveryKeyText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 22,
+  },
+  recoveryWarning: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,176,32,0.12)',
+    borderRadius: 14,
+    flexDirection: 'row',
+    gap: 9,
+    marginTop: 14,
+    padding: 12,
+  },
+  recoveryWarningText: {
+    color: '#FFD27A',
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
   },
   row: {
     alignItems: 'center',

@@ -552,18 +552,50 @@ export async function importStellarWallet({
 export async function exportStellarWalletSecret(
   env: Env,
   walletId: string,
-  type: 'private_key' | 'seed_phrase' = 'private_key',
+  expectedAddress: string,
 ) {
   const wallets = (getPrivyClient(env) as any).wallets();
-  const result =
-    type === 'seed_phrase'
-      ? await wallets.exportSeedPhrase(walletId, { export_type: 'client' })
-      : await wallets.exportPrivateKey(walletId, { export_type: 'client' });
+  const remoteWallet = await wallets.get(walletId);
 
-  return {
-    secret:
-      type === 'seed_phrase' ? result?.seed_phrase : result?.private_key,
-  };
+  if (String(remoteWallet?.address || '') !== expectedAddress) {
+    throw makeError('Privy wallet does not match the selected Stellar wallet', 502);
+  }
+
+  const result = await wallets.exportPrivateKey(walletId, {});
+  const exportedKey = String(
+    result?.private_key ||
+      result?.privateKey ||
+      result?.data?.private_key ||
+      result?.data?.privateKey ||
+      '',
+  ).trim();
+
+  if (!exportedKey) {
+    throw makeError('Privy did not return a wallet private key', 502);
+  }
+
+  let keypair: Keypair;
+
+  if (exportedKey.startsWith('S')) {
+    keypair = assertSecretKey(exportedKey, 'Exported Stellar secret key');
+  } else {
+    const cleanHex = exportedKey.replace(/^0x/i, '');
+
+    if (!/^[0-9a-f]{64}$/i.test(cleanHex)) {
+      throw makeError('Privy returned an unsupported Stellar key format', 502);
+    }
+
+    const seed = new Uint8Array(
+      cleanHex.match(/.{2}/g)!.map(byte => Number.parseInt(byte, 16)),
+    );
+    keypair = Keypair.fromRawEd25519Seed(seed);
+  }
+
+  if (keypair.publicKey() !== expectedAddress) {
+    throw makeError('Exported key does not match the selected Stellar wallet', 502);
+  }
+
+  return { secret: keypair.secret() };
 }
 
 export function normalizeWallet(

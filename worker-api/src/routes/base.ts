@@ -317,8 +317,6 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     const network = normalizeNetwork(body.network);
     const sourceWalletId = String(body.walletId || '').trim();
     const confirmation = String(body.confirmation || '').trim();
-    const exportType =
-      body.type === 'seed_phrase' ? 'seed_phrase' : 'private_key';
     const account = await requireAccountContext(c.env, c.req.header('authorization'), body, {
       network,
       requireAuth: true,
@@ -342,12 +340,21 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
       throw makeError('Enter EXPORT to confirm secret export', 400);
     }
 
-    const result = await exportStellarWalletSecret(c.env, sourceWalletId, exportType);
+    const result = await exportStellarWalletSecret(
+      c.env,
+      sourceWalletId,
+      wallet.address,
+    );
+
+    c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
+    c.header('Pragma', 'no-cache');
+    c.header('Expires', '0');
 
     return c.json({
+      address: wallet.address,
       network,
       secret: result.secret,
-      type: exportType,
+      type: 'private_key' as const,
     });
   });
 

@@ -11,13 +11,18 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
+import { Image as ImageCompressor } from 'react-native-compressor';
 import {
   default as DocumentScanner,
   ResponseType,
   ScanDocumentResponseStatus,
 } from 'react-native-document-scanner-plugin';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import {
   ModernScreenHeader,
   PressScale,
@@ -27,10 +32,24 @@ import type { WalletState } from '@hooks/useWallet';
 
 type CaptureSide = 'front' | 'back';
 type Step = 'intro' | 'guide' | 'preview';
+type PreparedKycImage = {
+  base64: string;
+  sizeBytes: number;
+  uri: string;
+};
 
 const ID_CARD_ASPECT_RATIO = 85.6 / 54;
 const GUIDE_WIDTH_RATIO = 0.86;
 const GUIDE_MAX_WIDTH = 460;
+const TARGET_IMAGE_BYTES = 450 * 1024;
+const MAX_IMAGE_BYTES = 500 * 1024;
+const COMPRESSION_PROFILES = [
+  { maxHeight: 1100, maxWidth: 1600, quality: 0.82 },
+  { maxHeight: 1050, maxWidth: 1500, quality: 0.76 },
+  { maxHeight: 1000, maxWidth: 1400, quality: 0.7 },
+  { maxHeight: 900, maxWidth: 1280, quality: 0.64 },
+  { maxHeight: 800, maxWidth: 1150, quality: 0.58 },
+] as const;
 
 function sideLabel(side: CaptureSide) {
   return side === 'front' ? 'front side' : 'back side';
@@ -40,6 +59,79 @@ function sideHint(side: CaptureSide) {
   return side === 'front'
     ? 'Front: portrait, ID number and full name.'
     : 'Back: fingerprints and MRZ code.';
+}
+
+async function getFileSizeBytes(uri: string) {
+  const info = await FileSystem.getInfoAsync(uri);
+
+  if (!info.exists || info.isDirectory) {
+    throw new Error('The scanned image file is unavailable.');
+  }
+
+  return info.size;
+}
+
+async function deleteTemporaryImage(uri?: string, protectedUri?: string) {
+  if (!uri || uri === protectedUri) {
+    return;
+  }
+
+  try {
+    await FileSystem.deleteAsync(uri, { idempotent: true });
+  } catch {
+    // Temporary scanner files may already have been removed by the OS.
+  }
+}
+
+async function prepareKycImage(sourceUri: string): Promise<PreparedKycImage> {
+  let bestUri = sourceUri;
+  let bestSize = await getFileSizeBytes(sourceUri);
+
+  if (bestSize > TARGET_IMAGE_BYTES) {
+    for (const profile of COMPRESSION_PROFILES) {
+      const compressedUri = await ImageCompressor.compress(sourceUri, {
+        compressionMethod: 'manual',
+        input: 'uri',
+        maxHeight: profile.maxHeight,
+        maxWidth: profile.maxWidth,
+        output: 'jpg',
+        quality: profile.quality,
+        returnableOutputType: 'uri',
+      });
+      const compressedSize = await getFileSizeBytes(compressedUri);
+
+      if (compressedSize < bestSize) {
+        await deleteTemporaryImage(bestUri, sourceUri);
+        bestUri = compressedUri;
+        bestSize = compressedSize;
+      } else {
+        await deleteTemporaryImage(compressedUri, sourceUri);
+      }
+
+      if (bestSize <= TARGET_IMAGE_BYTES) {
+        break;
+      }
+    }
+  }
+
+  if (bestSize > MAX_IMAGE_BYTES) {
+    await deleteTemporaryImage(bestUri, sourceUri);
+    throw new Error(
+      'The scanned image is still too large. Please scan closer to the card and try again.',
+    );
+  }
+
+  const base64 = await FileSystem.readAsStringAsync(bestUri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+
+  await deleteTemporaryImage(sourceUri, bestUri);
+
+  return {
+    base64,
+    sizeBytes: bestSize,
+    uri: bestUri,
+  };
 }
 
 export function KycScreen({
@@ -53,16 +145,14 @@ export function KycScreen({
   const screenInsetStyle = useSafeScreenInsetStyle();
   const [step, setStep] = useState<Step>('intro');
   const [captureSide, setCaptureSide] = useState<CaptureSide>('front');
-  const [frontBase64, setFrontBase64] = useState('');
-  const [backBase64, setBackBase64] = useState('');
+  const [frontImage, setFrontImage] = useState<PreparedKycImage | null>(null);
+  const [backImage, setBackImage] = useState<PreparedKycImage | null>(null);
   const [phone, setPhone] = useState('');
   const [scanning, setScanning] = useState(false);
+  const [processingImage, setProcessingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const currentBase64 =
-    captureSide === 'front' ? frontBase64 : backBase64;
-  const currentPreviewUri = currentBase64
-    ? `data:image/jpeg;base64,${currentBase64}`
-    : '';
+  const currentImage = captureSide === 'front' ? frontImage : backImage;
+  const currentPreviewUri = currentImage?.uri || '';
   const cameraHeaderStyle = useMemo(
     () => [styles.cameraHeader, { paddingTop: insets.top + 8 }],
     [insets.top],
@@ -70,11 +160,14 @@ export function KycScreen({
   const verified = wallet.kyc.status === 'verified';
 
   function resetCaptureSession() {
+    deleteTemporaryImage(frontImage?.uri).catch(() => null);
+    deleteTemporaryImage(backImage?.uri).catch(() => null);
     setStep('intro');
     setCaptureSide('front');
-    setFrontBase64('');
-    setBackBase64('');
+    setFrontImage(null);
+    setBackImage(null);
     setScanning(false);
+    setProcessingImage(false);
     setSubmitting(false);
   }
 
@@ -88,7 +181,7 @@ export function KycScreen({
   }
 
   function handleCaptureBack() {
-    if (step === 'guide' && captureSide === 'back' && frontBase64) {
+    if (step === 'guide' && captureSide === 'back' && frontImage) {
       setCaptureSide('front');
       setStep('preview');
       return;
@@ -140,21 +233,34 @@ export function KycScreen({
       const result = await DocumentScanner.scanDocument({
         croppedImageQuality: 100,
         maxNumDocuments: 1,
-        responseType: ResponseType.Base64,
+        responseType: ResponseType.ImageFilePath,
       });
-      const scannedImage = result.scannedImages?.[0];
+      const scannedImageUri = result.scannedImages?.[0];
 
       if (
         result.status === ScanDocumentResponseStatus.Cancel ||
-        !scannedImage
+        !scannedImageUri
       ) {
         return false;
       }
 
+      setProcessingImage(true);
+      const preparedImage = await prepareKycImage(scannedImageUri);
+
       if (side === 'front') {
-        setFrontBase64(scannedImage);
+        setFrontImage(current => {
+          deleteTemporaryImage(current?.uri, preparedImage.uri).catch(
+            () => null,
+          );
+          return preparedImage;
+        });
       } else {
-        setBackBase64(scannedImage);
+        setBackImage(current => {
+          deleteTemporaryImage(current?.uri, preparedImage.uri).catch(
+            () => null,
+          );
+          return preparedImage;
+        });
       }
 
       setCaptureSide(side);
@@ -169,6 +275,7 @@ export function KycScreen({
       );
       return false;
     } finally {
+      setProcessingImage(false);
       setScanning(false);
     }
   }
@@ -193,7 +300,7 @@ export function KycScreen({
   }
 
   async function submitKyc() {
-    if (!frontBase64 || !backBase64 || submitting) {
+    if (!frontImage || !backImage || submitting) {
       return;
     }
 
@@ -201,8 +308,8 @@ export function KycScreen({
 
     try {
       const result = await wallet.submitKycIdCard({
-        imageBackBase64: backBase64,
-        imageFrontBase64: frontBase64,
+        imageBackBase64: backImage.base64,
+        imageFrontBase64: frontImage.base64,
         phone: phone.replace(/\D/g, ''),
       });
 
@@ -223,8 +330,10 @@ export function KycScreen({
           {
             onPress: () => {
               setCaptureSide('front');
-              setFrontBase64('');
-              setBackBase64('');
+              deleteTemporaryImage(frontImage?.uri).catch(() => null);
+              deleteTemporaryImage(backImage?.uri).catch(() => null);
+              setFrontImage(null);
+              setBackImage(null);
               scanSide('front').catch(() => null);
             },
             text: 'Retake front',
@@ -232,7 +341,8 @@ export function KycScreen({
           {
             onPress: () => {
               setCaptureSide('back');
-              setBackBase64('');
+              deleteTemporaryImage(backImage?.uri).catch(() => null);
+              setBackImage(null);
               scanSide('back').catch(() => null);
             },
             text: 'Retake back',
@@ -246,11 +356,7 @@ export function KycScreen({
 
   if (step === 'intro') {
     return (
-      <ScrollView
-        contentContainerStyle={[screenInsetStyle, styles.content]}
-        showsVerticalScrollIndicator={false}
-        style={styles.screen}
-      >
+      <SafeAreaView style={styles.screen}>
         <ModernScreenHeader
           onBack={closeScreen}
           subtitle="Verify before using VND buy and withdrawal."
@@ -265,8 +371,8 @@ export function KycScreen({
             {verified ? 'Identity verified' : 'Verify your CCCD'}
           </Text>
           <Text style={styles.heroText}>
-            Capture the front and back of your Vietnamese ID card. Keep all
-            four corners visible and avoid glare.
+            Capture the front and back of your Vietnamese ID card. Keep all four
+            corners visible and avoid glare.
           </Text>
         </View>
 
@@ -304,7 +410,7 @@ export function KycScreen({
             {verified ? 'Verify again' : 'Continue'}
           </Text>
         </PressScale>
-      </ScrollView>
+      </SafeAreaView>
     );
   }
 
@@ -379,7 +485,9 @@ export function KycScreen({
           style={[styles.primaryButton, styles.primaryButtonStretch]}
         >
           <Text style={styles.primaryButtonText}>
-            {scanning
+            {processingImage
+              ? 'Optimizing image...'
+              : scanning
               ? 'Opening scanner...'
               : `Scan ${sideLabel(captureSide)}`}
           </Text>
@@ -398,9 +506,7 @@ export function KycScreen({
           <Text numberOfLines={1} style={styles.cameraTitle}>
             Capture {sideLabel(captureSide)}
           </Text>
-          <Text style={styles.cameraSubtitle}>
-            {sideHint(captureSide)}
-          </Text>
+          <Text style={styles.cameraSubtitle}>{sideHint(captureSide)}</Text>
         </View>
       </View>
 
@@ -441,27 +547,30 @@ export function KycScreen({
               style={[styles.primaryButton, styles.scanAgainButton]}
             >
               <Text style={styles.primaryButtonText}>
-                {scanning ? 'Opening scanner...' : 'Open scanner'}
+                {processingImage
+                  ? 'Optimizing image...'
+                  : scanning
+                  ? 'Opening scanner...'
+                  : 'Open scanner'}
               </Text>
             </PressScale>
           </View>
         )}
       </View>
 
-      <View style={[styles.cameraActions, { paddingBottom: insets.bottom + 16 }]}>
+      <View
+        style={[styles.cameraActions, { paddingBottom: insets.bottom + 16 }]}
+      >
         <View style={styles.progressRow}>
           <View
             style={[
               styles.progressDot,
-              frontBase64 ? styles.progressDone : null,
+              frontImage ? styles.progressDone : null,
             ]}
           />
           <Text style={styles.progressText}>Front</Text>
           <View
-            style={[
-              styles.progressDot,
-              backBase64 ? styles.progressDone : null,
-            ]}
+            style={[styles.progressDot, backImage ? styles.progressDone : null]}
           />
           <Text style={styles.progressText}>Back</Text>
         </View>
@@ -817,6 +926,8 @@ const styles = StyleSheet.create({
   },
   screen: {
     backgroundColor: '#000000',
+    flex: 1,
+    paddingHorizontal: 16,
   },
   scanAgainButton: {
     marginTop: 8,

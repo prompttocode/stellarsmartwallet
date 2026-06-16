@@ -51,6 +51,11 @@ type RunOptions = {
   showAlert?: boolean;
 };
 
+type ErrorDialogState = {
+  message: string;
+  title: string;
+};
+
 const LEGACY_LOCAL_SESSION_STORAGE_KEYS = [
   'lobstr-demo-session-email',
   'lobstr-demo-session-network',
@@ -271,6 +276,9 @@ export function useWallet() {
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [errorDialog, setErrorDialog] = useState<ErrorDialogState | null>(
+    null,
+  );
   const [message, setMessage] = useState(
     'Enter your email to receive a Privy login code.',
   );
@@ -308,6 +316,17 @@ export function useWallet() {
     );
   }, []);
 
+  const dismissErrorDialog = useCallback(() => {
+    setErrorDialog(null);
+  }, []);
+
+  const showErrorDialog = useCallback((messageText: string, title = 'Error') => {
+    setErrorDialog({
+      message: messageText,
+      title,
+    });
+  }, []);
+
   const run = useCallback(
     async <T>(
       label: string,
@@ -316,13 +335,21 @@ export function useWallet() {
     ) => {
       try {
         setBusy(label);
+        if (options.showAlert !== false) {
+          setErrorDialog(null);
+        }
+
         return await action();
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         setMessage(errorMessage);
 
         if (options.showAlert !== false) {
-          Alert.alert('Error', errorMessage);
+          setBusy(null);
+          setErrorDialog({
+            message: errorMessage,
+            title: 'Error',
+          });
         }
 
         return null;
@@ -1450,30 +1477,26 @@ export function useWallet() {
       return null;
     }
 
-    return run(
-      `Quote ${fromAssetCode}`,
-      async () => {
-        const fromAsset = visibleAssets.find(
-          asset => asset.assetCode === fromAssetCode,
-        );
-        const toAsset = visibleAssets.find(
-          asset => asset.assetCode === toAssetCode,
-        );
+    return run(`Quote ${fromAssetCode}`, async () => {
+      const fromAsset = visibleAssets.find(
+        asset => asset.assetCode === fromAssetCode,
+      );
+      const toAsset = visibleAssets.find(
+        asset => asset.assetCode === toAssetCode,
+      );
 
-        return api<SwapQuoteResult>(`/api/stellar/${network}/swap/quote`, {
-          method: 'POST',
-          body: JSON.stringify({
-            amount: swapAmount,
-            fromAssetCode,
-            fromAssetIssuer: fromAsset?.assetIssuer || null,
-            sourceAddress: wallet.address,
-            toAssetCode,
-            toAssetIssuer: toAsset?.assetIssuer || null,
-          }),
-        });
-      },
-      { showAlert: false },
-    );
+      return api<SwapQuoteResult>(`/api/stellar/${network}/swap/quote`, {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: swapAmount,
+          fromAssetCode,
+          fromAssetIssuer: fromAsset?.assetIssuer || null,
+          sourceAddress: wallet.address,
+          toAssetCode,
+          toAssetIssuer: toAsset?.assetIssuer || null,
+        }),
+      });
+    });
   }
 
   async function searchAssets(query: string, options?: { limit?: number }) {
@@ -1519,6 +1542,47 @@ export function useWallet() {
       const toAsset = visibleAssets.find(
         asset => asset.assetCode === toAssetCode,
       );
+      const requestedAmount = Number(String(swapAmount).replace(',', '.'));
+
+      if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+        throw new Error('Enter a valid swap amount.');
+      }
+
+      if (!fromAsset || !toAsset) {
+        throw new Error('Selected swap asset is not available.');
+      }
+
+      const fromBalance = balances.find(
+        balance =>
+          balance.assetCode === fromAssetCode &&
+          (balance.assetIssuer || null) ===
+            (fromAsset.assetIssuer || null),
+      );
+      const availableBalance = Number(
+        fromBalance?.availableBalance || fromBalance?.balance || 0,
+      );
+
+      if (requestedAmount > availableBalance) {
+        if (fromAsset.isNative) {
+          throw new Error(
+            `You can swap up to ${formatTokenAmount(
+              String(availableBalance),
+            )} XLM. Stellar keeps ${
+              formatTokenAmount(
+                fromBalance?.reservedBalance ||
+                  fromBalance?.minimumBalance ||
+                  '0',
+              )
+            } XLM reserved for the account minimum balance and network fees.`,
+          );
+        }
+
+        throw new Error(
+          `You can swap up to ${formatTokenAmount(
+            String(availableBalance),
+          )} ${fromAssetCode}.`,
+        );
+      }
 
       await ensureWalletTrustline(toAssetCode, toAsset?.assetIssuer || null);
 
@@ -2126,7 +2190,6 @@ export function useWallet() {
   }
 
   async function exportWalletSecret(
-    type: 'private_key' | 'seed_phrase',
     confirmation: string,
   ) {
     if (!account || !wallet) {
@@ -2141,9 +2204,7 @@ export function useWallet() {
         headers,
         body: JSON.stringify({
           confirmation,
-          email: account.email,
           network,
-          type,
           walletId: wallet.id,
         }),
       });
@@ -2184,6 +2245,7 @@ export function useWallet() {
     createTestReceiver,
     createWallet,
     email,
+    errorDialog,
     explorerAddressUrl,
     exportWalletSecret,
     fundTestUsdc,
@@ -2238,6 +2300,7 @@ export function useWallet() {
     searchAssets,
     swapAsset,
     switchNetwork,
+    dismissErrorDialog,
     transactions,
     verifyCodeAndLogin,
     visibleAssets,
@@ -2246,6 +2309,7 @@ export function useWallet() {
     walletCanSign,
     walletConnectConfig,
     wallets: networkWallets,
+    showErrorDialog,
     xlmBalance,
   };
 }

@@ -230,14 +230,11 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
 }
 
 export function WalletApp({ wallet }: { wallet: WalletState }) {
-  const networkStatus = wallet.isMainnet
-    ? 'MAINNET · Real assets'
-    : 'TESTNET · Demo only';
-  const statusText =
-    wallet.busy ||
-    (wallet.message ? `${networkStatus} · ${wallet.message}` : networkStatus);
+  const statusText = wallet.busy || 'Loading...';
   const shouldShowLoadingOverlay =
-    wallet.isBusy && !isRampOrderTerminal(wallet.activeRampOrder);
+    wallet.isBusy &&
+    !wallet.errorDialog &&
+    !isRampOrderTerminal(wallet.activeRampOrder);
 
   return (
     <CurrencyProvider>

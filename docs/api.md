@@ -143,7 +143,7 @@ Body session thường dùng:
 | `POST /api/wallets` | Tạo ví Stellar mới cho account hiện tại. Luôn bắt buộc Privy Bearer token. Testnet có thể auto fund, mainnet phải nạp XLM thật. | `201 SessionResponse` | `401` thiếu/hết hạn token, `404` account không tồn tại, `500/502` lỗi Privy/backend. |
 | `POST /api/wallets/import` | Import Stellar secret key `S...` vào Privy. | `201 SessionResponse` | `400` secret sai, `401` thiếu token, `502` Privy chưa hỗ trợ import cho app. |
 | `POST /api/wallets/watch-only` | Thêm ví chỉ xem bằng public address `G...`. Ví này không ký giao dịch. | `201 SessionResponse` | `400` address sai, `401` mainnet thiếu token, `404` account không tồn tại. |
-| `POST /api/wallets/export` | Export private key/seed phrase. App cần biometric và xác nhận `EXPORT` trước khi gọi. | `200 { network, secret, type }` | `400` thiếu `EXPORT`, `401` thiếu token, `403` ví không thuộc account, `404` không thấy ví, `502` Privy chưa bật client export. |
+| `POST /api/wallets/export` | Export Stellar recovery key `S...`. App cần biometric, xác nhận `EXPORT` và Privy Bearer token. Backend kiểm tra key khớp địa chỉ `G...` và trả response `no-store`. | `200 { address, network, secret, type }` | `400` thiếu `EXPORT`, `401` thiếu token, `403` ví không thuộc account hoặc Privy từ chối quyền, `404` không thấy ví, `502` Privy không trả key hợp lệ hoặc key không khớp ví. |
 
 Body tạo/watch/import/export ví thường dùng:
 
@@ -155,7 +155,6 @@ Body tạo/watch/import/export ví thường dùng:
   "address": "G...",
   "secret": "S...",
   "displayName": "Wallet name",
-  "type": "private_key",
   "confirmation": "EXPORT"
 }
 ```
@@ -165,6 +164,10 @@ Các API quản lý ví gửi token qua header và backend tự lấy email từ
 ```http
 Authorization: Bearer <privy_identity_token>
 ```
+
+Mainnet send/trustline/swap và WalletConnect sign vẫn cần Bearer token để
+backend xác minh account trước khi ký. Testnet demo flow không bắt token cho
+các lệnh ký giao dịch.
 
 Body không cần truyền `email`:
 

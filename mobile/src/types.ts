@@ -322,7 +322,8 @@ export type WalletConnectConfig = {
 };
 
 export type ExportWalletResult = {
+  address: string;
   network: StellarNetwork;
   secret: string;
-  type: 'private_key' | 'seed_phrase';
+  type: 'private_key';
 };

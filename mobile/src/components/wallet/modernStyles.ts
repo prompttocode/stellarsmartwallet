@@ -855,7 +855,7 @@ export const modern = StyleSheet.create({
   },
   modernHeaderTitle: {
     color: '#FFFFFF',
-    fontSize: 28,
+    fontSize: 20,
     fontWeight: '900',
   },
   modernHeaderSubtitle: {
