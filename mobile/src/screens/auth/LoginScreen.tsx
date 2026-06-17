@@ -213,7 +213,7 @@ function SessionStatus({
 
 function WelcomeStep({ wallet, onSelectEmail }: { wallet: WalletState, onSelectEmail: () => void }) {
   const googleBusy = wallet.busy === 'Sign in with Google';
-  const restoringSession = wallet.busy === 'Restoring session';
+  const restoringSession = wallet.sessionSyncing && !wallet.account;
   const preparingPrivy = !wallet.isReady;
   const status = restoringSession
     ? {
@@ -254,13 +254,13 @@ function WelcomeStep({ wallet, onSelectEmail }: { wallet: WalletState, onSelectE
       <View>
         <View style={styles.buttonContainer}>
           <ActionButton 
-            disabled={preparingPrivy || wallet.isBusy}
+            disabled={preparingPrivy || restoringSession || wallet.isBusy}
             label="Continue with Email" 
             onPress={onSelectEmail} 
             variant="light" 
           />
           <GoogleButton
-            disabled={!wallet.isReady || wallet.isBusy}
+            disabled={!wallet.isReady || restoringSession || wallet.isBusy}
             label={googleLabel}
             onPress={wallet.loginWithGoogle}
           />

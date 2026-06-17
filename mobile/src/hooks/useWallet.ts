@@ -63,9 +63,28 @@ const LEGACY_LOCAL_SESSION_STORAGE_KEYS = [
 ];
 const PREFERRED_NETWORK_STORAGE_KEY = 'privy-wallet-preferred-network';
 const RAMP_ORDER_STORAGE_PREFIX = 'privy-ramp-order';
+const SESSION_CACHE_STORAGE_PREFIX = 'privy-wallet-session-cache-v1';
+const SESSION_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const MARKET_PRICE_REFRESH_MS = 60_000;
 const DEFAULT_NETWORK: StellarNetwork = 'mainnet';
 const DEFAULT_KYC: KycSummary = { status: 'not_started' };
+
+type CachedWalletSession = {
+  network: StellarNetwork;
+  savedAt: number;
+  session: SessionResponse;
+  userKey: string;
+};
+
+type ApplySessionOptions = {
+  cache?: boolean;
+  source?: 'cache' | 'server';
+};
+
+type FinishPrivySessionOptions = {
+  cache?: boolean;
+  message?: string;
+};
 
 function getAssetIdentity(asset: AssetItem) {
   return asset.isNative
@@ -221,6 +240,78 @@ async function getTokenWithRetry(getToken: () => Promise<string | null>) {
   return null;
 }
 
+function getSessionCacheKey(userKey: string, network: StellarNetwork) {
+  return `${SESSION_CACHE_STORAGE_PREFIX}:${encodeURIComponent(
+    userKey,
+  )}:${network}`;
+}
+
+async function readCachedSession(
+  userKey: string,
+  network: StellarNetwork,
+): Promise<CachedWalletSession | null> {
+  const raw = await AsyncStorage.getItem(getSessionCacheKey(userKey, network));
+
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const cached = JSON.parse(raw) as CachedWalletSession;
+
+    if (
+      cached.userKey !== userKey ||
+      cached.network !== network ||
+      !cached.session?.account ||
+      Date.now() - Number(cached.savedAt || 0) > SESSION_CACHE_MAX_AGE_MS
+    ) {
+      await AsyncStorage.removeItem(getSessionCacheKey(userKey, network));
+      return null;
+    }
+
+    return cached;
+  } catch {
+    await AsyncStorage.removeItem(getSessionCacheKey(userKey, network));
+    return null;
+  }
+}
+
+async function writeCachedSession(
+  session: SessionResponse,
+  userKeyHint: string | null,
+  network: StellarNetwork,
+) {
+  const cacheUserKey = userKeyHint || session.account.id;
+
+  if (!cacheUserKey) {
+    return;
+  }
+
+  const cached: CachedWalletSession = {
+    network,
+    savedAt: Date.now(),
+    session,
+    userKey: cacheUserKey,
+  };
+
+  await AsyncStorage.setItem(
+    getSessionCacheKey(cacheUserKey, network),
+    JSON.stringify(cached),
+  );
+}
+
+async function clearCachedSessions(userKey?: string | null) {
+  const keys = await AsyncStorage.getAllKeys();
+  const prefix = userKey
+    ? `${SESSION_CACHE_STORAGE_PREFIX}:${encodeURIComponent(userKey)}:`
+    : `${SESSION_CACHE_STORAGE_PREFIX}:`;
+  const sessionKeys = keys.filter(key => key.startsWith(prefix));
+
+  if (sessionKeys.length > 0) {
+    await AsyncStorage.multiRemove(sessionKeys);
+  }
+}
+
 export function getBalanceForAsset(balances: BalanceItem[], assetCode: string) {
   return balances.find(balance => balance.assetCode === assetCode) || null;
 }
@@ -292,6 +383,8 @@ export function useWallet() {
     useState<WalletConnectConfig | null>(null);
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [privySessionReady, setPrivySessionReady] = useState(false);
+  const [serverSessionReady, setServerSessionReady] = useState(false);
+  const [sessionSyncing, setSessionSyncing] = useState(false);
   const [restoreAttemptedForUser, setRestoreAttemptedForUser] = useState<
     string | null
   >(null);
@@ -369,7 +462,7 @@ export function useWallet() {
   );
 
   const checkServer = useCallback(async () => {
-    await run('Checking server', async () => {
+    try {
       const [
         result,
         networkResult,
@@ -393,13 +486,10 @@ export function useWallet() {
       );
       setRampProviders(rampResult.providers || []);
       setWalletConnectConfig(walletConnectResult);
-      setMessage(
-        network === 'mainnet'
-          ? 'Stellar Mainnet is ready. Transactions require biometric confirmation.'
-          : 'Privy and Stellar Testnet are ready.',
-      );
-    });
-  }, [network, run]);
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    }
+  }, [network]);
 
   useEffect(() => {
     if (preferredNetworkLoaded) {
@@ -632,6 +722,8 @@ export function useWallet() {
     setRampOrderHistory([]);
     setCode('');
     setCodeSent(false);
+    setServerSessionReady(false);
+    setSessionSyncing(false);
     setRestoreAttemptedForUser(null);
 
     if (nextMessage) {
@@ -643,6 +735,7 @@ export function useWallet() {
     (
       session: SessionResponse,
       nextMessage = 'Your Stellar wallet is ready.',
+      options: ApplySessionOptions = {},
     ) => {
       const sessionWallets =
         session.wallets ||
@@ -658,15 +751,21 @@ export function useWallet() {
         session.network || session.account.wallet?.network || network;
 
       setPreferredNetwork(sessionNetwork);
+      setEmail(session.account.email);
       setAccount(session.account);
       setKyc(session.kyc || DEFAULT_KYC);
       setWallets(sessionWallets);
       setActiveWalletId(nextActiveWalletId);
       setBalances(session.balances || session.balance.balances || []);
       setTransactions(session.transactions);
+      setServerSessionReady(options.source !== 'cache');
       setMessage(nextMessage);
+
+      if (options.source !== 'cache' && options.cache !== false) {
+        writeCachedSession(session, userKey, sessionNetwork).catch(() => null);
+      }
     },
-    [network, setPreferredNetwork],
+    [network, setPreferredNetwork, userKey],
   );
 
   useEffect(() => {
@@ -756,10 +855,23 @@ export function useWallet() {
       : undefined;
   }
 
+  function requireFreshServerSession() {
+    if (serverSessionReady) {
+      return;
+    }
+
+    throw new Error(
+      sessionSyncing
+        ? 'Your wallet session is still syncing with the server. Wait a moment, then try again.'
+        : 'Your saved wallet is visible, but the server session is not synced yet. Refresh the wallet or sign in again before using this action.',
+    );
+  }
+
   async function refreshKycStatus() {
     return run(
       'Refreshing KYC status',
       async () => {
+        requireFreshServerSession();
         const headers = await getAuthHeaders(true);
         const result = await api<KycApiResponse>('/api/kyc/status', {
           headers,
@@ -788,6 +900,7 @@ export function useWallet() {
     }
 
     return run('Submitting KYC', async () => {
+      requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const result = await api<KycApiResponse>('/api/kyc/id-card', {
         method: 'POST',
@@ -887,6 +1000,7 @@ export function useWallet() {
       existingIdentityToken?: string,
       fallbackEmail?: string,
       sessionNetwork: StellarNetwork = network,
+      options: FinishPrivySessionOptions = {},
     ) => {
       const identityToken =
         existingIdentityToken || (await getTokenWithRetry(getIdentityToken));
@@ -916,8 +1030,10 @@ export function useWallet() {
             }),
           });
 
-      setEmail(session.account.email);
-      applySession(session);
+      applySession(session, options.message, {
+        cache: options.cache,
+        source: 'server',
+      });
     },
     [applySession, getIdentityToken, network],
   );
@@ -928,25 +1044,71 @@ export function useWallet() {
       user &&
       userKey &&
       !account &&
-      !busy &&
       restoreAttemptedForUser !== userKey
     ) {
-      setRestoreAttemptedForUser(userKey);
-      run(
-        'Restoring session',
-        () =>
-          finishPrivySession(undefined, getEmailFromPrivyUser(user), network),
-        { showAlert: false },
-      );
+      const restoreUserKey = userKey;
+
+      setRestoreAttemptedForUser(restoreUserKey);
+      let cancelled = false;
+
+      async function restoreSession() {
+        const cached = await readCachedSession(restoreUserKey, network).catch(
+          () => null,
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        if (cached) {
+          applySession(
+            cached.session,
+            'Wallet restored from this device. Syncing latest balances...',
+            {
+              cache: false,
+              source: 'cache',
+            },
+          );
+        } else {
+          setMessage('Restoring your wallet session...');
+        }
+
+        setSessionSyncing(true);
+
+        try {
+          await finishPrivySession(
+            undefined,
+            getEmailFromPrivyUser(user),
+            network,
+          );
+        } catch (error) {
+          if (!cancelled) {
+            const errorMessage = getErrorMessage(error);
+            setMessage(
+              cached
+                ? `Showing saved wallet state. Server sync failed: ${errorMessage}`
+                : errorMessage,
+            );
+          }
+        } finally {
+          if (!cancelled) {
+            setSessionSyncing(false);
+          }
+        }
+      }
+
+      restoreSession();
+
+      return () => {
+        cancelled = true;
+      };
     }
   }, [
-    account,
-    busy,
     finishPrivySession,
+    applySession,
     isReady,
     network,
     restoreAttemptedForUser,
-    run,
     user,
     userKey,
   ]);
@@ -975,11 +1137,9 @@ export function useWallet() {
           return true;
         }
 
-        await logoutPrivy();
-        clearWalletSession();
+        await signOutAndClearWalletSession();
       } else if (user) {
-        await logoutPrivy();
-        clearWalletSession();
+        await signOutAndClearWalletSession();
       }
 
       setEmail(targetEmail);
@@ -1012,11 +1172,9 @@ export function useWallet() {
           return;
         }
 
-        await logoutPrivy();
-        clearWalletSession();
+        await signOutAndClearWalletSession();
       } else if (user) {
-        await logoutPrivy();
-        clearWalletSession();
+        await signOutAndClearWalletSession();
       }
 
       await loginWithCode({
@@ -1032,8 +1190,7 @@ export function useWallet() {
   async function loginWithGoogle() {
     await run('Sign in with Google', async () => {
       if (user) {
-        await logoutPrivy();
-        clearWalletSession();
+        await signOutAndClearWalletSession();
       }
 
       const oauthUser = await loginWithOAuth({
@@ -1057,18 +1214,32 @@ export function useWallet() {
     setMessage('Enter your email to receive a Privy login code.');
   }
 
+  async function signOutAndClearWalletSession(nextMessage?: string) {
+    const cacheUserKey = userKey;
+
+    await logoutPrivy();
+    await clearCachedSessions(cacheUserKey).catch(() => null);
+    clearWalletSession(nextMessage);
+  }
+
   async function refreshSession() {
     if (!account) {
       return;
     }
 
     await run('Refreshing wallet', async () => {
-      const session = await api<SessionResponse>('/api/session', {
-        method: 'POST',
-        body: JSON.stringify({ email: account.email, network }),
-      });
-      applySession(session);
-      setMessage('Balances and transaction history refreshed.');
+      setSessionSyncing(true);
+
+      try {
+        const session = await api<SessionResponse>('/api/session', {
+          method: 'POST',
+          body: JSON.stringify({ email: account.email, network }),
+        });
+        applySession(session);
+        setMessage('Balances and transaction history refreshed.');
+      } finally {
+        setSessionSyncing(false);
+      }
     });
   }
 
@@ -1080,6 +1251,7 @@ export function useWallet() {
     return run(
       isMainnet ? 'Creating Mainnet wallet' : 'Creating Testnet wallet',
       async () => {
+        requireFreshServerSession();
         const headers = await getAuthHeaders(true);
         const createdWallet = await createPrivyExtendedWallet({
           chainType: 'stellar',
@@ -1125,6 +1297,7 @@ export function useWallet() {
     }
 
     return run('Switching wallet', async () => {
+      requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const session = await api<SessionResponse>('/api/wallets/select', {
         method: 'POST',
@@ -1145,6 +1318,7 @@ export function useWallet() {
     }
 
     return run('Renaming wallet', async () => {
+      requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const session = await api<SessionResponse>('/api/wallets/rename', {
         method: 'POST',
@@ -1168,6 +1342,7 @@ export function useWallet() {
     }
 
     return run('Archiving wallet', async () => {
+      requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const session = await api<SessionResponse>('/api/wallets/archive', {
         method: 'POST',
@@ -1188,6 +1363,7 @@ export function useWallet() {
     }
 
     await run('Funding test XLM', async () => {
+      requireFreshServerSession();
       if (isMainnet) {
         throw new Error(
           'Mainnet does not have Friendbot. Open Receive for your QR/address and deposit real XLM.',
@@ -1214,6 +1390,7 @@ export function useWallet() {
     if (!account || !wallet) {
       throw new Error('Create or select a wallet first.');
     }
+    requireFreshServerSession();
 
     const assetDefinition =
       visibleAssets.find(
@@ -1312,6 +1489,7 @@ export function useWallet() {
     }
 
     return run('Getting Testnet USDC', async () => {
+      requireFreshServerSession();
       if (isMainnet) {
         throw new Error('Testnet USDC funding is not available on Mainnet.');
       }
@@ -1377,6 +1555,7 @@ export function useWallet() {
     }
 
     return run('Claiming demo NFT', async () => {
+      requireFreshServerSession();
       if (isMainnet) {
         throw new Error(
           'Demo NFT claiming is only available on Stellar Testnet.',
@@ -1447,6 +1626,7 @@ export function useWallet() {
     }
 
     return run(`Sending ${selectedAssetCode}`, async () => {
+      requireFreshServerSession();
       if (!isMainnet && selectedAssetCode !== 'XLM') {
         await ensureWalletTrustline(
           selectedAssetCode,
@@ -1558,6 +1738,7 @@ export function useWallet() {
     }
 
     return run(`Swap ${fromAssetCode}`, async () => {
+      requireFreshServerSession();
       const headers = await getAuthHeaders(isMainnet);
       const fromAsset = visibleAssets.find(
         asset => asset.assetCode === fromAssetCode,
@@ -1787,6 +1968,7 @@ export function useWallet() {
     }
 
     return run(`Creating ${direction} order`, async () => {
+      requireFreshServerSession();
       if (kyc.status !== 'verified') {
         throw new Error('KYC_REQUIRED');
       }
@@ -1922,6 +2104,7 @@ export function useWallet() {
     }
 
     return run('Cancelling order', async () => {
+      requireFreshServerSession();
       await api(
         `/api/ramp/orders/${encodeURIComponent(orderReference)}/cancel`,
         {
@@ -1959,6 +2142,7 @@ export function useWallet() {
     }
 
     return run('Confirming test payment', async () => {
+      requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const result = await api<RampApiResponse<RampOrder>>(
         `/api/ramp/orders/${encodeURIComponent(orderReference)}/bypass-payment`,
@@ -2001,6 +2185,7 @@ export function useWallet() {
     }
 
     return run('Confirming test crypto receipt', async () => {
+      requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const result = await api<RampApiResponse<RampOrder>>(
         `/api/ramp/orders/${encodeURIComponent(
@@ -2037,6 +2222,7 @@ export function useWallet() {
     }
 
     return run(`Sending ${order.asset_code}`, async () => {
+      requireFreshServerSession();
       if (order.order_type !== 'sell') {
         throw new Error('Only withdrawals require an on-chain transfer.');
       }
@@ -2102,8 +2288,7 @@ export function useWallet() {
   }
 
   async function logout() {
-    await logoutPrivy();
-    clearWalletSession('Signed out.');
+    await signOutAndClearWalletSession('Signed out.');
   }
 
   async function switchNetwork(nextNetwork: StellarNetwork) {
@@ -2167,6 +2352,7 @@ export function useWallet() {
     }
 
     return run('Importing wallet', async () => {
+      requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       await requireBiometric('Confirm to import this Stellar wallet');
       const session = await api<SessionResponse>('/api/wallets/import', {
@@ -2192,6 +2378,7 @@ export function useWallet() {
     }
 
     return run('Adding watch-only wallet', async () => {
+      requireFreshServerSession();
       const headers = await getAuthHeaders(isMainnet);
       const session = await api<SessionResponse>('/api/wallets/watch-only', {
         method: 'POST',
@@ -2216,6 +2403,7 @@ export function useWallet() {
     }
 
     return run('Opening secure export', async () => {
+      requireFreshServerSession();
       if (wallet.kind === 'imported_privy') {
         throw new Error(
           'This wallet was imported from your own Stellar secret key. Use the original S... key you imported instead of Privy recovery export.',
@@ -2321,6 +2509,7 @@ export function useWallet() {
     selectedAsset,
     selectedAssetCode,
     selectedBalance,
+    serverSessionReady,
     sendAsset,
     sendRampOrderPayment,
     sendEmailCode,
@@ -2333,6 +2522,7 @@ export function useWallet() {
     setRecipient,
     setSelectedAssetCode,
     searchAssets,
+    sessionSyncing,
     swapAsset,
     switchNetwork,
     dismissErrorDialog,
