@@ -16,7 +16,6 @@ import {
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import * as ExpoLinking from 'expo-linking';
-import { InAppBrowser } from 'react-native-inappbrowser-reborn';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -290,38 +289,13 @@ export function SettingsScreen({
       setWalletExportOpening(true);
 
       try {
-        const inAppBrowserAvailable = await InAppBrowser.isAvailable().catch(
-          () => false,
-        );
+        const canOpen = await Linking.canOpenURL(exportUrl);
 
-        if (inAppBrowserAvailable) {
-          await InAppBrowser.open(exportUrl, {
-            animated: true,
-            dismissButtonStyle: 'done',
-            enableBarCollapsing: true,
-            enableDefaultShare: false,
-            enableUrlBarHiding: true,
-            modalPresentationStyle: 'pageSheet',
-            modalTransitionStyle: 'coverVertical',
-            navigationBarColor: '#050505',
-            navigationBarDividerColor: '#1A1D24',
-            preferredBarTintColor: '#111318',
-            preferredControlTintColor: '#B8FF45',
-            readerMode: false,
-            secondaryToolbarColor: '#111318',
-            showTitle: false,
-            toolbarColor: '#111318',
-          });
-        } else {
-          const canOpen = await Linking.canOpenURL(exportUrl);
-
-          if (!canOpen) {
-            throw new Error('iOS cannot open the secure export URL.');
-          }
-
-          await Linking.openURL(exportUrl);
+        if (!canOpen) {
+          throw new Error('iOS cannot open the secure export URL.');
         }
 
+        await Linking.openURL(exportUrl);
         wallet.setMessage(
           'Opened Privy secure export page in your browser. Return to the app after copying the recovery key.',
         );

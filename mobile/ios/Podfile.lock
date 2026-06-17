@@ -2853,8 +2853,6 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
-  - RNInAppBrowser (3.7.1):
-    - React-Core
   - RNReanimated (4.3.1):
     - boost
     - DoubleConversion
@@ -3297,7 +3295,6 @@ DEPENDENCIES:
   - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
   - "RNCClipboard (from `../node_modules/@react-native-clipboard/clipboard`)"
   - RNGestureHandler (from `../node_modules/react-native-gesture-handler`)
-  - RNInAppBrowser (from `../node_modules/react-native-inappbrowser-reborn`)
   - RNReanimated (from `../node_modules/react-native-reanimated`)
   - RNScreens (from `../node_modules/react-native-screens`)
   - RNSVG (from `../node_modules/react-native-svg`)
@@ -3525,8 +3522,6 @@ EXTERNAL SOURCES:
     :path: "../node_modules/@react-native-clipboard/clipboard"
   RNGestureHandler:
     :path: "../node_modules/react-native-gesture-handler"
-  RNInAppBrowser:
-    :path: "../node_modules/react-native-inappbrowser-reborn"
   RNReanimated:
     :path: "../node_modules/react-native-reanimated"
   RNScreens:
@@ -3649,7 +3644,6 @@ SPEC CHECKSUMS:
   RNCAsyncStorage: 29f0230e1a25f36c20b05f65e2eb8958d6526e82
   RNCClipboard: 4b58c780f63676367640f23c8e114e9bd0cf86ac
   RNGestureHandler: 19c70aae210237bd72bcb679cc824a3c862615a8
-  RNInAppBrowser: 904d24dc75e8e6c6c98a3160329192608946f9df
   RNReanimated: 3a1a53d7757611c43b166205ed2974f7673a0f4e
   RNScreens: 9269ab4971b2bd24917be84295d2c2ae7d06e9be
   RNSVG: 7cf280f47bb61ae1eadcbb7f4014533447f1550e
