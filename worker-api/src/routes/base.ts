@@ -5,9 +5,11 @@ import {
   assertStellarAddress,
   buildAccountSession,
   buildTrustlineTransaction,
+  completeStellarWalletSecretExport,
   createPrivyUser,
   createSignableStellarWallet,
-  exportStellarWalletSecret,
+  decodeWalletExportChallenge,
+  encryptWalletSecret,
   findPrivyUserByEmail,
   friendbotFund,
   getAccountBalances,
@@ -18,7 +20,6 @@ import {
   getPrivyClient,
   getSupportedAssets,
   getVisibleWallets,
-  importStellarWallet,
   isEmailLike,
   listNetworks,
   loadAccount,
@@ -28,6 +29,7 @@ import {
   normalizeNetwork,
   normalizeWallet,
   nowIso,
+  prepareStellarWalletSecretExport,
   privyRequest,
   readJsonBody,
   requireAccountContext,
@@ -165,7 +167,12 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
       ((await findPrivyUserByEmail(c.env, email)) as { id?: string } | null) ||
       (await createPrivyUser(c.env, email));
     const wallet = normalizeWallet(
-      await createSignableStellarWallet(c.env, email, `Stellar ${network} 1`),
+      await createSignableStellarWallet(
+        c.env,
+        email,
+        `Stellar ${network} 1`,
+        user?.id,
+      ),
       {
         canSign: true,
         kind: 'privy',
@@ -199,16 +206,64 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     const displayName =
       String(body.displayName || '').trim().slice(0, 42) ||
       `Stellar ${network} ${nextWalletNumber}`;
-    const wallet = normalizeWallet(
-      await createSignableStellarWallet(c.env, account.email, displayName),
-      {
-        archived: false,
-        canSign: true,
-        displayName,
-        kind: 'privy',
-        network,
-      },
-    );
+    const ownerUserId = String(account.id || '').trim();
+
+    if (!ownerUserId) {
+      throw makeError('Signed-in Privy user is missing an id', 401);
+    }
+
+    const clientWallet = body.wallet as
+      | {
+          address?: string;
+          chain_type?: string;
+          display_name?: string;
+          id?: string;
+          public_key?: string;
+        }
+      | undefined;
+    let walletSource =
+      clientWallet?.id && clientWallet.address
+        ? clientWallet
+        : await createSignableStellarWallet(
+            c.env,
+            account.email,
+            displayName,
+            ownerUserId,
+          );
+
+    if (clientWallet?.id) {
+      const remoteWallet = await (getPrivyClient(c.env) as any)
+        .wallets()
+        .get(clientWallet.id);
+      const remoteOwnerId = String(
+        remoteWallet?.owner?.user_id ||
+          remoteWallet?.owner?.id ||
+          remoteWallet?.owner_id ||
+          '',
+      ).trim();
+
+      if (remoteOwnerId && remoteOwnerId !== ownerUserId) {
+        throw makeError('Privy wallet owner does not match signed-in user', 403);
+      }
+
+      if (String(remoteWallet?.address || '') !== clientWallet.address) {
+        throw makeError('Privy wallet does not match the client wallet', 400);
+      }
+
+      if (String(remoteWallet?.chain_type || '').toLowerCase() !== 'stellar') {
+        throw makeError('Only Stellar wallets can be added here', 400);
+      }
+
+      walletSource = remoteWallet;
+    }
+
+    const wallet = normalizeWallet(walletSource, {
+      archived: false,
+      canSign: true,
+      displayName,
+      kind: 'privy',
+      network,
+    });
 
     if (network === 'testnet' && body.fund !== false) {
       await friendbotFund(c.env, wallet.address, network);
@@ -237,19 +292,29 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
       network,
       requireAuth: true,
     });
+    const ownerUserId = String(account.id || '').trim();
+
+    if (!ownerUserId) {
+      throw makeError('Signed-in Privy user is missing an id', 401);
+    }
+
     const keypair = assertSecretKey(body.secret, 'Stellar secret key');
     const displayName = sanitizeWalletName(body.displayName, `Imported ${network} wallet`);
-    const imported = await importStellarWallet({
-      displayName,
-      env: c.env,
-      keypair,
-      network,
-    });
-    const wallet = normalizeWallet(imported, {
-      canSign: true,
-      kind: 'imported_privy',
-      network,
-    });
+    const wallet = normalizeWallet(
+      {
+        address: keypair.publicKey(),
+        chain_type: 'stellar',
+        display_name: displayName,
+        id: `stellar_import_${network}_${Date.now()}`,
+        public_key: keypair.publicKey(),
+      },
+      {
+        canSign: true,
+        encryptedSecret: await encryptWalletSecret(c.env, keypair.secret()),
+        kind: 'imported_privy',
+        network,
+      },
+    );
     const nextAccount = await saveAccount(
       c.env,
       normalizeAccountWallets(
@@ -312,7 +377,7 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     return c.json(await buildAccountSession(c.env, nextAccount, network), 201);
   });
 
-  app.post('/api/wallets/export', async c => {
+  app.post('/api/wallets/export/prepare', async c => {
     const body = await readJsonBody(c);
     const network = normalizeNetwork(body.network);
     const sourceWalletId = String(body.walletId || '').trim();
@@ -340,11 +405,105 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
       throw makeError('Enter EXPORT to confirm secret export', 400);
     }
 
-    const result = await exportStellarWalletSecret(
-      c.env,
-      sourceWalletId,
-      wallet.address,
+    return c.json(
+      await prepareStellarWalletSecretExport(
+        c.env,
+        sourceWalletId,
+        wallet.address,
+        network,
+      ),
     );
+  });
+
+  app.post('/api/wallets/export', async c => {
+    const body = await readJsonBody(c);
+    const challengeText = String(body.challenge || '').trim();
+    const signature = String(body.signature || '').trim();
+
+    if (!challengeText) {
+      throw makeError('Missing wallet export challenge', 400);
+    }
+
+    if (!signature) {
+      throw makeError('Missing wallet export authorization signature', 400);
+    }
+
+    const challenge = decodeWalletExportChallenge(challengeText);
+    const network = normalizeNetwork(challenge.network);
+    const account = await requireAccountContext(c.env, c.req.header('authorization'), body, {
+      network,
+      requireAuth: true,
+    });
+    const wallet = (account.wallets || []).find(
+      item => item.id === challenge.walletId && item.network === network,
+    );
+
+    if (!wallet) {
+      throw makeError('Wallet not found for export', 404);
+    }
+
+    assertAccountWallet({
+      account,
+      address: wallet.address,
+      network,
+      walletId: challenge.walletId,
+    });
+
+    if (challenge.requestExpiry <= Date.now()) {
+      throw makeError('Wallet export challenge expired. Try again.', 400);
+    }
+
+    let result: Awaited<ReturnType<typeof completeStellarWalletSecretExport>>;
+
+    try {
+      result = await completeStellarWalletSecretExport(
+        c.env,
+        challenge,
+        signature,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const lowerMessage = message.toLowerCase();
+
+      console.error('Privy wallet export failed', {
+        challengeWalletId: challenge.walletId,
+        message,
+        network,
+      });
+
+      if (lowerMessage.includes('wallet must have an owner')) {
+        throw makeError(
+          'This wallet was created before recovery key export was enabled. Create or import a new wallet to use backup recovery key.',
+          400,
+        );
+      }
+
+      if (lowerMessage.includes('invalid jwt token')) {
+        throw makeError(
+          `Privy rejected the export authorization token: ${message}`,
+          401,
+        );
+      }
+
+      if (
+        lowerMessage.includes('no valid authorization keys') ||
+        lowerMessage.includes('user signing keys')
+      ) {
+        throw makeError(
+          'Privy could not issue a valid user authorization key for export. Check that wallet export and user authorization keys are enabled for this Privy app.',
+          401,
+        );
+      }
+
+      if (lowerMessage.includes('wallet export is not supported')) {
+        throw makeError(
+          'Wallet export is not enabled for this Privy app.',
+          400,
+        );
+      }
+
+      throw error;
+    }
 
     c.header('Cache-Control', 'no-store, no-cache, must-revalidate');
     c.header('Pragma', 'no-cache');

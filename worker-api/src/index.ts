@@ -6,6 +6,7 @@ import { registerCollectibleRoutes } from './routes/collectibles';
 import { registerKycRoutes } from './routes/kyc';
 import { registerRampRoutes } from './routes/ramp';
 import { registerStellarRoutes } from './routes/stellar';
+import { registerWalletExportPageRoute } from './routes/walletExportPage';
 import { registerWalletConnectRoutes } from './routes/walletconnect';
 
 const app = new Hono<WorkerBindings>();
@@ -49,6 +50,7 @@ app.onError((error, c) => {
 });
 
 registerBaseRoutes(app);
+registerWalletExportPageRoute(app);
 registerKycRoutes(app);
 registerStellarRoutes(app);
 registerCollectibleRoutes(app);

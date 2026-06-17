@@ -101,7 +101,7 @@ async function handleTrustline(
     network,
     requireAuth: shouldRequireMainnetAuth(network),
   });
-  assertAccountWallet({
+  const sourceWallet = assertAccountWallet({
     account,
     address: sourceAddress,
     network,
@@ -160,6 +160,7 @@ async function handleTrustline(
     network,
     sourceAddress,
     transaction,
+    wallet: sourceWallet,
     walletId: sourceWalletId,
   });
   const balanceResult = await getAccountBalances(c.env, sourceAddress, network);
@@ -275,6 +276,7 @@ async function handleSend(
       network,
       sourceAddress,
       transaction,
+      wallet: sourceWallet,
       walletId: sourceWalletId,
     });
   } catch (error) {
@@ -368,7 +370,7 @@ async function handleSwapExecute(c: Context<WorkerBindings>, fallbackNetwork?: S
     network,
     requireAuth: shouldRequireMainnetAuth(network),
   });
-  assertAccountWallet({
+  const sourceWallet = assertAccountWallet({
     account,
     address: sourceAddress,
     network,
@@ -382,6 +384,7 @@ async function handleSwapExecute(c: Context<WorkerBindings>, fallbackNetwork?: S
     fromAssetIssuer: body.fromAssetIssuer,
     network,
     sourceAddress,
+    sourceWallet,
     sourceWalletId,
     toAssetCode: body.toAssetCode,
     toAssetIssuer: body.toAssetIssuer,

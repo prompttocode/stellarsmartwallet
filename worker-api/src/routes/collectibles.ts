@@ -118,7 +118,7 @@ async function handleFundNft(
   });
 
   assertStellarAddress(sourceAddress, 'Wallet');
-  assertAccountWallet({
+  const sourceWallet = assertAccountWallet({
     account,
     address: sourceAddress,
     network,
@@ -170,6 +170,7 @@ async function handleFundNft(
       network,
       sourceAddress,
       transaction: changeTrust,
+      wallet: sourceWallet,
       walletId: sourceWalletId,
     });
 

@@ -105,7 +105,7 @@ export function registerWalletConnectRoutes(app: Hono<WorkerBindings>) {
     });
 
     assertStellarAddress(sourceAddress, 'Signing wallet');
-    assertAccountWallet({
+    const sourceWallet = assertAccountWallet({
       account,
       address: sourceAddress,
       network,
@@ -120,6 +120,7 @@ export function registerWalletConnectRoutes(app: Hono<WorkerBindings>) {
         network,
         sourceAddress,
         submit: Boolean(body.submit),
+        wallet: sourceWallet,
         walletId: sourceWalletId,
         xdr: body.xdr,
       });

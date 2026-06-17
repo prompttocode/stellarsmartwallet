@@ -8,7 +8,9 @@ import {
   useLoginWithOAuth,
   usePrivy,
 } from '@privy-io/expo';
+import { useCreateWallet as useCreateExtendedWallet } from '@privy-io/expo/extended-chains';
 import { api } from '@api/client';
+import { API_BASE_URL, PRIVY_WEB_EXPORT_CLIENT_ID } from '@config';
 import type {
   AssetItem,
   AssetsResponse,
@@ -18,7 +20,6 @@ import type {
   CollectiblesResponse,
   Contact,
   WalletAccount,
-  ExportWalletResult,
   FundNftResult,
   Health,
   KycApiResponse,
@@ -294,7 +295,12 @@ export function useWallet() {
   const [restoreAttemptedForUser, setRestoreAttemptedForUser] = useState<
     string | null
   >(null);
-  const { user, isReady, error: privyError, logout: logoutPrivy } = usePrivy();
+  const {
+    user,
+    isReady,
+    error: privyError,
+    logout: logoutPrivy,
+  } = usePrivy();
   const { getIdentityToken } = useIdentityToken();
   const getIdentityTokenRef = useRef(getIdentityToken);
   const {
@@ -308,6 +314,8 @@ export function useWallet() {
     },
   });
   const { login: loginWithOAuth, state: oauthState } = useLoginWithOAuth();
+  const { createWallet: createPrivyExtendedWallet } =
+    useCreateExtendedWallet();
 
   const setPreferredNetwork = useCallback((nextNetwork: StellarNetwork) => {
     setNetwork(nextNetwork);
@@ -1073,12 +1081,23 @@ export function useWallet() {
       isMainnet ? 'Creating Mainnet wallet' : 'Creating Testnet wallet',
       async () => {
         const headers = await getAuthHeaders(true);
+        const createdWallet = await createPrivyExtendedWallet({
+          chainType: 'stellar',
+        });
         const session = await api<SessionResponse>('/api/wallets', {
           method: 'POST',
           headers,
           body: JSON.stringify({
             fund: !isMainnet,
             network,
+            wallet: {
+              address: createdWallet.wallet.address,
+              chain_type: createdWallet.wallet.chain_type,
+              id: createdWallet.wallet.id,
+              public_key:
+                createdWallet.wallet.public_key ||
+                createdWallet.wallet.address,
+            },
           }),
         });
 
@@ -2191,29 +2210,43 @@ export function useWallet() {
     });
   }
 
-  async function exportWalletSecret(
-    confirmation: string,
-  ) {
+  async function createWalletExportUrl(returnUrl?: string) {
     if (!account || !wallet) {
       return null;
     }
 
-    return run('Export secret', async () => {
-      const headers = await getAuthHeaders(true);
-      await requireBiometric('Confirm to export this wallet secret');
-      const result = await api<ExportWalletResult>('/api/wallets/export', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          confirmation,
-          network,
-          walletId: wallet.id,
-        }),
+    return run('Opening secure export', async () => {
+      if (wallet.kind === 'imported_privy') {
+        throw new Error(
+          'This wallet was imported from your own Stellar secret key. Use the original S... key you imported instead of Privy recovery export.',
+        );
+      }
+
+      if (wallet.kind !== 'privy') {
+        throw new Error(
+          'Recovery export is only available for Privy-managed wallets.',
+        );
+      }
+
+      await requireBiometric('Confirm to open the secure recovery export');
+
+      const params = new URLSearchParams({
+        address: wallet.address,
+        clientId: PRIVY_WEB_EXPORT_CLIENT_ID,
+        email: account.email,
+        network,
+        t: `${Date.now()}`,
       });
 
-      setMessage('The secret is shown once. Do not share it with anyone.');
+      if (returnUrl) {
+        params.set('returnUrl', returnUrl);
+      }
 
-      return result;
+      setMessage(
+        'Privy will show the recovery key on its secure page. Store it offline and never share it.',
+      );
+
+      return `${API_BASE_URL}/wallet-export?${params.toString()}`;
     });
   }
 
@@ -2249,7 +2282,7 @@ export function useWallet() {
     email,
     errorDialog,
     explorerAddressUrl,
-    exportWalletSecret,
+    createWalletExportUrl,
     fundTestUsdc,
     fundWallet,
     health,

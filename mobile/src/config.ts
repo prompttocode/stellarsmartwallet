@@ -9,3 +9,5 @@ export const API_BASE_URL = 'https://privy-stellar-api.namvu3121.workers.dev';
 export const PRIVY_APP_ID = 'cmpi5182800mh0cjslqv5fgxt';
 export const PRIVY_CLIENT_ID =
   'client-WY6ZYnJ25Wu5vL7JMW7raUWLuxLqgvL6pjFRrVMhvbR32';
+export const PRIVY_WEB_EXPORT_CLIENT_ID =
+  'client-WY6ZYnJ25Wu5vL7JMW7raUWLuxLqgvL6pjDbMih7h4ng6';
