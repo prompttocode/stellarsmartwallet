@@ -42,45 +42,6 @@ import {
   type WorkerBindings,
 } from '../core';
 
-function wait(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function getPrivyWalletOwnerUserId(
-  c: Context<WorkerBindings>,
-  address: string,
-) {
-  let lastError: unknown = null;
-
-  for (const delay of [0, 500, 1200, 2500]) {
-    if (delay > 0) {
-      await wait(delay);
-    }
-
-    try {
-      const user = await (getPrivyClient(c.env) as any)
-        .users()
-        .getByWalletAddress({ address });
-      const userId = String(user?.id || '').trim();
-
-      if (userId) {
-        return userId;
-      }
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  if (lastError) {
-    console.warn('Privy wallet owner lookup failed', {
-      address,
-      error: lastError instanceof Error ? lastError.message : String(lastError),
-    });
-  }
-
-  return '';
-}
-
 export function registerBaseRoutes(app: Hono<WorkerBindings>) {
   app.get('/api/health', c =>
     c.json({
@@ -255,12 +216,6 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
         : await createSignableStellarWallet(c.env, account.email, displayName);
 
     if (clientWallet?.id) {
-      const ownerUserId = String(account.id || '').trim();
-
-      if (!ownerUserId) {
-        throw makeError('Signed-in Privy user is missing an id', 401);
-      }
-
       const remoteWallet = await (getPrivyClient(c.env) as any)
         .wallets()
         .get(clientWallet.id);
@@ -273,25 +228,6 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
 
       if (String(remoteWallet?.chain_type || '').toLowerCase() !== 'stellar') {
         throw makeError('Only Stellar wallets can be added here', 400);
-      }
-
-      const walletOwnerUserId = await getPrivyWalletOwnerUserId(
-        c,
-        remoteAddress || clientAddress,
-      );
-
-      if (!walletOwnerUserId) {
-        throw makeError(
-          'Privy has not linked this embedded wallet to the signed-in user yet. Try creating the wallet again in a moment.',
-          409,
-        );
-      }
-
-      if (walletOwnerUserId !== ownerUserId) {
-        throw makeError(
-          'Privy embedded wallet does not belong to the signed-in user',
-          403,
-        );
       }
 
       walletSource = remoteWallet;
