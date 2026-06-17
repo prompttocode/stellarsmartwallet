@@ -4,9 +4,11 @@ import type { WorkerBindings } from '../core';
 type WalletExportPageState = {
   address: string;
   appId: string;
+  clientId?: string;
   email: string;
   network: string;
   returnUrl?: string;
+  sessionId: string;
 };
 
 function encodeState(state: WalletExportPageState) {
@@ -259,6 +261,31 @@ function renderWalletExportPage(state: WalletExportPageState) {
         return new Promise(resolve => window.setTimeout(resolve, ms));
       }
 
+      function getSessionResetStorageKey() {
+        return [
+          "privy-wallet-export-reset",
+          INITIAL_STATE.appId,
+          INITIAL_STATE.sessionId,
+        ].join(":");
+      }
+
+      function hasCompletedSessionReset() {
+        try {
+          return window.sessionStorage.getItem(getSessionResetStorageKey()) === "1";
+        } catch {
+          return false;
+        }
+      }
+
+      function markSessionResetComplete() {
+        try {
+          window.sessionStorage.setItem(getSessionResetStorageKey(), "1");
+        } catch {
+          // Safari private mode can block storage. The in-memory state still covers
+          // email OTP, while Google redirect needs storage when it is available.
+        }
+      }
+
       function finishFlow(completed) {
         const status = completed ? "success" : "cancel";
 
@@ -284,7 +311,9 @@ function renderWalletExportPage(state: WalletExportPageState) {
         const { exportWallet } = useExportWallet();
         const [status, setStatus] = useState("loading");
         const [error, setError] = useState("");
-        const [sessionResetDone, setSessionResetDone] = useState(false);
+        const [sessionResetDone, setSessionResetDone] = useState(
+          hasCompletedSessionReset,
+        );
         const [sessionResetting, setSessionResetting] = useState(false);
         const exportStartedRef = useRef(false);
         const sessionResetStartedRef = useRef(false);
@@ -399,6 +428,7 @@ function renderWalletExportPage(state: WalletExportPageState) {
 
           if (!authenticated) {
             if (!sessionResetDone) {
+              markSessionResetComplete();
               setSessionResetDone(true);
             }
             exportStartedRef.current = false;
@@ -536,6 +566,7 @@ function renderWalletExportPage(state: WalletExportPageState) {
                           setError("");
                           setStatus("ready");
                           await logout();
+                          markSessionResetComplete();
                           setSessionResetDone(true);
                         }}
                       >
@@ -581,6 +612,7 @@ function renderWalletExportPage(state: WalletExportPageState) {
       function App() {
         const providerProps = {
           appId: INITIAL_STATE.appId,
+          clientId: INITIAL_STATE.clientId || undefined,
         };
 
         return React.createElement(
@@ -602,8 +634,12 @@ export function registerWalletExportPageRoute(app: Hono<WorkerBindings>) {
     const email = String(c.req.query('email') || '')
       .trim()
       .toLowerCase();
+    const clientId = String(c.req.query('clientId') || '').trim();
     const network = String(c.req.query('network') || 'mainnet').trim();
     const returnUrl = String(c.req.query('returnUrl') || '').trim();
+    const sessionId = String(
+      c.req.query('t') || `${address}:${email}:${network}`,
+    ).trim();
 
     if (!address) {
       return c.html(
@@ -618,9 +654,11 @@ export function registerWalletExportPageRoute(app: Hono<WorkerBindings>) {
       renderWalletExportPage({
         address,
         appId: c.env.PRIVY_APP_ID,
+        clientId: clientId || undefined,
         email,
         network,
         returnUrl: returnUrl || undefined,
+        sessionId,
       }),
     );
   });
