@@ -8,7 +8,6 @@ import {
   useLoginWithOAuth,
   usePrivy,
 } from '@privy-io/expo';
-import { useCreateWallet as useCreateExtendedWallet } from '@privy-io/expo/extended-chains';
 import { api } from '@api/client';
 import { API_BASE_URL, PRIVY_WEB_EXPORT_CLIENT_ID } from '@config';
 import type {
@@ -314,8 +313,6 @@ export function useWallet() {
     },
   });
   const { login: loginWithOAuth, state: oauthState } = useLoginWithOAuth();
-  const { createWallet: createPrivyExtendedWallet } =
-    useCreateExtendedWallet();
 
   const setPreferredNetwork = useCallback((nextNetwork: StellarNetwork) => {
     setNetwork(nextNetwork);
@@ -1081,23 +1078,12 @@ export function useWallet() {
       isMainnet ? 'Creating Mainnet wallet' : 'Creating Testnet wallet',
       async () => {
         const headers = await getAuthHeaders(true);
-        const createdWallet = await createPrivyExtendedWallet({
-          chainType: 'stellar',
-        });
         const session = await api<SessionResponse>('/api/wallets', {
           method: 'POST',
           headers,
           body: JSON.stringify({
             fund: !isMainnet,
             network,
-            wallet: {
-              address: createdWallet.wallet.address,
-              chain_type: createdWallet.wallet.chain_type,
-              id: createdWallet.wallet.id,
-              public_key:
-                createdWallet.wallet.public_key ||
-                createdWallet.wallet.address,
-            },
           }),
         });
 

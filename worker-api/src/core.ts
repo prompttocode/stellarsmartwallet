@@ -1189,7 +1189,6 @@ export async function ensureWalletForNetwork(
   env: Env,
   account: AccountRecord,
   networkValue: unknown,
-  ownerUserId?: string,
 ) {
   const network = normalizeNetwork(networkValue);
   const normalizedAccount = normalizeAccountWallets(account, network);
@@ -1217,7 +1216,6 @@ export async function ensureWalletForNetwork(
       env,
       normalizedAccount.email,
       `Stellar ${network} ${nextWalletNumber}`,
-      ownerUserId,
     ),
     {
       canSign: true,
@@ -1263,7 +1261,6 @@ export async function getOrCreateSessionAccountByEmail(
         ...(userId ? { id: userId } : null),
       },
       network,
-      userId,
     );
   }
 
@@ -1272,12 +1269,7 @@ export async function getOrCreateSessionAccountByEmail(
     : ((await findPrivyUserByEmail(env, email)) as { id?: string } | null) ||
       (await createPrivyUser(env, email));
   const wallet = normalizeWallet(
-    await createSignableStellarWallet(
-      env,
-      email,
-      `Stellar ${network} 1`,
-      user?.id,
-    ),
+    await createSignableStellarWallet(env, email, `Stellar ${network} 1`),
     {
       canSign: true,
       kind: 'privy',

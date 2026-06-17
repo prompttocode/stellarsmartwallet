@@ -140,10 +140,10 @@ Body session thường dùng:
 | API | Dùng để | Thành công | Thất bại |
 | --- | --- | --- | --- |
 | `GET /api/wallets` | Liệt kê Stellar wallets đang có trên Privy. | `200 { wallets }` | `500/502` lỗi Privy/env. |
-| `POST /api/wallets` | Tạo ví Stellar mới cho account hiện tại và gắn Privy user hiện tại làm owner. Luôn bắt buộc Privy Bearer token. Testnet có thể auto fund, mainnet phải nạp XLM thật. | `201 SessionResponse` | `401` thiếu/hết hạn token hoặc user id, `404` account không tồn tại, `500/502` lỗi Privy/backend. |
-| `POST /api/wallets/import` | Import Stellar secret key `S...` vào Privy và gắn Privy user hiện tại làm owner. | `201 SessionResponse` | `400` secret sai, `401` thiếu token hoặc user id, `502` Privy chưa hỗ trợ import cho app. |
+| `POST /api/wallets` | Tạo ví Stellar mới cho account hiện tại theo flow MVP: app gửi Privy Bearer token, worker tạo ví qua Privy server API. Testnet có thể auto fund, mainnet phải nạp XLM thật. | `201 SessionResponse` | `401` thiếu/hết hạn token, `404` account không tồn tại, `500/502` lỗi Privy/backend. |
+| `POST /api/wallets/import` | Import Stellar secret key `S...` hoặc private key hex Privy export, mã hóa secret trong D1 để worker ký cho riêng ví import. | `201 SessionResponse` | `400` secret sai, `401` thiếu token hoặc user id, `500` thiếu cấu hình mã hóa. |
 | `POST /api/wallets/watch-only` | Thêm ví chỉ xem bằng public address `G...`. Ví này không ký giao dịch. | `201 SessionResponse` | `400` address sai, `401` mainnet thiếu token, `404` account không tồn tại. |
-| `POST /api/wallets/export` | Export Stellar recovery key `S...` cho ví owner-enabled. App dùng biometric, gọi `POST /api/wallets/export/prepare`, ký payload bằng Privy `useAuthorizationSignature()`, rồi hoàn tất ở `POST /api/wallets/export`. Bearer identity token vẫn dùng để xác thực session. Backend kiểm tra key khớp địa chỉ `G...` và trả response `no-store`. Ví cũ không owner cần tạo/import ví mới. | `200 { address, network, secret, type }` | `400` thiếu `EXPORT`, challenge hết hạn, hoặc ví cũ chưa hỗ trợ recovery key export; `401` thiếu session/signature; `403` ví không thuộc account hoặc Privy từ chối quyền; `404` không thấy ví; `502` Privy không trả key hợp lệ hoặc key không khớp ví. |
+| `POST /api/wallets/export` | Legacy server-side export challenge route. Flow hiện tại mở `/wallet-export` để Privy hiển thị recovery key trên secure web page. | `200 { address, network, secret, type }` | `400` thiếu `EXPORT`, challenge hết hạn, hoặc ví không hỗ trợ recovery export; `401` thiếu session/signature; `403` ví không thuộc account hoặc Privy từ chối quyền; `404` không thấy ví; `502` Privy không trả key hợp lệ hoặc key không khớp ví. |
 
 Body tạo/watch/import/export ví thường dùng:
 
