@@ -284,7 +284,10 @@ function renderWalletExportPage(state: WalletExportPageState) {
         const { exportWallet } = useExportWallet();
         const [status, setStatus] = useState("loading");
         const [error, setError] = useState("");
+        const [sessionResetDone, setSessionResetDone] = useState(false);
+        const [sessionResetting, setSessionResetting] = useState(false);
         const exportStartedRef = useRef(false);
+        const sessionResetStartedRef = useRef(false);
         const currentEmail = useMemo(() => getEmailFromUser(user), [user]);
         const expectedEmail = INITIAL_STATE.email;
         const hasUser = Boolean(user);
@@ -354,14 +357,57 @@ function renderWalletExportPage(state: WalletExportPageState) {
         }, [exportWallet]);
 
         useEffect(() => {
+          if (
+            !ready ||
+            sessionResetDone ||
+            sessionResetting ||
+            sessionResetStartedRef.current ||
+            !authenticated
+          ) {
+            return;
+          }
+
+          sessionResetStartedRef.current = true;
+          exportStartedRef.current = false;
+          setError("");
+          setSessionResetting(true);
+          setStatus("signing_out");
+
+          logout()
+            .catch(nextError => {
+              setError(
+                nextError instanceof Error
+                  ? nextError.message
+                  : "Unable to clear the previous browser session.",
+              );
+            })
+            .finally(() => {
+              setSessionResetting(false);
+            });
+        }, [authenticated, logout, ready, sessionResetDone, sessionResetting]);
+
+        useEffect(() => {
           if (!ready) {
             setStatus("loading");
             return;
           }
 
+          if (sessionResetting) {
+            setStatus("signing_out");
+            return;
+          }
+
           if (!authenticated) {
+            if (!sessionResetDone) {
+              setSessionResetDone(true);
+            }
             exportStartedRef.current = false;
             setStatus("ready");
+            return;
+          }
+
+          if (!sessionResetDone) {
+            setStatus("signing_out");
             return;
           }
 
@@ -379,18 +425,27 @@ function renderWalletExportPage(state: WalletExportPageState) {
           if (!exportStartedRef.current) {
             setStatus("ready");
           }
-        }, [authenticated, emailMatches, hasUser, ready]);
+        }, [
+          authenticated,
+          emailMatches,
+          hasUser,
+          ready,
+          sessionResetDone,
+          sessionResetting,
+        ]);
 
         const helperText =
           status === "done"
             ? "Privy closed the secure export modal. Return to the app only after you have copied the Stellar secret key into offline storage."
-            : status === "exporting"
+          : status === "exporting"
             ? "Privy is opening the secure export modal. The secret key is displayed on Privy's secure domain, not inside this app."
-            : status === "authorizing"
+          : status === "authorizing"
             ? "Privy accepted the login. Finishing the browser session setup before export can start..."
-            : status === "mismatch"
+          : status === "signing_out"
+            ? "Clearing any saved Privy browser session first. You will need to sign in again for this export."
+          : status === "mismatch"
             ? "This browser session is signed into a different Privy account. Sign out here, then sign in with the same account you use in the mobile app."
-            : authenticated
+          : authenticated
             ? "The browser session is ready. Start the export flow from this page."
             : "Sign in with the same Privy account you use in the app, then start the export flow here.";
 
@@ -449,6 +504,7 @@ function renderWalletExportPage(state: WalletExportPageState) {
                   ? html\`
                       <button
                         className="primary"
+                        disabled=\${!sessionResetDone}
                         onClick=\${async () => {
                           setError("");
                           setStatus("authorizing");
@@ -480,6 +536,7 @@ function renderWalletExportPage(state: WalletExportPageState) {
                           setError("");
                           setStatus("ready");
                           await logout();
+                          setSessionResetDone(true);
                         }}
                       >
                         Sign out here
@@ -487,7 +544,7 @@ function renderWalletExportPage(state: WalletExportPageState) {
                     \`
                   : null}
 
-                \${authenticated && emailMatches && status === "ready"
+                \${authenticated && emailMatches && sessionResetDone && status === "ready"
                   ? html\`
                       <button className="primary" onClick=\${startExport}>
                         Export wallet
