@@ -239,11 +239,6 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
       network,
       requireAuth: true,
     });
-    const ownerUserId = String(account.id || '').trim();
-
-    if (!ownerUserId) {
-      throw makeError('Signed-in Privy user is missing an id', 401);
-    }
 
     const keypair = assertSecretKey(body.secret, 'Stellar secret key');
     const displayName = sanitizeWalletName(body.displayName, `Imported ${network} wallet`);

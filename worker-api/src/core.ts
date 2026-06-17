@@ -532,7 +532,6 @@ export async function createSignableStellarWallet(
   env: Env,
   email: string,
   displayName: string,
-  ownerUserId?: string,
 ) {
   const safeEmail = email.replace(/[^a-z0-9_-]/gi, '_').slice(0, 32);
 
@@ -548,7 +547,6 @@ export async function createSignableStellarWallet(
       chain_type: 'stellar',
       display_name: displayName,
       external_id: `stellar_${safeEmail}_${Date.now()}`,
-      ...(ownerUserId ? { owner: { user_id: ownerUserId } } : null),
     }),
   });
 }
@@ -558,20 +556,17 @@ export async function importStellarWallet({
   env,
   keypair,
   network,
-  ownerUserId,
 }: {
   displayName: string;
   env: Env;
   keypair: Keypair;
   network: StellarNetwork;
-  ownerUserId?: string;
 }) {
   const wallets = (getPrivyClient(env) as any).wallets();
 
   return wallets.import({
     display_name: displayName,
     external_id: `stellar_import_${network}_${Date.now()}`,
-    ...(ownerUserId ? { owner: { user_id: ownerUserId } } : null),
     wallet: {
       address: keypair.publicKey(),
       chain_type: 'stellar',
