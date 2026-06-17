@@ -102,6 +102,11 @@ type SessionStatusResponse = {
   walletCount: number;
 };
 
+type SessionBootstrapWalletRequest = {
+  key: string;
+  promise: Promise<ClientStellarWalletPayload | undefined>;
+};
+
 function getAssetIdentity(asset: AssetItem) {
   return asset.isNative
     ? `${asset.network}:native`
@@ -459,6 +464,8 @@ export function useWallet() {
   } = usePrivy();
   const { getIdentityToken } = useIdentityToken();
   const getIdentityTokenRef = useRef(getIdentityToken);
+  const sessionBootstrapWalletRef =
+    useRef<SessionBootstrapWalletRequest | null>(null);
   const {
     sendCode,
     loginWithCode,
@@ -787,6 +794,7 @@ export function useWallet() {
     setCodeSent(false);
     setServerSessionReady(false);
     setSessionSyncing(false);
+    sessionBootstrapWalletRef.current = null;
     setRestoreAttemptedForUser(null);
 
     if (nextMessage) {
@@ -937,23 +945,49 @@ export function useWallet() {
     sessionNetwork: StellarNetwork,
     privyUserValue: unknown,
   ) {
-    if (hasLinkedStellarEmbeddedWallet(privyUserValue)) {
-      return undefined;
+    const bootstrapUserKey =
+      getPrivyUserKey(privyUserValue) ||
+      userKey ||
+      getEmailFromPrivyUser(privyUserValue) ||
+      'unknown';
+    const bootstrapKey = `${bootstrapUserKey}:${sessionNetwork}`;
+
+    if (sessionBootstrapWalletRef.current?.key === bootstrapKey) {
+      return sessionBootstrapWalletRef.current.promise;
     }
 
-    const status = await api<SessionStatusResponse>('/api/session/status', {
-      method: 'POST',
-      body: JSON.stringify({
-        identityToken,
-        network: sessionNetwork,
-      }),
+    const promise = (async () => {
+      if (hasLinkedStellarEmbeddedWallet(privyUserValue)) {
+        return undefined;
+      }
+
+      const status = await api<SessionStatusResponse>('/api/session/status', {
+        method: 'POST',
+        body: JSON.stringify({
+          identityToken,
+          network: sessionNetwork,
+        }),
+      });
+
+      if (status.hasNetworkWallet) {
+        return undefined;
+      }
+
+      return createClientStellarWalletPayload();
+    })().catch(error => {
+      if (sessionBootstrapWalletRef.current?.key === bootstrapKey) {
+        sessionBootstrapWalletRef.current = null;
+      }
+
+      throw error;
     });
 
-    if (status.hasNetworkWallet) {
-      return undefined;
-    }
+    sessionBootstrapWalletRef.current = {
+      key: bootstrapKey,
+      promise,
+    };
 
-    return createClientStellarWalletPayload();
+    return promise;
   }
 
   function requireFreshServerSession() {
