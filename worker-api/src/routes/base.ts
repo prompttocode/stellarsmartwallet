@@ -15,6 +15,7 @@ import {
   getAccountBalances,
   getAccountHistory,
   getEmailFromPrivyUser,
+  getBearerToken,
   getIssuedAsset,
   getOrCreateSessionAccountByEmail,
   getPrivyClient,
@@ -41,6 +42,70 @@ import {
   type StellarNetwork,
   type WorkerBindings,
 } from '../core';
+
+type WalletRefs = {
+  addresses: Set<string>;
+  ids: Set<string>;
+};
+
+function getSignedInUserWalletRefs(user: unknown): WalletRefs {
+  const linkedAccounts = Array.isArray(
+    (user as { linked_accounts?: unknown[] })?.linked_accounts,
+  )
+    ? ((user as { linked_accounts?: unknown[] }).linked_accounts as unknown[])
+    : Array.isArray((user as { linkedAccounts?: unknown[] })?.linkedAccounts)
+      ? ((user as { linkedAccounts?: unknown[] }).linkedAccounts as unknown[])
+      : [];
+
+  return linkedAccounts.reduce<WalletRefs>(
+    (refs, account) => {
+      const item = account as {
+        address?: unknown;
+        id?: unknown;
+        public_key?: unknown;
+        type?: unknown;
+      };
+
+      if (item.type !== 'wallet') {
+        return refs;
+      }
+
+      const id = String(item.id || '').trim();
+      const address = String(item.address || item.public_key || '')
+        .trim()
+        .toLowerCase();
+
+      if (id) {
+        refs.ids.add(id);
+      }
+
+      if (address) {
+        refs.addresses.add(address);
+      }
+
+      return refs;
+    },
+    { addresses: new Set<string>(), ids: new Set<string>() },
+  );
+}
+
+function walletRefsContainWallet(
+  refs: WalletRefs,
+  wallet?: { address?: unknown; id?: unknown } | null,
+) {
+  if (!wallet) {
+    return false;
+  }
+
+  const id = String(wallet.id || '').trim();
+  const address = String(wallet.address || '')
+    .trim()
+    .toLowerCase();
+
+  return Boolean(
+    (id && refs.ids.has(id)) || (address && refs.addresses.has(address)),
+  );
+}
 
 export function registerBaseRoutes(app: Hono<WorkerBindings>) {
   app.get('/api/health', c =>
@@ -198,6 +263,7 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
   app.post('/api/wallets', async c => {
     const body = await readJsonBody(c);
     const network = normalizeNetwork(body.network);
+    const identityToken = getBearerToken(c.req.header('authorization'), body);
     const account = await requireAccountContext(c.env, c.req.header('authorization'), body, {
       network,
       requireAuth: true,
@@ -232,21 +298,36 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
           );
 
     if (clientWallet?.id) {
-      const remoteWallet = await (getPrivyClient(c.env) as any)
-        .wallets()
-        .get(clientWallet.id);
-      const remoteOwnerId = String(
-        remoteWallet?.owner?.user_id ||
-          remoteWallet?.owner?.id ||
-          remoteWallet?.owner_id ||
-          '',
-      ).trim();
+      const [remoteWallet, signedInUser] = await Promise.all([
+        (getPrivyClient(c.env) as any).wallets().get(clientWallet.id),
+        getPrivyClient(c.env).users().get({ id_token: identityToken }),
+      ]);
+      let userWalletRefs = getSignedInUserWalletRefs(signedInUser);
+      const remoteAddress = String(remoteWallet?.address || '').trim();
+      const clientAddress = String(clientWallet.address || '').trim();
+      let walletLinkedToSignedInUser =
+        walletRefsContainWallet(userWalletRefs, clientWallet) ||
+        walletRefsContainWallet(userWalletRefs, remoteWallet);
 
-      if (remoteOwnerId && remoteOwnerId !== ownerUserId) {
+      for (const delay of [500, 1200]) {
+        if (walletLinkedToSignedInUser) {
+          break;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, delay));
+        userWalletRefs = getSignedInUserWalletRefs(
+          await getPrivyClient(c.env).users().get({ id_token: identityToken }),
+        );
+        walletLinkedToSignedInUser =
+          walletRefsContainWallet(userWalletRefs, clientWallet) ||
+          walletRefsContainWallet(userWalletRefs, remoteWallet);
+      }
+
+      if (!walletLinkedToSignedInUser) {
         throw makeError('Privy wallet owner does not match signed-in user', 403);
       }
 
-      if (String(remoteWallet?.address || '') !== clientWallet.address) {
+      if (remoteAddress.toLowerCase() !== clientAddress.toLowerCase()) {
         throw makeError('Privy wallet does not match the client wallet', 400);
       }
 
