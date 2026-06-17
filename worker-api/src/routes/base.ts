@@ -13,6 +13,7 @@ import {
   findPrivyUserByEmail,
   friendbotFund,
   getAccountBalances,
+  getAccountByEmail,
   getAccountHistory,
   getEmailFromPrivyUser,
   getIssuedAsset,
@@ -41,6 +42,45 @@ import {
   type StellarNetwork,
   type WorkerBindings,
 } from '../core';
+
+type ClientStellarWalletInput = {
+  address?: string;
+  chain_type?: string;
+  display_name?: string;
+  id?: string;
+  public_key?: string;
+};
+
+function getClientStellarWalletInput(value: unknown) {
+  const wallet = value as ClientStellarWalletInput | undefined;
+
+  return wallet?.id && wallet.address ? wallet : undefined;
+}
+
+async function getVerifiedClientStellarWallet(
+  c: Context<WorkerBindings>,
+  wallet: ClientStellarWalletInput | undefined,
+) {
+  if (!wallet) {
+    return undefined;
+  }
+
+  const remoteWallet = await (getPrivyClient(c.env) as any)
+    .wallets()
+    .get(wallet.id);
+  const remoteAddress = String(remoteWallet?.address || '').trim();
+  const clientAddress = String(wallet.address || '').trim();
+
+  if (remoteAddress.toLowerCase() !== clientAddress.toLowerCase()) {
+    throw makeError('Privy wallet does not match the client wallet', 400);
+  }
+
+  if (String(remoteWallet?.chain_type || '').toLowerCase() !== 'stellar') {
+    throw makeError('Only Stellar wallets can be added here', 400);
+  }
+
+  return remoteWallet as Parameters<typeof normalizeWallet>[0];
+}
 
 export function registerBaseRoutes(app: Hono<WorkerBindings>) {
   app.get('/api/health', c =>
@@ -91,6 +131,7 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     const body = await readJsonBody(c);
     const network = normalizeNetwork(body.network);
     const identityToken = String(body.identityToken || '').trim();
+    const clientWallet = getClientStellarWalletInput(body.wallet);
 
     if (identityToken) {
       const user = await getPrivyClient(c.env).users().get({
@@ -102,11 +143,16 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
         throw makeError('This Privy account does not have a valid email', 400);
       }
 
+      const verifiedClientWallet = await getVerifiedClientStellarWallet(
+        c,
+        clientWallet,
+      );
       const account = await getOrCreateSessionAccountByEmail(
         c.env,
         email,
         network,
         String((user as { id?: string })?.id || ''),
+        verifiedClientWallet,
       );
 
       return c.json(await buildAccountSession(c.env, account, network));
@@ -115,6 +161,36 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     const account = await getOrCreateSessionAccountByEmail(c.env, body.email, network);
 
     return c.json(await buildAccountSession(c.env, account, network));
+  });
+
+  app.post('/api/session/status', async c => {
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const identityToken = String(body.identityToken || '').trim();
+    let email = normalizeEmail(body.email);
+
+    if (identityToken) {
+      const user = await getPrivyClient(c.env).users().get({
+        id_token: identityToken,
+      });
+
+      email = getEmailFromPrivyUser(user);
+    }
+
+    if (!isEmailLike(email)) {
+      throw makeError('This Privy account does not have a valid email', 400);
+    }
+
+    const account = await getAccountByEmail(c.env, email);
+    const networkWallets = account ? getVisibleWallets(account, network) : [];
+
+    return c.json({
+      email,
+      exists: Boolean(account),
+      hasNetworkWallet: networkWallets.some(wallet => wallet.canSign),
+      network,
+      walletCount: networkWallets.length,
+    });
   });
 
   app.post('/api/demo/session', async c => {
@@ -201,37 +277,13 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     const displayName =
       String(body.displayName || '').trim().slice(0, 42) ||
       `Stellar ${network} ${nextWalletNumber}`;
-    const clientWallet = body.wallet as
-      | {
-          address?: string;
-          chain_type?: string;
-          display_name?: string;
-          id?: string;
-          public_key?: string;
-        }
-      | undefined;
-    let walletSource =
-      clientWallet?.id && clientWallet.address
-        ? clientWallet
-        : await createSignableStellarWallet(c.env, account.email, displayName);
-
-    if (clientWallet?.id) {
-      const remoteWallet = await (getPrivyClient(c.env) as any)
-        .wallets()
-        .get(clientWallet.id);
-      const remoteAddress = String(remoteWallet?.address || '').trim();
-      const clientAddress = String(clientWallet.address || '').trim();
-
-      if (remoteAddress.toLowerCase() !== clientAddress.toLowerCase()) {
-        throw makeError('Privy wallet does not match the client wallet', 400);
-      }
-
-      if (String(remoteWallet?.chain_type || '').toLowerCase() !== 'stellar') {
-        throw makeError('Only Stellar wallets can be added here', 400);
-      }
-
-      walletSource = remoteWallet;
-    }
+    const clientWallet = getClientStellarWalletInput(body.wallet);
+    const verifiedClientWallet = clientWallet
+      ? await getVerifiedClientStellarWallet(c, clientWallet)
+      : undefined;
+    const walletSource =
+      verifiedClientWallet ||
+      (await createSignableStellarWallet(c.env, account.email, displayName));
 
     const wallet = normalizeWallet(walletSource, {
       archived: false,

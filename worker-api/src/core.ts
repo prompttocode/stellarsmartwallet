@@ -1184,9 +1184,42 @@ export async function ensureWalletForNetwork(
   env: Env,
   account: AccountRecord,
   networkValue: unknown,
+  initialWalletSource?: Parameters<typeof normalizeWallet>[0],
 ) {
   const network = normalizeNetwork(networkValue);
   const normalizedAccount = normalizeAccountWallets(account, network);
+  const nextWalletNumber = (normalizedAccount.wallets || []).length + 1;
+
+  if (initialWalletSource) {
+    const wallet = normalizeWallet(initialWalletSource, {
+      canSign: true,
+      displayName: `Stellar ${network} ${nextWalletNumber}`,
+      kind: 'privy',
+      network,
+    });
+    const existingWallet = (normalizedAccount.wallets || []).find(
+      item =>
+        item.network === network &&
+        (item.id === wallet.id || item.address === wallet.address),
+    );
+    const activeWallet = existingWallet || wallet;
+
+    return saveAccount(
+      env,
+      normalizeAccountWallets(
+        {
+          ...normalizedAccount,
+          activeWalletId: activeWallet.id,
+          wallet: activeWallet,
+          wallets: existingWallet
+            ? normalizedAccount.wallets
+            : [...(normalizedAccount.wallets || []), wallet],
+        },
+        network,
+      ),
+    );
+  }
+
   const existingWallet = getVisibleWallets(normalizedAccount, network).find(
     wallet => wallet.canSign,
   );
@@ -1205,7 +1238,6 @@ export async function ensureWalletForNetwork(
     );
   }
 
-  const nextWalletNumber = (normalizedAccount.wallets || []).length + 1;
   const wallet = normalizeWallet(
     await createSignableStellarWallet(
       env,
@@ -1238,6 +1270,7 @@ export async function getOrCreateSessionAccountByEmail(
   emailValue: unknown,
   networkValue: unknown,
   userId?: string,
+  initialWalletSource?: Parameters<typeof normalizeWallet>[0],
 ) {
   const email = normalizeEmail(emailValue);
   const network = normalizeNetwork(networkValue);
@@ -1256,6 +1289,7 @@ export async function getOrCreateSessionAccountByEmail(
         ...(userId ? { id: userId } : null),
       },
       network,
+      initialWalletSource,
     );
   }
 
@@ -1263,10 +1297,14 @@ export async function getOrCreateSessionAccountByEmail(
     ? { id: userId }
     : ((await findPrivyUserByEmail(env, email)) as { id?: string } | null) ||
       (await createPrivyUser(env, email));
+  const walletSource =
+    initialWalletSource ||
+    (await createSignableStellarWallet(env, email, `Stellar ${network} 1`));
   const wallet = normalizeWallet(
-    await createSignableStellarWallet(env, email, `Stellar ${network} 1`),
+    walletSource,
     {
       canSign: true,
+      displayName: `Stellar ${network} 1`,
       kind: 'privy',
       network,
     },

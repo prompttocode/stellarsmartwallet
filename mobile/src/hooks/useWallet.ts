@@ -84,6 +84,22 @@ type ApplySessionOptions = {
 type FinishPrivySessionOptions = {
   cache?: boolean;
   message?: string;
+  privyUser?: unknown;
+};
+
+type ClientStellarWalletPayload = {
+  address: string;
+  chain_type: string;
+  id: string;
+  public_key: string;
+};
+
+type SessionStatusResponse = {
+  email: string;
+  exists: boolean;
+  hasNetworkWallet: boolean;
+  network: StellarNetwork;
+  walletCount: number;
 };
 
 function getAssetIdentity(asset: AssetItem) {
@@ -181,7 +197,11 @@ function mergePopulatedFields<T extends object>(
 type PrivyLinkedEmailAccount = {
   type?: string;
   address?: string;
+  chain_type?: string;
+  chainType?: string;
   email?: string;
+  wallet_client_type?: string;
+  walletClientType?: string;
 };
 
 type PrivyUserLike = {
@@ -218,6 +238,49 @@ function getEmailFromPrivyUser(userValue: unknown) {
   return (emailAccount?.address || emailAccount?.email || '')
     .trim()
     .toLowerCase();
+}
+
+function hasLinkedStellarEmbeddedWallet(userValue: unknown) {
+  const currentUser = userValue as PrivyUserLike | null;
+  const linkedAccounts =
+    currentUser?.linked_accounts || currentUser?.linkedAccounts || [];
+
+  return linkedAccounts.some(account => {
+    const type = String(account.type || '').toLowerCase();
+    const chainType = String(
+      account.chain_type || account.chainType || '',
+    ).toLowerCase();
+    const walletClientType = String(
+      account.wallet_client_type || account.walletClientType || '',
+    ).toLowerCase();
+    const address = String(account.address || '').trim();
+
+    return (
+      type === 'wallet' &&
+      (chainType === 'stellar' || address.startsWith('G')) &&
+      (!walletClientType || walletClientType === 'privy')
+    );
+  });
+}
+
+function walletRecordToClientPayload(
+  walletValue: Wallet | null | undefined,
+): ClientStellarWalletPayload | undefined {
+  if (
+    !walletValue ||
+    walletValue.kind !== 'privy' ||
+    !walletValue.id ||
+    !walletValue.address
+  ) {
+    return undefined;
+  }
+
+  return {
+    address: walletValue.address,
+    chain_type: walletValue.chainType || 'stellar',
+    id: walletValue.id,
+    public_key: walletValue.publicKey || walletValue.address,
+  };
 }
 
 function wait(ms: number) {
@@ -855,6 +918,44 @@ export function useWallet() {
       : undefined;
   }
 
+  async function createClientStellarWalletPayload(): Promise<ClientStellarWalletPayload> {
+    const createdWallet = await createPrivyExtendedWallet({
+      chainType: 'stellar',
+    });
+
+    return {
+      address: createdWallet.wallet.address,
+      chain_type: createdWallet.wallet.chain_type,
+      id: createdWallet.wallet.id,
+      public_key:
+        createdWallet.wallet.public_key || createdWallet.wallet.address,
+    };
+  }
+
+  async function getSessionBootstrapWallet(
+    identityToken: string,
+    sessionNetwork: StellarNetwork,
+    privyUserValue: unknown,
+  ) {
+    if (hasLinkedStellarEmbeddedWallet(privyUserValue)) {
+      return undefined;
+    }
+
+    const status = await api<SessionStatusResponse>('/api/session/status', {
+      method: 'POST',
+      body: JSON.stringify({
+        identityToken,
+        network: sessionNetwork,
+      }),
+    });
+
+    if (status.hasNetworkWallet) {
+      return undefined;
+    }
+
+    return createClientStellarWalletPayload();
+  }
+
   function requireFreshServerSession() {
     if (serverSessionReady) {
       return;
@@ -1014,12 +1115,20 @@ export function useWallet() {
         );
       }
 
+      const bootstrapWallet = identityToken
+        ? await getSessionBootstrapWallet(
+            identityToken,
+            sessionNetwork,
+            options.privyUser || user,
+          )
+        : undefined;
       const session = identityToken
         ? await api<SessionResponse>('/api/session', {
             method: 'POST',
             body: JSON.stringify({
               identityToken,
               network: sessionNetwork,
+              wallet: bootstrapWallet,
             }),
           })
         : await api<SessionResponse>('/api/session', {
@@ -1035,7 +1144,7 @@ export function useWallet() {
         source: 'server',
       });
     },
-    [applySession, getIdentityToken, network],
+    [applySession, getIdentityToken, network, user],
   );
 
   useEffect(() => {
@@ -1080,6 +1189,7 @@ export function useWallet() {
             undefined,
             getEmailFromPrivyUser(user),
             network,
+            { privyUser: user },
           );
         } catch (error) {
           if (!cancelled) {
@@ -1132,7 +1242,9 @@ export function useWallet() {
           setEmail(targetEmail);
           setCode('');
           setCodeSent(false);
-          await finishPrivySession(identityToken, undefined, network);
+          await finishPrivySession(identityToken, undefined, network, {
+            privyUser: user,
+          });
 
           return true;
         }
@@ -1167,7 +1279,9 @@ export function useWallet() {
         if (identityToken) {
           setCode('');
           setCodeSent(false);
-          await finishPrivySession(identityToken, undefined, network);
+          await finishPrivySession(identityToken, undefined, network, {
+            privyUser: user,
+          });
 
           return;
         }
@@ -1177,13 +1291,15 @@ export function useWallet() {
         await signOutAndClearWalletSession();
       }
 
-      await loginWithCode({
+      const loginUser = await loginWithCode({
         email: targetEmail,
         code: verificationCode,
       });
       setCode('');
       setCodeSent(false);
-      await finishPrivySession(undefined, targetEmail, network);
+      await finishPrivySession(undefined, targetEmail, network, {
+        privyUser: loginUser || user,
+      });
     });
   }
 
@@ -1202,7 +1318,9 @@ export function useWallet() {
 
       setCode('');
       setCodeSent(false);
-      await finishPrivySession(identityToken || undefined, oauthEmail, network);
+      await finishPrivySession(identityToken || undefined, oauthEmail, network, {
+        privyUser: oauthUser || user,
+      });
 
       return true;
     });
@@ -1253,23 +1371,14 @@ export function useWallet() {
       async () => {
         requireFreshServerSession();
         const headers = await getAuthHeaders(true);
-        const createdWallet = await createPrivyExtendedWallet({
-          chainType: 'stellar',
-        });
+        const createdWallet = await createClientStellarWalletPayload();
         const session = await api<SessionResponse>('/api/wallets', {
           method: 'POST',
           headers,
           body: JSON.stringify({
             fund: !isMainnet,
             network,
-            wallet: {
-              address: createdWallet.wallet.address,
-              chain_type: createdWallet.wallet.chain_type,
-              id: createdWallet.wallet.id,
-              public_key:
-                createdWallet.wallet.public_key ||
-                createdWallet.wallet.address,
-            },
+            wallet: createdWallet,
           }),
         });
 
@@ -2327,12 +2436,39 @@ export function useWallet() {
         return null;
       }
 
+      const hasTargetNetworkWallet = (account.wallets || []).some(
+        item =>
+          item.network === nextNetwork && !item.archived && item.canSign,
+      );
+      const bootstrapWallet = hasTargetNetworkWallet
+        ? undefined
+        : hasLinkedStellarEmbeddedWallet(user)
+        ? walletRecordToClientPayload(wallet)
+        : await createClientStellarWalletPayload();
+      const identityToken = bootstrapWallet
+        ? await getTokenWithRetry(getIdentityToken)
+        : null;
+
+      if (bootstrapWallet && !identityToken) {
+        throw new Error(
+          'Privy session is not ready. Sign out and sign in again before creating a wallet on this network.',
+        );
+      }
+
       const session = await api<SessionResponse>('/api/session', {
         method: 'POST',
-        body: JSON.stringify({
-          email: account.email,
-          network: nextNetwork,
-        }),
+        body: JSON.stringify(
+          identityToken
+            ? {
+                identityToken,
+                network: nextNetwork,
+                wallet: bootstrapWallet,
+              }
+            : {
+                email: account.email,
+                network: nextNetwork,
+              },
+        ),
       });
       applySession(
         session,
