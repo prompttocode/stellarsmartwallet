@@ -333,9 +333,9 @@ Voi Telegram Mini App sau nay, frontend cung se dung URL Worker nay.
 ## Luu y san pham
 
 - Testnet co Friendbot; Mainnet khong co faucet.
-- Flow tao vi moi giu theo MVP: Worker tao Stellar wallet qua Privy server API.
-  Owner/user-wallet linking chi xu ly rieng cho recovery export neu Privy ho tro
-  wallet do.
+- Flow tao vi moi tren mobile tao Privy embedded Stellar wallet truoc, sau do
+  Worker xac minh wallet address thuoc dung Privy user roi moi luu vao account.
+  Muc tieu la vi moi co the dung recovery export web flow.
 - Mainnet send/trustline/swap/import/export/XDR signing yeu cau Privy identity
   token hop le. Rieng recovery key export hien mo `/wallet-export` de Privy hien
   thi key tren secure web page; app khong nhan private key truc tiep.
