@@ -510,7 +510,7 @@ function renderWalletExportPage(state: WalletExportPageState) {
                           setStatus("authorizing");
                           try {
                             await login({
-                              loginMethods: ["email"],
+                              loginMethods: ["email", "google"],
                             });
                           } catch (nextError) {
                             setStatus("ready");
@@ -522,7 +522,7 @@ function renderWalletExportPage(state: WalletExportPageState) {
                           }
                         }}
                       >
-                        Sign in with email
+                        Sign in with email or Google
                       </button>
                     \`
                   : null}
@@ -569,7 +569,7 @@ function renderWalletExportPage(state: WalletExportPageState) {
                 (status === "exporting"
                   ? "Waiting for Privy..."
                   : !authenticated
-                  ? "Use email OTP inside this screen. Social providers such as Google may be blocked in in-app browsers."
+                  ? "Use email OTP or Google. If Google is blocked by this browser, use email OTP instead."
                   : "")}
               </div>
             </div>
