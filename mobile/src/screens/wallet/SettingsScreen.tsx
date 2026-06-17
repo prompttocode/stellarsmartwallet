@@ -3,6 +3,7 @@ import {
   Alert,
   AppState,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -15,7 +16,6 @@ import {
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import * as ExpoLinking from 'expo-linking';
-import * as WebBrowser from 'expo-web-browser';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -289,53 +289,21 @@ export function SettingsScreen({
       setWalletExportOpening(true);
 
       try {
-        try {
-          WebBrowser.dismissAuthSession();
-        } catch {
-          // No auth session was active on this platform.
+        const canOpen = await Linking.canOpenURL(exportUrl);
+
+        if (!canOpen) {
+          throw new Error('iOS cannot open the secure export URL.');
         }
 
-        try {
-          await WebBrowser.dismissBrowser();
-        } catch {
-          // No browser modal was active on this platform.
-        }
-
-        const result = await WebBrowser.openAuthSessionAsync(
-          exportUrl,
-          returnUrl,
+        await Linking.openURL(exportUrl);
+        wallet.setMessage(
+          'Opened Privy secure export page in your browser. Return to the app after copying the recovery key.',
         );
-
-        if (result.type === 'success') {
-          const status = ExpoLinking.parse(result.url).queryParams?.status;
-
-          if (status === 'success') {
-            wallet.setMessage(
-              'Privy closed the secure export page. If you copied the recovery key, store it offline now.',
-            );
-            Alert.alert(
-              'Recovery export closed',
-              'If you copied the exported key, store it offline. You can restore this wallet later with Import wallet.',
-            );
-          }
-        } else if (result.type !== 'cancel' && result.type !== 'dismiss') {
-          Alert.alert(
-            'Recovery export interrupted',
-            'The secure export browser was closed before Privy returned to the app.',
-          );
-        }
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Unable to open browser.';
 
-        if (message.includes('Another web browser is already open')) {
-          Alert.alert(
-            'Browser session still open',
-            'A previous secure browser session is still active. Close Safari or return from the previous login screen, then try again.',
-          );
-        } else {
-          Alert.alert('Recovery export failed', message);
-        }
+        Alert.alert('Recovery export failed', message);
       } finally {
         setWalletExportOpening(false);
       }
