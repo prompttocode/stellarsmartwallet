@@ -32,6 +32,12 @@ export type WorkerBindings = {
   Bindings: Env;
 };
 
+export type SessionTimingRecorder = (name: string, durationMs: number) => void;
+
+type BuildAccountSessionOptions = {
+  includeHistory?: boolean;
+};
+
 export type StellarNetwork = 'testnet' | 'mainnet';
 
 const WALLET_EXPORT_REQUEST_TTL_MS = 5 * 60 * 1000;
@@ -316,6 +322,20 @@ export function makeError(message: string, status = 400) {
   const error = new Error(message) as Error & { status?: number };
   error.status = status;
   return error;
+}
+
+async function withSessionTiming<T>(
+  recordTiming: SessionTimingRecorder | undefined,
+  name: string,
+  task: () => Promise<T>,
+) {
+  const startedAt = performance.now();
+
+  try {
+    return await task();
+  } finally {
+    recordTiming?.(name, performance.now() - startedAt);
+  }
 }
 
 export function assertStellarAddress(address: unknown, field = 'Wallet address') {
@@ -2853,10 +2873,13 @@ export async function buildAccountSession(
   env: Env,
   account: AccountRecord,
   preferredNetwork: StellarNetwork,
+  recordTiming?: SessionTimingRecorder,
+  options: BuildAccountSessionOptions = {},
 ) {
-  const normalizedAccount = await saveAccount(
-    env,
-    normalizeAccountWallets(account, preferredNetwork),
+  const normalizedAccount = await withSessionTiming(
+    recordTiming,
+    'save_account',
+    () => saveAccount(env, normalizeAccountWallets(account, preferredNetwork)),
   );
   const visibleWallets = getVisibleWallets(normalizedAccount);
   const activeWallet = normalizedAccount.wallet;
@@ -2866,7 +2889,20 @@ export async function buildAccountSession(
   }
 
   const network = activeWallet.network || preferredNetwork;
-  const balanceResult = await getAccountBalances(env, activeWallet.address, network);
+  const includeHistory = options.includeHistory !== false;
+  const [balanceResult, kyc, transactions] = await Promise.all([
+    withSessionTiming(recordTiming, 'balances', () =>
+      getAccountBalances(env, activeWallet.address, network),
+    ),
+    withSessionTiming(recordTiming, 'kyc', () =>
+      getKycSummaryForAccount(env, normalizedAccount.email),
+    ),
+    includeHistory
+      ? withSessionTiming(recordTiming, 'history', () =>
+          getAccountHistory(env, activeWallet.address, network),
+        )
+      : Promise.resolve([]),
+  ]);
   const sessionAccount = {
     ...normalizedAccount,
     activeWalletId: activeWallet.id,
@@ -2884,9 +2920,9 @@ export async function buildAccountSession(
       xlm: balanceResult.xlm,
     },
     balances: balanceResult.balances,
-    kyc: await getKycSummaryForAccount(env, normalizedAccount.email),
+    kyc,
     network,
-    transactions: await getAccountHistory(env, activeWallet.address, network),
+    transactions,
     wallets: visibleWallets.map(stripWalletSecret),
   };
 }

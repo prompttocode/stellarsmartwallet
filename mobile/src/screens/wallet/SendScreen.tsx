@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import ReactNativeBiometrics from 'react-native-biometrics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,7 +13,7 @@ import {
 } from '@components/wallet';
 import type { WalletState } from '@hooks/useWallet';
 import type { SendResult } from '@app-types';
-import { formatTokenAmount, shortAddress } from '@utils/format';
+import { formatDate, formatTokenAmount, shortAddress } from '@utils/format';
 
 type SendStep = 'compose' | 'review' | 'success';
 
@@ -46,6 +46,49 @@ function LocalAssetSelectButton({ asset, label, onPress, valueLabel }: any) {
       </View>
     </PressScale>
   );
+}
+
+function DetailRow({
+  isLast,
+  label,
+  value,
+  withCopyIcon,
+}: {
+  isLast?: boolean;
+  label: string;
+  value: string;
+  withCopyIcon?: boolean;
+}) {
+  return (
+    <View style={[styles.txDetailRow, isLast ? styles.txDetailRowLast : null]}>
+      <Text style={styles.txDetailLabel}>{label}</Text>
+      <View style={styles.txDetailValueWrap}>
+        <Text
+          adjustsFontSizeToFit
+          minimumFontScale={0.75}
+          numberOfLines={1}
+          style={styles.txDetailValue}
+        >
+          {value}
+        </Text>
+        {withCopyIcon ? (
+          <Ionicons color="#8C948D" name="copy-outline" size={12} />
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function getTransferType(operation: SendResult['operation']) {
+  if (operation === 'create_account') {
+    return 'Create Account';
+  }
+
+  if (operation === 'path_payment_strict_send') {
+    return 'Swap Payment';
+  }
+
+  return 'Send Token';
 }
 
 export function SendScreen({
@@ -121,6 +164,17 @@ export function SendScreen({
     return getModernAssets(wallet.balances, result);
   }
 
+  async function shareLastTransaction() {
+    if (!lastResult?.transaction.explorerUrl) {
+      return;
+    }
+
+    await Share.share({
+      message: lastResult.transaction.explorerUrl,
+      url: lastResult.transaction.explorerUrl,
+    });
+  }
+
   function renderHero(title: string, subtitle: string, onHeroBack?: () => void) {
     return (
       <View style={[styles.hero, { paddingTop: insets.top + 12 }]}>
@@ -139,38 +193,112 @@ export function SendScreen({
   }
 
   if (step === 'success' && lastResult) {
+    const transaction = lastResult.transaction;
+    const networkName =
+      wallet.network === 'mainnet' ? 'Stellar Mainnet' : 'Stellar Testnet';
+    const amountText = `- ${formatTokenAmount(transaction.amount || wallet.amount)} ${
+      lastResult.assetCode
+    }`;
+    const detailRows = [
+      {
+        label: 'Date & Time',
+        value: formatDate(transaction.createdAt),
+      },
+      {
+        label: 'Type',
+        value: getTransferType(transaction.operation),
+      },
+      {
+        label: 'From',
+        value: shortAddress(transaction.from),
+      },
+      {
+        label: 'To',
+        value: shortAddress(transaction.to),
+        withCopyIcon: true,
+      },
+      {
+        label: 'Network',
+        value: networkName,
+      },
+      {
+        label: 'Network Fee',
+        value: '0.00001 XLM',
+      },
+      {
+        label: 'Transaction ID',
+        value: shortAddress(transaction.hash),
+        withCopyIcon: true,
+      },
+    ].filter(row => Boolean(row.value));
+
     return (
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 48 }]}
-        style={styles.root}
-        showsVerticalScrollIndicator={false}
-      >
-        {renderHero('Transfer sent', `Transaction submitted to Stellar ${wallet.network === 'mainnet' ? 'Mainnet' : 'Testnet'}.`)}
-        <View style={styles.receiptCard}>
-          <View style={modern.successOrb}>
-            <Ionicons color="#B8FF45" name="checkmark" size={42} />
-          </View>
-          <Text style={styles.receiptTitle}>Transfer sent</Text>
-          <Text style={modern.successModernText}>
-            {formatTokenAmount(wallet.amount)} {lastResult.assetCode} →{' '}
-            {recipientLabel}
-          </Text>
-          <PressScale
-            onPress={() => wallet.openUrl(lastResult.transaction.explorerUrl)}
-            style={modern.primaryModernButton}
-          >
-            <Text style={modern.modernButtonText}>Open Stellar Expert</Text>
-          </PressScale>
+      <View style={[styles.txDetailRoot, { paddingTop: insets.top + 8 }]}>
+        <View style={styles.txDetailHeader}>
           <PressScale
             onPress={() => setStep('compose')}
-            style={modern.secondaryModernButton}
+            style={styles.txHeaderIconButton}
           >
-            <Text style={[modern.modernButtonText, modern.secondaryModernButtonText]}>
-              Send again
-            </Text>
+            <Ionicons color="#FFFFFF" name="arrow-back" size={20} />
+          </PressScale>
+          <Text style={styles.txHeaderTitle}>Transaction Details</Text>
+          <PressScale
+            onPress={shareLastTransaction}
+            style={styles.txHeaderIconButton}
+          >
+            <Ionicons color="#FFFFFF" name="share-social-outline" size={18} />
           </PressScale>
         </View>
-      </ScrollView>
+
+        <ScrollView
+          contentContainerStyle={[
+            styles.txDetailContent,
+            { paddingBottom: insets.bottom + 104 },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.txStatusIcon}>
+            <Ionicons color="#B8FF45" name="arrow-up" size={24} />
+          </View>
+          <Text style={styles.txStatusText}>Transfer sent</Text>
+
+          <Text
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+            numberOfLines={1}
+            style={styles.txAmountText}
+          >
+            {amountText}
+          </Text>
+
+          <View style={styles.txCompletedBadge}>
+            <View style={styles.txCompletedDot} />
+            <Text style={styles.txCompletedText}>COMPLETED</Text>
+          </View>
+
+          <View style={styles.txDetailsCard}>
+            {detailRows.map((row, index) => (
+              <DetailRow
+                key={row.label}
+                label={row.label}
+                value={row.value}
+                withCopyIcon={row.withCopyIcon}
+                isLast={index === detailRows.length - 1}
+              />
+            ))}
+          </View>
+        </ScrollView>
+
+        <View style={[styles.txBottomAction, { paddingBottom: insets.bottom + 10 }]}>
+          <PressScale
+            onPress={() => wallet.openUrl(transaction.explorerUrl)}
+            style={styles.txExpertButton}
+          >
+            <Text style={styles.txExpertButtonText}>View on Stellar Expert</Text>
+            <Ionicons color="#071421" name="open-outline" size={14} />
+          </PressScale>
+        </View>
+      </View>
     );
   }
 
@@ -508,13 +636,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 28,
   },
-  receiptTitle: {
-    color: '#111827',
-    fontSize: 22,
-    fontWeight: '900',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
   reviewBox: {
     backgroundColor: '#F8F9FA',
     borderRadius: 14,
@@ -534,5 +655,151 @@ const styles = StyleSheet.create({
   root: {
     backgroundColor: '#F4F5F7',
     flex: 1,
+  },
+  txAmountText: {
+    color: '#FFFFFF',
+    fontSize: 30,
+    fontWeight: '900',
+    letterSpacing: -0.5,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  txBottomAction: {
+    backgroundColor: 'rgba(16,19,17,0.98)',
+    bottom: 0,
+    left: 0,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    position: 'absolute',
+    right: 0,
+  },
+  txCompletedBadge: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(184,255,0,0.08)',
+    borderColor: 'rgba(184,255,0,0.85)',
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 5,
+    marginTop: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+  },
+  txCompletedDot: {
+    backgroundColor: '#B8FF00',
+    borderRadius: 3,
+    height: 5,
+    width: 5,
+  },
+  txCompletedText: {
+    color: '#B8FF00',
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  txDetailContent: {
+    paddingHorizontal: 16,
+    paddingTop: 28,
+  },
+  txDetailHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  txDetailLabel: {
+    color: '#AEB7AD',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  txDetailRoot: {
+    backgroundColor: '#101311',
+    flex: 1,
+  },
+  txDetailRow: {
+    alignItems: 'center',
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 40,
+    paddingVertical: 4,
+  },
+  txDetailRowLast: {
+    borderBottomWidth: 0,
+  },
+  txDetailValue: {
+    color: '#FFFFFF',
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  txDetailValueWrap: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 5,
+    justifyContent: 'flex-end',
+    marginLeft: 16,
+    minWidth: 0,
+  },
+  txDetailsCard: {
+    backgroundColor: 'rgba(255,255,255,0.035)',
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 18,
+    borderWidth: 1,
+    marginTop: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  txExpertButton: {
+    alignItems: 'center',
+    backgroundColor: '#B8FF00',
+    borderRadius: 18,
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+    minHeight: 54,
+  },
+  txExpertButtonText: {
+    color: '#071421',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  txHeaderIconButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 18,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  txHeaderTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  txStatusIcon: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(184,255,69,0.08)',
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 20,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  txStatusText: {
+    color: '#AEB7AD',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 10,
+    textAlign: 'center',
   },
 });

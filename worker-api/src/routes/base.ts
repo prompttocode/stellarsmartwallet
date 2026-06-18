@@ -82,6 +82,80 @@ async function getVerifiedClientStellarWallet(
   return remoteWallet as Parameters<typeof normalizeWallet>[0];
 }
 
+type SessionTimingEntry = {
+  durationMs: number;
+  name: string;
+};
+
+function createSessionTiming(path: string) {
+  const startedAt = performance.now();
+  const entries: SessionTimingEntry[] = [];
+
+  function record(name: string, durationMs: number) {
+    entries.push({
+      durationMs,
+      name,
+    });
+  }
+
+  async function time<T>(name: string, task: () => Promise<T>) {
+    const stepStartedAt = performance.now();
+
+    try {
+      return await task();
+    } finally {
+      record(name, performance.now() - stepStartedAt);
+    }
+  }
+
+  function getTotalDurationMs() {
+    return performance.now() - startedAt;
+  }
+
+  function getServerTimingHeader() {
+    return [
+      ...entries,
+      {
+        durationMs: getTotalDurationMs(),
+        name: 'total',
+      },
+    ]
+      .map(
+        entry =>
+          `${entry.name.replace(/[^A-Za-z0-9_-]/g, '_')};dur=${Math.max(
+            0,
+            entry.durationMs,
+          ).toFixed(1)}`,
+      )
+      .join(', ');
+  }
+
+  function log(extra: Record<string, unknown> = {}) {
+    const timings = entries.reduce<Record<string, number>>((result, entry) => {
+      result[entry.name] = Number(entry.durationMs.toFixed(1));
+      return result;
+    }, {});
+
+    console.log(
+      JSON.stringify({
+        event: 'api.session.timing',
+        path,
+        service: 'privy-stellar-api',
+        timings,
+        totalMs: Number(getTotalDurationMs().toFixed(1)),
+        ...extra,
+      }),
+    );
+  }
+
+  return {
+    getServerTimingHeader,
+    log,
+    record,
+    time,
+  };
+}
+
 export function registerBaseRoutes(app: Hono<WorkerBindings>) {
   app.get('/api/health', c =>
     c.json({
@@ -128,39 +202,71 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
   });
 
   app.post('/api/session', async c => {
-    const body = await readJsonBody(c);
+    const timing = createSessionTiming('/api/session');
+    const body = await timing.time('body', () => readJsonBody(c));
     const network = normalizeNetwork(body.network);
     const identityToken = String(body.identityToken || '').trim();
     const clientWallet = getClientStellarWalletInput(body.wallet);
 
     if (identityToken) {
-      const user = await getPrivyClient(c.env).users().get({
-        id_token: identityToken,
-      });
+      const user = await timing.time('privy_user', () =>
+        getPrivyClient(c.env).users().get({
+          id_token: identityToken,
+        }),
+      );
       const email = getEmailFromPrivyUser(user);
 
       if (!isEmailLike(email)) {
         throw makeError('This Privy account does not have a valid email', 400);
       }
 
-      const verifiedClientWallet = await getVerifiedClientStellarWallet(
-        c,
-        clientWallet,
+      const verifiedClientWallet = await timing.time(
+        'privy_wallet',
+        () => getVerifiedClientStellarWallet(c, clientWallet),
       );
-      const account = await getOrCreateSessionAccountByEmail(
-        c.env,
-        email,
-        network,
-        String((user as { id?: string })?.id || ''),
-        verifiedClientWallet,
+      const account = await timing.time('account', () =>
+        getOrCreateSessionAccountByEmail(
+          c.env,
+          email,
+          network,
+          String((user as { id?: string })?.id || ''),
+          verifiedClientWallet,
+        ),
+      );
+      const session = await timing.time('session', () =>
+        buildAccountSession(c.env, account, network, timing.record, {
+          includeHistory: false,
+        }),
       );
 
-      return c.json(await buildAccountSession(c.env, account, network));
+      c.header('Server-Timing', timing.getServerTimingHeader());
+      timing.log({
+        hasEmail: true,
+        identityToken: true,
+        network,
+        walletCount: session.wallets.length,
+      });
+      return c.json(session);
     }
 
-    const account = await getOrCreateSessionAccountByEmail(c.env, body.email, network);
+    const email = normalizeEmail(body.email);
+    const account = await timing.time('account', () =>
+      getOrCreateSessionAccountByEmail(c.env, email, network),
+    );
+    const session = await timing.time('session', () =>
+      buildAccountSession(c.env, account, network, timing.record, {
+        includeHistory: false,
+      }),
+    );
 
-    return c.json(await buildAccountSession(c.env, account, network));
+    c.header('Server-Timing', timing.getServerTimingHeader());
+    timing.log({
+      hasEmail: Boolean(email),
+      identityToken: false,
+      network,
+      walletCount: session.wallets.length,
+    });
+    return c.json(session);
   });
 
   app.post('/api/session/status', async c => {

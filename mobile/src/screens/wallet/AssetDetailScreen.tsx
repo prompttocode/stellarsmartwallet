@@ -180,7 +180,12 @@ export function AssetDetailScreen({
   }
 
   return (
-    <View style={[screenInsetStyle, { flex: 1, backgroundColor: '#0A0A0A' }]}>
+    <View
+      style={[
+        screenInsetStyle,
+        { backgroundColor: '#0A0A0A', flex: 1, paddingBottom: 0 },
+      ]}
+    >
       {/* Custom Header */}
       <View style={styles.headerRow}>
         <PressScale onPress={onBack} style={styles.headerIconBtn}>
@@ -196,7 +201,7 @@ export function AssetDetailScreen({
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
         {/* Asset Header Info */}
         <View style={styles.assetHeaderInfo}>
           <View style={styles.assetTitleRow}>
@@ -239,24 +244,23 @@ export function AssetDetailScreen({
           <Text style={styles.balanceAmount}>{formatTokenAmount(asset.balance)} {asset.assetCode}</Text>
           <Text style={styles.balanceUsd}>{balanceUsd}</Text>
         </View>
-      </ScrollView>
 
-      {/* Sticky Bottom Action */}
-      <View style={styles.bottomActionContainer}>
-        {needsTrustline ? (
-          <PressScale 
-            style={styles.buyButton} 
-            onPress={() => wallet.addTrustline(asset.assetCode, asset.assetIssuer || undefined)}
-            disabled={wallet.isBusy}
-          >
-            <Text style={styles.buyButtonText}>Enable Asset</Text>
-          </PressScale>
-        ) : (
-          <PressScale style={styles.buyButton} onPress={() => onGoToRamp('buy')}>
-            <Text style={styles.buyButtonText}>Buy {asset.assetCode}</Text>
-          </PressScale>
-        )}
-      </View>
+        <View style={styles.bottomActionContainer}>
+          {needsTrustline ? (
+            <PressScale
+              style={styles.buyButton}
+              onPress={() => wallet.addTrustline(asset.assetCode, asset.assetIssuer || undefined)}
+              disabled={wallet.isBusy}
+            >
+              <Text style={styles.buyButtonText}>Enable Asset</Text>
+            </PressScale>
+          ) : (
+            <PressScale style={styles.buyButton} onPress={() => onGoToRamp('buy')}>
+              <Text style={styles.buyButtonText}>Buy {asset.assetCode}</Text>
+            </PressScale>
+          )}
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -369,14 +373,8 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   bottomActionContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 40, // for safe area
-    backgroundColor: '#0A0A0A',
+    paddingTop: 24,
   },
   buyButton: {
     backgroundColor: '#B8FF45',
@@ -395,4 +393,3 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 });
-

@@ -1,25 +1,39 @@
 import React, { useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import ReactNativeBiometrics from 'react-native-biometrics';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   AssetPickerModal,
-  AssetSelectButton,
   getModernAssets,
-  ModernInfoLine,
   ModernScreenHeader,
   PressScale,
-  SectionHeader,
+  TokenIcon,
   modern,
   useSafeScreenInsetStyle,
 } from '@components/wallet';
 import type { SwapResult } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
-import { formatTokenAmount, shortAddress } from '@utils/format';
+import { formatTokenAmount } from '@utils/format';
+
+function formatSwapBalance(value?: string | null) {
+  return formatTokenAmount(value || '0', {
+    compact: true,
+    maxFractionDigits: 4,
+  });
+}
 
 export function SwapScreen({ wallet }: { wallet: WalletState }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
+  const insets = useSafeAreaInsets();
   const initialBuy =
     wallet.visibleAssets.find(
       asset => asset.assetCode !== wallet.selectedAssetCode,
@@ -31,6 +45,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
   const [reviewing, setReviewing] = useState(false);
   const [lastSwap, setLastSwap] = useState<SwapResult | null>(null);
   const [quote, setQuote] = useState<null | {
+    destMin: string;
     rate: number;
     toAmount: string;
   }>(null);
@@ -53,6 +68,17 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
     () => assets.find(asset => asset.assetCode === buyCode),
     [assets, buyCode],
   );
+  const quoteAmountLabel = quote
+    ? formatTokenAmount(quote.toAmount)
+    : reviewing
+    ? '0'
+    : '0';
+  const minimumReceived = quote?.destMin || quote?.toAmount || '0';
+  const rateLabel = quote
+    ? `1 ${sellCode} = ${formatTokenAmount(quote.rate, {
+        maxFractionDigits: 7,
+      })} ${buyCode}`
+    : 'Not loaded';
 
   function resetQuote() {
     setReviewing(false);
@@ -94,6 +120,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
 
     if (result) {
       setQuote({
+        destMin: result.destMin,
         rate: result.rate,
         toAmount: result.toAmount,
       });
@@ -192,10 +219,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
         contentContainerStyle={screenInsetStyle}
         showsVerticalScrollIndicator={false}
       >
-        <ModernScreenHeader
-          subtitle="Exchange XLM and USDC on Stellar. This does not withdraw VND to a bank."
-          title="Swap tokens"
-        />
+        <ModernScreenHeader subtitle="" title="Swap tokens" />
 
         {!wallet.walletCanSign ? (
           <View style={modern.sectionCard}>
@@ -221,55 +245,105 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
           </View>
         ) : null}
 
-        <View style={modern.formCard}>
-          <SectionHeader title="Exchange" />
-          <View style={modern.swapField}>
-            <AssetSelectButton
-              asset={sellAsset}
-              label="You pay"
-              onPress={() => setPickerMode('sell')}
-              valueLabel={`${formatTokenAmount(sellAsset?.balance || '0', {
-                compact: true,
-              })} ${sellCode}`}
-            />
-            <TextInput
-              keyboardType="decimal-pad"
-              onChangeText={value => {
-                setSellAmount(value);
-                resetQuote();
-              }}
-              placeholder="0"
-              placeholderTextColor="#A7B3BA"
-              style={modern.swapAmountInput}
-              value={sellAmount}
-            />
-          </View>
+        <View style={[modern.formCard, modern.swapFormCard]}>
+          <View style={modern.swapBox}>
+            <View style={modern.swapField}>
+              <View style={modern.swapFieldTop}>
+                <Text style={modern.swapLabel}>You Pay</Text>
+                <View style={modern.swapBalanceRow}>
+                  <Text
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.82}
+                    numberOfLines={1}
+                    style={modern.swapBalanceText}
+                  >
+                    {formatSwapBalance(sellAsset?.balance)}
+                  </Text>
+                  <PressScale
+                    onPress={() => {
+                      setSellAmount(sellAsset?.balance || '0');
+                      resetQuote();
+                    }}
+                  >
+                    <Text style={modern.swapMaxText}>MAX</Text>
+                  </PressScale>
+                </View>
+              </View>
 
-          <PressScale onPress={flipAssets} style={modern.swapMiddleButton}>
-            <MaterialCommunityIcons
-              color="#FFFFFF"
-              name="swap-vertical"
-              size={24}
-            />
-          </PressScale>
+              <View style={modern.swapAssetRow}>
+                <PressScale
+                  onPress={() => setPickerMode('sell')}
+                  style={modern.swapTokenPill}
+                >
+                  {sellAsset ? (
+                    <TokenIcon
+                      assetCode={sellAsset.assetCode}
+                      imageUrl={sellAsset.image}
+                      size={34}
+                    />
+                  ) : null}
+                  <Text style={modern.swapTokenText}>
+                    {sellAsset ? sellAsset.assetCode : 'Select'}
+                  </Text>
+                  <Ionicons color="#AEB8B2" name="chevron-down" size={16} />
+                </PressScale>
 
-          <View style={modern.swapField}>
-            <AssetSelectButton
-              asset={buyAsset}
-              label="You receive"
-              onPress={() => setPickerMode('buy')}
-              valueLabel={`${formatTokenAmount(buyAsset?.balance || '0', {
-                compact: true,
-              })} ${buyCode}`}
-            />
-            <Text
-              adjustsFontSizeToFit
-              minimumFontScale={0.75}
-              numberOfLines={1}
-              style={modern.swapAmountValue}
-            >
-              {quote ? formatTokenAmount(quote.toAmount) : 'Quote required'}
-            </Text>
+                <TextInput
+                  keyboardType="decimal-pad"
+                  onChangeText={value => {
+                    setSellAmount(value);
+                    resetQuote();
+                  }}
+                  placeholder="0"
+                  placeholderTextColor="#6F7472"
+                  returnKeyType="done"
+                  style={modern.swapAmountInput}
+                  value={sellAmount}
+                />
+              </View>
+            </View>
+
+            <PressScale onPress={flipAssets} style={modern.swapMiddleButton}>
+              <MaterialCommunityIcons
+                color="#D7DED8"
+                name="swap-vertical"
+                size={26}
+              />
+            </PressScale>
+
+            <View style={[modern.swapField, modern.swapReceiveField]}>
+              <View style={modern.swapFieldTop}>
+                <Text style={modern.swapLabel}>You Receive</Text>
+              </View>
+
+              <View style={modern.swapAssetRow}>
+                <PressScale
+                  onPress={() => setPickerMode('buy')}
+                  style={modern.swapTokenPill}
+                >
+                  {buyAsset ? (
+                    <TokenIcon
+                      assetCode={buyAsset.assetCode}
+                      imageUrl={buyAsset.image}
+                      size={34}
+                    />
+                  ) : null}
+                  <Text style={modern.swapTokenText}>
+                    {buyAsset ? buyAsset.assetCode : 'Select'}
+                  </Text>
+                  <Ionicons color="#AEB8B2" name="chevron-down" size={16} />
+                </PressScale>
+
+                <Text
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.72}
+                  numberOfLines={1}
+                  style={modern.swapAmountValue}
+                >
+                  {quoteAmountLabel}
+                </Text>
+              </View>
+            </View>
           </View>
 
           <View style={modern.rateCard}>
@@ -281,49 +355,13 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
             </Text>
           </View>
 
-          {reviewing && quote ? (
-            <View style={modern.reviewModernBox}>
-              <Text style={modern.reviewModernTitle}>Review swap</Text>
-              <ModernInfoLine
-                label="Network"
-                value={
-                  wallet.isMainnet
-                    ? 'Mainnet · real assets'
-                    : 'Testnet · testing only'
-                }
-              />
-              <ModernInfoLine
-                label="Amount"
-                value={`${formatTokenAmount(sellAmount)} ${sellCode}`}
-              />
-              <ModernInfoLine
-                label="Minimum receive"
-                value={`≈ ${formatTokenAmount(quote.toAmount)} ${buyCode}`}
-              />
-              <ModernInfoLine
-                label="Destination"
-                value={wallet.wallet?.address ? shortAddress(wallet.wallet.address) : 'Active wallet'}
-              />
-              <ModernInfoLine label="Network fee" value="0.00001 XLM" />
-              <Text style={modern.reviewModernText}>
-                {wallet.isMainnet
-                  ? 'Biometric confirmation is required before signing.'
-                  : 'The transaction is submitted to Stellar Testnet and has no monetary value.'}
-              </Text>
-            </View>
-          ) : null}
-
           <PressScale
             disabled={wallet.isBusy || !canSwap}
-            onPress={reviewing ? handleSwap : startReview}
+            onPress={quote ? () => setReviewing(true) : startReview}
             style={modern.primaryModernButton}
           >
             <Text style={modern.modernButtonText}>
-              {reviewing
-                ? wallet.isMainnet
-                  ? 'Confirm swap'
-                  : 'Confirm swap'
-                : 'Get Stellar quote'}
+              {quote ? 'Review swap' : 'Review swap'}
             </Text>
           </PressScale>
           <Text style={modern.emptyModernText}>
@@ -331,6 +369,139 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
           </Text>
         </View>
       </ScrollView>
+
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setReviewing(false)}
+        statusBarTranslucent
+        transparent
+        visible={reviewing && Boolean(quote)}
+      >
+        <View style={modern.swapConfirmOverlay}>
+          <Pressable
+            onPress={() => setReviewing(false)}
+            style={modern.swapConfirmBackdrop}
+          />
+          <View
+            style={[
+              modern.swapConfirmSheet,
+              { paddingBottom: Math.max(insets.bottom, 14) + 14 },
+            ]}
+          >
+            <View style={modern.swapConfirmHandle} />
+            <View style={modern.swapConfirmHeader}>
+              <Text style={modern.swapConfirmTitle}>Confirm Swap</Text>
+              <View style={modern.swapConfirmCloseSlot}>
+                <PressScale
+                  onPress={() => setReviewing(false)}
+                  style={modern.swapConfirmClose}
+                >
+                  <Ionicons color="#FFFFFF" name="close" size={18} />
+                </PressScale>
+              </View>
+            </View>
+
+            <View style={modern.swapConfirmAmounts}>
+              <Text
+                adjustsFontSizeToFit
+                minimumFontScale={0.72}
+                numberOfLines={1}
+                style={modern.swapConfirmAmount}
+              >
+                {formatTokenAmount(sellAmount)}
+              </Text>
+              <View style={modern.swapConfirmTokenBadge}>
+                {sellAsset ? (
+                  <TokenIcon
+                    assetCode={sellAsset.assetCode}
+                    imageUrl={sellAsset.image}
+                    size={14}
+                  />
+                ) : null}
+                <Text style={modern.swapConfirmTokenText}>{sellCode}</Text>
+              </View>
+
+              <View style={modern.swapConfirmArrowCircle}>
+                <Ionicons color="#B8FF45" name="arrow-down" size={22} />
+              </View>
+
+              <Text
+                adjustsFontSizeToFit
+                minimumFontScale={0.72}
+                numberOfLines={1}
+                style={modern.swapConfirmReceiveAmount}
+              >
+                {formatTokenAmount(quote?.toAmount || '0')}
+              </Text>
+              <View style={modern.swapConfirmTokenBadge}>
+                {buyAsset ? (
+                  <TokenIcon
+                    assetCode={buyAsset.assetCode}
+                    imageUrl={buyAsset.image}
+                    size={14}
+                  />
+                ) : null}
+                <Text style={modern.swapConfirmTokenText}>{buyCode}</Text>
+              </View>
+            </View>
+
+            <View style={modern.swapConfirmDetails}>
+              <View style={modern.swapConfirmDetailRow}>
+                <Text style={modern.swapConfirmDetailLabel}>Rate</Text>
+                <Text style={modern.swapConfirmDetailValue}>{rateLabel}</Text>
+              </View>
+              <View style={modern.swapConfirmDetailRow}>
+                <Text style={modern.swapConfirmDetailLabel}>
+                  Minimum Received
+                </Text>
+                <Text style={modern.swapConfirmDetailValue}>
+                  {formatTokenAmount(minimumReceived)} {buyCode}
+                </Text>
+              </View>
+              <View style={modern.swapConfirmDetailRow}>
+                <Text style={modern.swapConfirmDetailLabel}>Price Impact</Text>
+                <Text
+                  style={[
+                    modern.swapConfirmDetailValue,
+                    modern.swapConfirmPositiveValue,
+                  ]}
+                >
+                  &lt; 0.01%
+                </Text>
+              </View>
+              <View style={modern.swapConfirmDetailRow}>
+                <Text style={modern.swapConfirmDetailLabel}>Network Fee</Text>
+                <Text style={modern.swapConfirmDetailValue}>0.00001 XLM</Text>
+              </View>
+              <View style={modern.swapConfirmDetailRow}>
+                <View style={modern.swapConfirmRouteLabel}>
+                  <Text style={modern.swapConfirmDetailLabel}>Route</Text>
+                  <Ionicons
+                    color="#8C948D"
+                    name="information-circle-outline"
+                    size={13}
+                  />
+                </View>
+                <Text style={modern.swapConfirmDetailValue}>Stellar DEX</Text>
+              </View>
+            </View>
+
+            <Text style={modern.swapConfirmNote}>
+              Output is estimated. You will receive at least{' '}
+              {formatTokenAmount(minimumReceived)} {buyCode} or the transaction
+              will revert.
+            </Text>
+
+            <PressScale
+              disabled={wallet.isBusy || !canSwap}
+              onPress={handleSwap}
+              style={modern.swapConfirmButton}
+            >
+              <Text style={modern.swapConfirmButtonText}>CONFIRM SWAP</Text>
+            </PressScale>
+          </View>
+        </View>
+      </Modal>
 
       <AssetPickerModal
         assets={assets}

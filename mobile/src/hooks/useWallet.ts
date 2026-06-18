@@ -41,6 +41,7 @@ import type {
   SwapQuoteResult,
   SwapResult,
   TransactionItem,
+  TransactionHistoryResponse,
   TrustlineResult,
   Wallet,
   WalletConnectConfig,
@@ -640,6 +641,23 @@ export function useWallet() {
         }:${network}`
       : null;
 
+  const fetchTransactionHistory = useCallback(
+    async (walletAddress: string, targetNetwork: StellarNetwork = network) => {
+      const address = walletAddress.trim();
+
+      if (!address) {
+        return [];
+      }
+
+      const result = await api<TransactionHistoryResponse>(
+        `/api/stellar/${targetNetwork}/${address}/history`,
+      );
+
+      return result.transactions || [];
+    },
+    [network],
+  );
+
   const refreshAssetPrices = useCallback(async () => {
     try {
       const result = await api<AssetsResponse>(
@@ -829,7 +847,7 @@ export function useWallet() {
       setWallets(sessionWallets);
       setActiveWalletId(nextActiveWalletId);
       setBalances(session.balances || session.balance.balances || []);
-      setTransactions(session.transactions);
+      setTransactions(session.transactions || []);
       setServerSessionReady(options.source !== 'cache');
       setMessage(nextMessage);
 
@@ -866,6 +884,29 @@ export function useWallet() {
       cancelled = true;
     };
   }, [network, wallet?.address]);
+
+  useEffect(() => {
+    const address = wallet?.address;
+
+    if (!address) {
+      setTransactions([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    fetchTransactionHistory(address, network)
+      .then(nextTransactions => {
+        if (!cancelled) {
+          setTransactions(nextTransactions);
+        }
+      })
+      .catch(() => null);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchTransactionHistory, network, wallet?.address]);
 
   const refreshPrivySecuritySession = useCallback(async () => {
     if (!isReady || !userKey) {
@@ -1389,6 +1430,16 @@ export function useWallet() {
           body: JSON.stringify({ email: account.email, network }),
         });
         applySession(session);
+        const sessionWalletAddress = session.account.wallet?.address;
+
+        if (sessionWalletAddress) {
+          const nextTransactions = await fetchTransactionHistory(
+            sessionWalletAddress,
+            session.network || network,
+          );
+          setTransactions(nextTransactions);
+        }
+
         setMessage('Balances and transaction history refreshed.');
       } finally {
         setSessionSyncing(false);

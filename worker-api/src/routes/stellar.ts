@@ -70,6 +70,26 @@ async function handleStellarLookup(
   });
 }
 
+async function handleStellarHistory(
+  c: Context<WorkerBindings>,
+  fallbackNetwork: StellarNetwork = 'testnet',
+) {
+  const network = normalizeNetwork(c.req.param('network'), fallbackNetwork);
+  const address = String(c.req.param('address') || '').trim();
+  const parsedLimit = Number(c.req.query('limit') || 30);
+  const limit = Number.isFinite(parsedLimit)
+    ? Math.max(1, Math.min(100, Math.floor(parsedLimit)))
+    : 30;
+
+  assertStellarAddress(address);
+
+  return c.json({
+    address,
+    network,
+    transactions: await getAccountHistory(c.env, address, network, limit),
+  });
+}
+
 async function handleFund(
   c: Context<WorkerBindings>,
   fallbackNetwork: StellarNetwork = 'testnet',
@@ -421,6 +441,9 @@ async function handleSwapExecute(c: Context<WorkerBindings>, fallbackNetwork?: S
 }
 
 export function registerStellarRoutes(app: Hono<WorkerBindings>) {
+  app.get('/api/stellar/:network/:address/history', c =>
+    handleStellarHistory(c),
+  );
   app.get('/api/stellar/:network/:address', c => handleStellarLookup(c));
   app.post('/api/stellar/:network/fund', c => handleFund(c));
   app.post('/api/stellar/:network/trustline', c => handleTrustline(c));
@@ -429,6 +452,9 @@ export function registerStellarRoutes(app: Hono<WorkerBindings>) {
   app.post('/api/stellar/:network/swap/execute', c => handleSwapExecute(c));
   app.post('/api/stellar/:network/swap', c => handleSwapExecute(c));
 
+  app.get('/api/stellar/:address/history', c =>
+    handleStellarHistory(c, 'testnet'),
+  );
   app.get('/api/stellar/:address', c => handleStellarLookup(c, 'testnet'));
   app.post('/api/stellar/fund', c => handleFund(c, 'testnet'));
   app.post('/api/stellar/trustline', c => handleTrustline(c, 'testnet'));
