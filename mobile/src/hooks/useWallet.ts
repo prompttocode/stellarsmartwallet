@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Linking } from 'react-native';
+import { Alert, AppState, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReactNativeBiometrics from 'react-native-biometrics';
 import {
@@ -905,6 +905,42 @@ export function useWallet() {
 
     return () => {
       cancelled = true;
+    };
+  }, [fetchTransactionHistory, network, serverSessionReady, wallet?.address]);
+
+  useEffect(() => {
+    const address = wallet?.address;
+
+    if (!address) {
+      return;
+    }
+
+    let currentAppState = AppState.currentState;
+    let cancelled = false;
+
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      const returningToForeground =
+        currentAppState.match(/inactive|background/) &&
+        nextAppState === 'active';
+
+      currentAppState = nextAppState;
+
+      if (!returningToForeground || cancelled) {
+        return;
+      }
+
+      fetchTransactionHistory(address, network)
+        .then(nextTransactions => {
+          if (!cancelled) {
+            setTransactions(nextTransactions);
+          }
+        })
+        .catch(() => null);
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.remove();
     };
   }, [fetchTransactionHistory, network, wallet?.address]);
 
