@@ -1,6 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
+
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { LineChart } from 'react-native-wagmi-charts';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useHistoricalPrice, Timeframe } from '../../hooks/useHistoricalPrice';
 import {
   ModernScreenHeader,
   PressScale,
@@ -133,26 +136,7 @@ function mergeRouteAsset(
   return makeFallbackAsset(params, wallet.network);
 }
 
-function MetadataRow({
-  label,
-  value,
-}: {
-  label: string;
-  value?: string | null;
-}) {
-  if (!value) {
-    return null;
-  }
 
-  return (
-    <View style={modern.infoRow}>
-      <Text style={modern.infoLabel}>{label}</Text>
-      <Text numberOfLines={2} selectable style={styles.infoValue}>
-        {value}
-      </Text>
-    </View>
-  );
-}
 
 export function AssetDetailScreen({
   onBack,
@@ -174,275 +158,238 @@ export function AssetDetailScreen({
     () => mergeRouteAsset(route.params || {}, wallet),
     [route.params, wallet],
   );
-  const canUse = asset.isNative || asset.trusted;
+  
+  const [timeframe, setTimeframe] = useState<Timeframe>('7D');
+  const { data: chartData, loading: chartLoading } = useHistoricalPrice(asset.assetCode, timeframe);
+  
   const needsTrustline = !asset.isNative && !asset.trusted;
-  const supportsVndOrders = ['XLM', 'USDC'].includes(asset.assetCode);
-  const badgeLabel = needsTrustline
-    ? 'Enable asset'
-    : asset.demo
-    ? 'Demo'
-    : asset.trustLevel === 'verified'
-    ? 'Verified'
-    : 'Unverified';
-  const explorerNetwork = wallet.network === 'mainnet' ? 'public' : 'testnet';
-  const assetExplorerUrl =
-    !asset.isNative && asset.assetIssuer
-      ? `https://stellar.expert/explorer/${explorerNetwork}/asset/${asset.assetCode}-${asset.assetIssuer}`
-      : wallet.explorerAddressUrl;
-  const canOpenExplorer =
-    Boolean(assetExplorerUrl) &&
-    (!asset.isNative || !wallet.isMainnet || wallet.walletActive);
 
-  function enableAsset() {
-    wallet.addTrustline(asset.assetCode, asset.assetIssuer || undefined);
+  const currentPrice = asset.priceUsd ? `$${asset.priceUsd.toPrecision(4)}` : '$0.00';
+  const balanceValue = Number(asset.balance);
+  const balanceUsd = asset.priceUsd ? formatUsd(balanceValue * asset.priceUsd) : '$0.00';
+  
+  // Calculate price change if we have chart data
+  let priceChangeStr = '+0.00%';
+  let isPositive = true;
+  if (chartData.length > 0) {
+    const startPrice = chartData[0].value;
+    const endPrice = chartData[chartData.length - 1].value;
+    const change = ((endPrice - startPrice) / startPrice) * 100;
+    isPositive = change >= 0;
+    priceChangeStr = `${isPositive ? '+' : ''}${change.toFixed(2)}%`;
   }
 
   return (
-    <ScrollView
-      contentContainerStyle={screenInsetStyle}
-      style={{ backgroundColor: '#000000' }}
-      showsVerticalScrollIndicator={false}
+    <View
+      style={[
+        screenInsetStyle,
+        { backgroundColor: '#0A0A0A', flex: 1, paddingBottom: 0 },
+      ]}
     >
-      <ModernScreenHeader
-        onBack={onBack}
-        title={asset.assetCode}
-        subtitle={`${asset.displayName} on ${
-          wallet.isMainnet ? 'Mainnet' : 'Testnet'
-        }`}
-      />
-
-      <View style={modern.sectionCard}>
-        <View style={styles.hero}>
-          <TokenIcon
-            assetCode={asset.assetCode}
-            imageUrl={asset.image}
-            size={70}
-          />
-          <View style={styles.heroCopy}>
-            <View style={styles.titleLine}>
-              <Text numberOfLines={1} style={styles.assetCode}>
-                {asset.assetCode}
-              </Text>
-              <View
-                style={[
-                  modern.assetBadge,
-                  badgeLabel === 'Demo'
-                    ? modern.assetBadgeDemo
-                    : badgeLabel === 'Verified'
-                    ? modern.assetBadgeVerified
-                    : badgeLabel === 'Enable asset'
-                    ? modern.assetBadgeTrustline
-                    : modern.assetBadgeUnverified,
-                ]}
-              >
-                <Text
-                  style={[
-                    modern.assetBadgeText,
-                    badgeLabel === 'Demo'
-                      ? modern.assetBadgeTextDemo
-                      : badgeLabel === 'Verified'
-                      ? modern.assetBadgeTextVerified
-                      : badgeLabel === 'Enable asset'
-                      ? modern.assetBadgeTextTrustline
-                      : modern.assetBadgeTextUnverified,
-                  ]}
-                >
-                  {badgeLabel}
-                </Text>
-              </View>
-            </View>
-            <Text numberOfLines={2} style={styles.assetName}>
-              {asset.displayName}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.balanceCard}>
-          <Text style={modern.infoLabel}>Balance</Text>
-          <Text style={styles.balanceValue}>
-            {canUse
-              ? `${formatTokenAmount(asset.balance, { compact: true })} ${
-                  asset.assetCode
-                }`
-              : 'Not enabled'}
-          </Text>
-          <Text style={styles.balanceMeta}>
-            {needsTrustline
-              ? 'Enable this asset before you can receive or hold it.'
-              : asset.limit
-              ? `Trustline limit ${asset.limit}`
-              : 'Ready for wallet actions.'}
-          </Text>
-        </View>
-      </View>
-
-      <View style={modern.sectionCard}>
-        <SectionHeader title="Asset info" />
-        <MetadataRow
-          label="Network"
-          value={wallet.isMainnet ? 'Mainnet' : 'Testnet'}
-        />
-        <MetadataRow
-          label="Issuer"
-          value={asset.isNative ? 'Native Stellar asset' : asset.assetIssuer}
-        />
-        <MetadataRow
-          label="Issuer short"
-          value={shortAddress(asset.assetIssuer || undefined)}
-        />
-        <MetadataRow label="Home domain" value={asset.homeDomain} />
-        <MetadataRow label="Price" value={formatUsd(asset.priceUsd)} />
-        <MetadataRow
-          label="Rating"
-          value={
-            typeof asset.rating === 'number'
-              ? asset.rating.toLocaleString('en-US')
-              : null
-          }
-        />
-        <MetadataRow label="Volume 7d" value={formatCompact(asset.volume7d)} />
-      </View>
-
-      <View style={modern.sectionCard}>
-        <SectionHeader title="Actions" />
-        {needsTrustline ? (
-          <PressScale
-            disabled={wallet.isBusy}
-            onPress={enableAsset}
-            style={modern.primaryModernButton}
-          >
-            <Text style={modern.modernButtonText}>Enable asset</Text>
+      {/* Custom Header */}
+      <View style={styles.headerRow}>
+        <PressScale onPress={onBack} style={styles.headerIconBtn}>
+          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+        </PressScale>
+        <View style={styles.headerRight}>
+          <PressScale style={styles.headerIconBtn}>
+            <Ionicons name="star-outline" size={22} color="#FFFFFF" />
           </PressScale>
-        ) : (
-          <>
-            <PressScale
-              disabled={wallet.isBusy}
-              onPress={() => onGoToSend(asset.assetCode)}
-              style={modern.primaryModernButton}
-            >
-              <Text style={modern.modernButtonText}>
-                Send {asset.assetCode}
-              </Text>
-            </PressScale>
-            <PressScale
-              disabled={wallet.isBusy}
-              onPress={onGoToReceive}
-              style={modern.secondaryModernButton}
-            >
-              <Text
-                style={[
-                  modern.modernButtonText,
-                  modern.secondaryModernButtonText,
-                ]}
-              >
-                Receive
-              </Text>
-            </PressScale>
-            {supportsVndOrders ? (
-              <>
-                <PressScale
-                  disabled={wallet.isBusy}
-                  onPress={() => onGoToRamp('buy')}
-                  style={modern.secondaryModernButton}
-                >
-                  <Text
-                    style={[
-                      modern.modernButtonText,
-                      modern.secondaryModernButtonText,
-                    ]}
-                  >
-                    Buy with VND
-                  </Text>
-                </PressScale>
-                <PressScale
-                  disabled={wallet.isBusy}
-                  onPress={() => onGoToRamp('sell')}
-                  style={modern.secondaryModernButton}
-                >
-                  <Text
-                    style={[
-                      modern.modernButtonText,
-                      modern.secondaryModernButtonText,
-                    ]}
-                  >
-                    Withdraw to bank
-                  </Text>
-                </PressScale>
-              </>
-            ) : null}
-          </>
-        )}
-        <ExplorerLink disabled={!canOpenExplorer} onPress={() => wallet.openUrl(assetExplorerUrl)} />
+          <PressScale style={styles.headerIconBtn}>
+            <Ionicons name="share-social-outline" size={22} color="#FFFFFF" />
+          </PressScale>
+        </View>
       </View>
-    </ScrollView>
+
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
+        {/* Asset Header Info */}
+        <View style={styles.assetHeaderInfo}>
+          <View style={styles.assetTitleRow}>
+            <TokenIcon assetCode={asset.assetCode} imageUrl={asset.image} size={40} />
+            <View style={styles.assetNameCol}>
+              <Text style={styles.assetName}>{asset.displayName}</Text>
+              <Text style={styles.assetSymbol}>{asset.assetCode}</Text>
+            </View>
+          </View>
+          
+          <Text style={styles.currentPrice}>{currentPrice}</Text>
+          <Text style={[styles.priceChange, { color: isPositive ? '#B8FF45' : '#FF453A' }]}>
+            <Ionicons name={isPositive ? "arrow-up" : "arrow-down"} size={12} /> {priceChangeStr}
+          </Text>
+        </View>
+
+        {/* Chart Section */}
+        <View style={styles.chartContainer}>
+          {chartData.length > 0 ? (
+            <LineChart.Provider data={chartData}>
+              <LineChart width={400} height={200}>
+                <LineChart.Path color="#B8FF45">
+                  <LineChart.Gradient color="#B8FF45" />
+                </LineChart.Path>
+                <LineChart.CursorCrosshair color="#B8FF45" />
+              </LineChart>
+            </LineChart.Provider>
+          ) : (
+            <View style={{ height: 200, justifyContent: 'center', alignItems: 'center' }}>
+              <Text style={{ color: '#555' }}>{chartLoading ? 'Loading chart...' : 'No chart data'}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Timeframe Selector Removed - Stellar Expert only provides 7D data */}
+
+        {/* Balance Card */}
+        <View style={styles.balanceCard}>
+          <Text style={styles.balanceLabel}>Your Balance</Text>
+          <Text style={styles.balanceAmount}>{formatTokenAmount(asset.balance)} {asset.assetCode}</Text>
+          <Text style={styles.balanceUsd}>{balanceUsd}</Text>
+        </View>
+
+        <View style={styles.bottomActionContainer}>
+          {needsTrustline ? (
+            <PressScale
+              style={styles.buyButton}
+              onPress={() => wallet.addTrustline(asset.assetCode, asset.assetIssuer || undefined)}
+              disabled={wallet.isBusy}
+            >
+              <Text style={styles.buyButtonText}>Enable Asset</Text>
+            </PressScale>
+          ) : (
+            <PressScale style={styles.buyButton} onPress={() => onGoToRamp('buy')}>
+              <Text style={styles.buyButtonText}>Buy {asset.assetCode}</Text>
+            </PressScale>
+          )}
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  assetCode: {
-    color: '#FFFFFF',
-    flexShrink: 1,
-    fontSize: 30,
-    fontWeight: '900',
-  },
-  assetName: {
-    color: '#7E909A',
-    fontSize: 14,
-    fontWeight: '800',
-    lineHeight: 20,
-  },
-  balanceCard: {
-    backgroundColor: '#111318',
-    borderRadius: 22,
-    gap: 6,
-    padding: 16,
-  },
-  balanceMeta: {
-    color: '#7E909A',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  balanceValue: {
-    color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: '900',
-  },
-  explorerButton: {
-    alignItems: 'center',
-    alignSelf: 'center',
+  headerRow: {
     flexDirection: 'row',
-    gap: 7,
-    paddingHorizontal: 14,
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
     paddingVertical: 10,
   },
-  explorerText: {
-    color: '#B8FF45',
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  hero: {
+  headerIconBtn: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
     alignItems: 'center',
+  },
+  headerRight: {
     flexDirection: 'row',
-    gap: 16,
+    gap: 10,
   },
-  heroCopy: {
-    flex: 1,
-    gap: 4,
-    minWidth: 0,
+  assetHeaderInfo: {
+    paddingHorizontal: 24,
+    marginTop: 10,
   },
-  infoValue: {
+  assetTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  assetNameCol: {
+    justifyContent: 'center',
+  },
+  assetName: {
     color: '#FFFFFF',
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '900',
-    lineHeight: 18,
-    marginLeft: 12,
-    textAlign: 'right',
+    fontSize: 20,
+    fontWeight: '700',
   },
-  titleLine: {
-    alignItems: 'center',
+  assetSymbol: {
+    color: '#8A8A8E',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  currentPrice: {
+    color: '#FFFFFF',
+    fontSize: 36,
+    fontWeight: '800',
+    letterSpacing: -1,
+  },
+  priceChange: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  chartContainer: {
+    marginTop: 30,
+    height: 200,
+    width: '100%',
+  },
+  timeframeRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    justifyContent: 'center',
     gap: 8,
+    marginTop: 30,
+    paddingHorizontal: 20,
+  },
+  timeframeBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#333333',
+  },
+  timeframeBtnActive: {
+    borderColor: '#B8FF45',
+    backgroundColor: 'rgba(184, 255, 69, 0.1)',
+  },
+  timeframeText: {
+    color: '#8A8A8E',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  timeframeTextActive: {
+    color: '#B8FF45',
+  },
+  balanceCard: {
+    backgroundColor: '#1C1C1E',
+    marginHorizontal: 20,
+    marginTop: 40,
+    borderRadius: 20,
+    padding: 24,
+  },
+  balanceLabel: {
+    color: '#8A8A8E',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  balanceAmount: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  balanceUsd: {
+    color: '#8A8A8E',
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  bottomActionContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 24,
+  },
+  buyButton: {
+    backgroundColor: '#B8FF45',
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#B8FF45',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+  },
+  buyButtonText: {
+    color: '#000000',
+    fontSize: 18,
+    fontWeight: '800',
   },
 });

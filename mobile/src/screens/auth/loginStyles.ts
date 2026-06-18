@@ -83,6 +83,10 @@ export const loginStyles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
+  sessionStatusAnimation: {
+    height: 34,
+    width: 44,
+  },
   sessionStatusCopy: {
     flex: 1,
     gap: 2,

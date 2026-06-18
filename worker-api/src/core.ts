@@ -1,4 +1,6 @@
 import { type Context } from 'hono';
+import { Chacha20Poly1305 } from '@hpke/chacha20poly1305';
+import { CipherSuite, DhkemP256HkdfSha256, HkdfSha256 } from '@hpke/core';
 import { PrivyClient } from '@privy-io/node';
 import {
   Asset,
@@ -30,7 +32,15 @@ export type WorkerBindings = {
   Bindings: Env;
 };
 
+export type SessionTimingRecorder = (name: string, durationMs: number) => void;
+
+type BuildAccountSessionOptions = {
+  includeHistory?: boolean;
+};
+
 export type StellarNetwork = 'testnet' | 'mainnet';
+
+const WALLET_EXPORT_REQUEST_TTL_MS = 5 * 60 * 1000;
 
 export type WalletKind = 'privy' | 'watch_only' | 'imported_privy';
 
@@ -41,6 +51,10 @@ export type WalletRecord = {
   canSign: boolean;
   chainType?: string;
   displayName?: string;
+  encryptedSecret?: {
+    ciphertext: string;
+    iv: string;
+  };
   kind: WalletKind;
   network: StellarNetwork;
   publicKey: string;
@@ -310,6 +324,20 @@ export function makeError(message: string, status = 400) {
   return error;
 }
 
+async function withSessionTiming<T>(
+  recordTiming: SessionTimingRecorder | undefined,
+  name: string,
+  task: () => Promise<T>,
+) {
+  const startedAt = performance.now();
+
+  try {
+    return await task();
+  } finally {
+    recordTiming?.(name, performance.now() - startedAt);
+  }
+}
+
 export function assertStellarAddress(address: unknown, field = 'Wallet address') {
   try {
     Keypair.fromPublicKey(String(address || '').trim());
@@ -339,10 +367,29 @@ export function formatStellarAmount(amount: number) {
 }
 
 export function assertSecretKey(secret: unknown, field = 'Secret key') {
+  const value = String(secret || '').trim();
+
   try {
-    return Keypair.fromSecret(String(secret || '').trim());
+    if (value.startsWith('S')) {
+      return Keypair.fromSecret(value);
+    }
+
+    const cleanHex = value.replace(/^0x/i, '').replace(/\s+/g, '');
+
+    if (/^[0-9a-f]{64}$/i.test(cleanHex)) {
+      const seed = new Uint8Array(
+        cleanHex.match(/.{2}/g)!.map(byte => Number.parseInt(byte, 16)),
+      );
+
+      return Keypair.fromRawEd25519Seed(seed);
+    }
+
+    return Keypair.fromSecret(value);
   } catch {
-    throw makeError(`${field} is invalid`, 400);
+    throw makeError(
+      `${field} is invalid. Use a Stellar S... key or a 64-hex private key exported by Privy.`,
+      400,
+    );
   }
 }
 
@@ -549,10 +596,204 @@ export async function importStellarWallet({
   });
 }
 
-export async function exportStellarWalletSecret(
+export type WalletExportSignInput = {
+  body: {
+    encryption_type: 'HPKE';
+    export_seed_phrase: false;
+    recipient_public_key: string;
+  };
+  headers: {
+    'privy-app-id': string;
+    'privy-request-expiry': string;
+  };
+  method: 'POST';
+  url: string;
+  version: 1;
+};
+
+export type WalletExportChallenge = {
+  createdAt: number;
+  expectedAddress: string;
+  hpkePrivateKeyJwk: JsonWebKey;
+  network: StellarNetwork;
+  recipientPublicKey: string;
+  requestExpiry: number;
+  walletId: string;
+};
+
+function getSubtleCrypto() {
+  const subtle = (globalThis as { crypto?: Crypto }).crypto?.subtle;
+
+  if (!subtle) {
+    throw makeError('WebCrypto is not available in this runtime', 500);
+  }
+
+  return subtle;
+}
+
+function createHpkeSuite() {
+  return new CipherSuite({
+    kem: new DhkemP256HkdfSha256(),
+    kdf: new HkdfSha256(),
+    aead: new Chacha20Poly1305(),
+  });
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = '';
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary);
+}
+
+function base64ToBytes(value: string) {
+  const binary = atob(value);
+
+  return Uint8Array.from(binary, char => char.charCodeAt(0));
+}
+
+function bytesToBase64Url(bytes: Uint8Array) {
+  return bytesToBase64(bytes)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function base64UrlToBytes(value: string) {
+  const padded = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padLength = (4 - (padded.length % 4)) % 4;
+
+  return base64ToBytes(padded + '='.repeat(padLength));
+}
+
+async function getWalletSecretCryptoKey(env: Env) {
+  const subtle = getSubtleCrypto();
+  const material = await subtle.importKey(
+    'raw',
+    new TextEncoder().encode(env.PRIVY_APP_SECRET),
+    'PBKDF2',
+    false,
+    ['deriveKey'],
+  );
+
+  return subtle.deriveKey(
+    {
+      hash: 'SHA-256',
+      iterations: 100_000,
+      name: 'PBKDF2',
+      salt: new TextEncoder().encode(`${env.PRIVY_APP_ID}:stellar-wallet-secret`),
+    },
+    material,
+    { length: 256, name: 'AES-GCM' },
+    false,
+    ['decrypt', 'encrypt'],
+  );
+}
+
+export async function encryptWalletSecret(env: Env, secret: string) {
+  const subtle = getSubtleCrypto();
+  const key = await getWalletSecretCryptoKey(env);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await subtle.encrypt(
+    { iv, name: 'AES-GCM' },
+    key,
+    new TextEncoder().encode(secret),
+  );
+
+  return {
+    ciphertext: bytesToBase64Url(new Uint8Array(ciphertext)),
+    iv: bytesToBase64Url(iv),
+  };
+}
+
+export async function decryptWalletSecret(
+  env: Env,
+  encryptedSecret: WalletRecord['encryptedSecret'],
+) {
+  if (!encryptedSecret?.ciphertext || !encryptedSecret.iv) {
+    throw makeError('Imported wallet secret is not available for signing', 500);
+  }
+
+  const subtle = getSubtleCrypto();
+  const key = await getWalletSecretCryptoKey(env);
+  const plaintext = await subtle.decrypt(
+    {
+      iv: base64UrlToBytes(encryptedSecret.iv),
+      name: 'AES-GCM',
+    },
+    key,
+    base64UrlToBytes(encryptedSecret.ciphertext),
+  );
+
+  return new TextDecoder().decode(plaintext);
+}
+
+export function encodeWalletExportChallenge(challenge: WalletExportChallenge) {
+  return btoa(JSON.stringify(challenge));
+}
+
+export function decodeWalletExportChallenge(value: string): WalletExportChallenge {
+  try {
+    return JSON.parse(atob(value)) as WalletExportChallenge;
+  } catch {
+    throw makeError('Invalid wallet export challenge', 400);
+  }
+}
+
+async function buildHpkeExportRecipient() {
+  const suite = createHpkeSuite();
+  const subtle = getSubtleCrypto();
+  const keypair = await suite.kem.generateKeyPair();
+  const [publicKeySpki, privateKeyJwk] = await Promise.all([
+    subtle.exportKey('spki', keypair.publicKey),
+    subtle.exportKey('jwk', keypair.privateKey),
+  ]);
+
+  return {
+    privateKeyJwk: privateKeyJwk as JsonWebKey,
+    publicKeySpki: new Uint8Array(publicKeySpki as ArrayBuffer),
+  };
+}
+
+async function decryptHpkePayload(
+  privateKeyJwk: JsonWebKey,
+  encapsulatedKey: Uint8Array,
+  ciphertext: Uint8Array,
+) {
+  const suite = createHpkeSuite();
+  const privateKey = await suite.kem.importKey('jwk', privateKeyJwk, false);
+  const recipient = await suite.createRecipientContext({
+    recipientKey: privateKey,
+    enc: encapsulatedKey,
+  });
+
+  return new Uint8Array(await recipient.open(ciphertext));
+}
+
+function normalizeExportedStellarSecret(expectedAddress: string, exportedKey: string) {
+  const trimmedKey = String(exportedKey || '').trim();
+
+  if (!trimmedKey) {
+    throw makeError('Privy did not return a wallet private key', 502);
+  }
+
+  const keypair = assertSecretKey(trimmedKey, 'Exported Stellar secret key');
+
+  if (keypair.publicKey() !== expectedAddress) {
+    throw makeError('Exported key does not match the selected Stellar wallet', 502);
+  }
+
+  return { secret: keypair.secret() };
+}
+
+export async function prepareStellarWalletSecretExport(
   env: Env,
   walletId: string,
   expectedAddress: string,
+  network: StellarNetwork,
 ) {
   const wallets = (getPrivyClient(env) as any).wallets();
   const remoteWallet = await wallets.get(walletId);
@@ -561,41 +802,80 @@ export async function exportStellarWalletSecret(
     throw makeError('Privy wallet does not match the selected Stellar wallet', 502);
   }
 
-  const result = await wallets.exportPrivateKey(walletId, {});
-  const exportedKey = String(
-    result?.private_key ||
-      result?.privateKey ||
-      result?.data?.private_key ||
-      result?.data?.privateKey ||
-      '',
-  ).trim();
+  const hpkeRecipient = await buildHpkeExportRecipient();
+  const requestExpiry = Date.now() + WALLET_EXPORT_REQUEST_TTL_MS;
+  const params = {
+    encryption_type: 'HPKE' as const,
+    export_seed_phrase: false as const,
+    recipient_public_key: bytesToBase64(hpkeRecipient.publicKeySpki),
+  };
 
-  if (!exportedKey) {
-    throw makeError('Privy did not return a wallet private key', 502);
+  return {
+    challenge: encodeWalletExportChallenge({
+      createdAt: Date.now(),
+      expectedAddress,
+      hpkePrivateKeyJwk: hpkeRecipient.privateKeyJwk,
+      network,
+      recipientPublicKey: params.recipient_public_key,
+      requestExpiry,
+      walletId,
+    }),
+    signInput: {
+      body: params,
+      headers: {
+        'privy-app-id': env.PRIVY_APP_ID,
+        'privy-request-expiry': String(requestExpiry),
+      },
+      method: 'POST' as const,
+      url: `${PRIVY_API_URL}/wallets/${walletId}/export`,
+      version: 1 as const,
+    },
+  };
+}
+
+export async function completeStellarWalletSecretExport(
+  env: Env,
+  challenge: WalletExportChallenge,
+  authorizationSignature: string,
+) {
+  const wallets = (getPrivyClient(env) as any).wallets();
+  const remoteWallet = await wallets.get(challenge.walletId);
+
+  if (String(remoteWallet?.address || '') !== challenge.expectedAddress) {
+    throw makeError('Privy wallet does not match the selected Stellar wallet', 502);
   }
 
-  let keypair: Keypair;
+  const response = await privyRequest<{
+    ciphertext?: string;
+    encapsulated_key?: string;
+  }>(env, `/wallets/${challenge.walletId}/export`, {
+    method: 'POST',
+    headers: {
+      'privy-authorization-signature': authorizationSignature,
+      'privy-request-expiry': String(challenge.requestExpiry),
+    },
+    body: JSON.stringify({
+      encryption_type: 'HPKE',
+      export_seed_phrase: false,
+      recipient_public_key: challenge.recipientPublicKey,
+    }),
+  });
 
-  if (exportedKey.startsWith('S')) {
-    keypair = assertSecretKey(exportedKey, 'Exported Stellar secret key');
-  } else {
-    const cleanHex = exportedKey.replace(/^0x/i, '');
+  const encapsulatedKey = String(response?.encapsulated_key || '').trim();
+  const ciphertext = String(response?.ciphertext || '').trim();
 
-    if (!/^[0-9a-f]{64}$/i.test(cleanHex)) {
-      throw makeError('Privy returned an unsupported Stellar key format', 502);
-    }
-
-    const seed = new Uint8Array(
-      cleanHex.match(/.{2}/g)!.map(byte => Number.parseInt(byte, 16)),
-    );
-    keypair = Keypair.fromRawEd25519Seed(seed);
+  if (!encapsulatedKey || !ciphertext) {
+    throw makeError('Privy did not return an encrypted wallet export payload', 502);
   }
 
-  if (keypair.publicKey() !== expectedAddress) {
-    throw makeError('Exported key does not match the selected Stellar wallet', 502);
-  }
+  const decryptedBytes = await decryptHpkePayload(
+    challenge.hpkePrivateKeyJwk,
+    base64ToBytes(encapsulatedKey),
+    base64ToBytes(ciphertext),
+  );
+  const exportedKey = new TextDecoder().decode(decryptedBytes).trim();
 
-  return { secret: keypair.secret() };
+  return normalizeExportedStellarSecret(challenge.expectedAddress, exportedKey);
 }
 
 export function normalizeWallet(
@@ -682,6 +962,12 @@ export function getVisibleWallets(account: AccountRecord, network?: StellarNetwo
   return (account.wallets || []).filter(
     wallet => !wallet.archived && (!network || wallet.network === network),
   );
+}
+
+function stripWalletSecret(wallet: WalletRecord): WalletRecord {
+  const { encryptedSecret: _encryptedSecret, ...publicWallet } = wallet;
+
+  return publicWallet;
 }
 
 export async function getAccountByEmail(env: Env, emailValue: unknown) {
@@ -918,9 +1204,42 @@ export async function ensureWalletForNetwork(
   env: Env,
   account: AccountRecord,
   networkValue: unknown,
+  initialWalletSource?: Parameters<typeof normalizeWallet>[0],
 ) {
   const network = normalizeNetwork(networkValue);
   const normalizedAccount = normalizeAccountWallets(account, network);
+  const nextWalletNumber = (normalizedAccount.wallets || []).length + 1;
+
+  if (initialWalletSource) {
+    const wallet = normalizeWallet(initialWalletSource, {
+      canSign: true,
+      displayName: `Stellar ${network} ${nextWalletNumber}`,
+      kind: 'privy',
+      network,
+    });
+    const existingWallet = (normalizedAccount.wallets || []).find(
+      item =>
+        item.network === network &&
+        (item.id === wallet.id || item.address === wallet.address),
+    );
+    const activeWallet = existingWallet || wallet;
+
+    return saveAccount(
+      env,
+      normalizeAccountWallets(
+        {
+          ...normalizedAccount,
+          activeWalletId: activeWallet.id,
+          wallet: activeWallet,
+          wallets: existingWallet
+            ? normalizedAccount.wallets
+            : [...(normalizedAccount.wallets || []), wallet],
+        },
+        network,
+      ),
+    );
+  }
+
   const existingWallet = getVisibleWallets(normalizedAccount, network).find(
     wallet => wallet.canSign,
   );
@@ -939,7 +1258,6 @@ export async function ensureWalletForNetwork(
     );
   }
 
-  const nextWalletNumber = (normalizedAccount.wallets || []).length + 1;
   const wallet = normalizeWallet(
     await createSignableStellarWallet(
       env,
@@ -972,6 +1290,7 @@ export async function getOrCreateSessionAccountByEmail(
   emailValue: unknown,
   networkValue: unknown,
   userId?: string,
+  initialWalletSource?: Parameters<typeof normalizeWallet>[0],
 ) {
   const email = normalizeEmail(emailValue);
   const network = normalizeNetwork(networkValue);
@@ -990,6 +1309,7 @@ export async function getOrCreateSessionAccountByEmail(
         ...(userId ? { id: userId } : null),
       },
       network,
+      initialWalletSource,
     );
   }
 
@@ -997,10 +1317,14 @@ export async function getOrCreateSessionAccountByEmail(
     ? { id: userId }
     : ((await findPrivyUserByEmail(env, email)) as { id?: string } | null) ||
       (await createPrivyUser(env, email));
+  const walletSource =
+    initialWalletSource ||
+    (await createSignableStellarWallet(env, email, `Stellar ${network} 1`));
   const wallet = normalizeWallet(
-    await createSignableStellarWallet(env, email, `Stellar ${network} 1`),
+    walletSource,
     {
       canSign: true,
+      displayName: `Stellar ${network} 1`,
       kind: 'privy',
       network,
     },
@@ -1976,16 +2300,23 @@ export async function submitPrivySignedTransaction({
   network,
   sourceAddress,
   transaction,
+  wallet,
   walletId,
 }: {
   env: Env;
   network: StellarNetwork;
   sourceAddress: string;
   transaction: ReturnType<TransactionBuilder['build']>;
+  wallet?: WalletRecord;
   walletId: string;
 }) {
-  const signatureHex = await signStellarTransaction(env, walletId, transaction);
-  addPrivySignature(transaction, sourceAddress, signatureHex);
+  if (wallet?.kind === 'imported_privy') {
+    const secret = await decryptWalletSecret(env, wallet.encryptedSecret);
+    transaction.sign(assertSecretKey(secret, 'Imported Stellar secret key'));
+  } else {
+    const signatureHex = await signStellarTransaction(env, walletId, transaction);
+    addPrivySignature(transaction, sourceAddress, signatureHex);
+  }
 
   try {
     return await getStellarServer(env, network).submitTransaction(transaction);
@@ -2098,6 +2429,7 @@ export async function executeStellarSwap(
     fromAssetIssuer,
     network,
     sourceAddress,
+    sourceWallet,
     sourceWalletId,
     toAssetCode,
     toAssetIssuer,
@@ -2107,6 +2439,7 @@ export async function executeStellarSwap(
     fromAssetIssuer?: unknown;
     network: StellarNetwork;
     sourceAddress: string;
+    sourceWallet?: WalletRecord;
     sourceWalletId: string;
     toAssetCode: unknown;
     toAssetIssuer?: unknown;
@@ -2167,6 +2500,7 @@ export async function executeStellarSwap(
     network,
     sourceAddress,
     transaction,
+    wallet: sourceWallet,
     walletId: sourceWalletId,
   });
 
@@ -2474,6 +2808,7 @@ export async function signStellarXdr({
   network,
   sourceAddress,
   submit = false,
+  wallet,
   walletId,
   xdr,
 }: {
@@ -2481,6 +2816,7 @@ export async function signStellarXdr({
   network: StellarNetwork;
   sourceAddress: string;
   submit?: boolean;
+  wallet?: WalletRecord;
   walletId: string;
   xdr: unknown;
 }) {
@@ -2491,8 +2827,13 @@ export async function signStellarXdr({
     sourceAddress,
     xdr,
   });
-  const signatureHex = await signStellarTransaction(env, walletId, transaction);
-  addPrivySignature(transaction, sourceAddress, signatureHex);
+  if (wallet?.kind === 'imported_privy') {
+    const secret = await decryptWalletSecret(env, wallet.encryptedSecret);
+    transaction.sign(assertSecretKey(secret, 'Imported Stellar secret key'));
+  } else {
+    const signatureHex = await signStellarTransaction(env, walletId, transaction);
+    addPrivySignature(transaction, sourceAddress, signatureHex);
+  }
 
   if (!submit) {
     return {
@@ -2532,10 +2873,13 @@ export async function buildAccountSession(
   env: Env,
   account: AccountRecord,
   preferredNetwork: StellarNetwork,
+  recordTiming?: SessionTimingRecorder,
+  options: BuildAccountSessionOptions = {},
 ) {
-  const normalizedAccount = await saveAccount(
-    env,
-    normalizeAccountWallets(account, preferredNetwork),
+  const normalizedAccount = await withSessionTiming(
+    recordTiming,
+    'save_account',
+    () => saveAccount(env, normalizeAccountWallets(account, preferredNetwork)),
   );
   const visibleWallets = getVisibleWallets(normalizedAccount);
   const activeWallet = normalizedAccount.wallet;
@@ -2545,12 +2889,25 @@ export async function buildAccountSession(
   }
 
   const network = activeWallet.network || preferredNetwork;
-  const balanceResult = await getAccountBalances(env, activeWallet.address, network);
+  const includeHistory = options.includeHistory !== false;
+  const [balanceResult, kyc, transactions] = await Promise.all([
+    withSessionTiming(recordTiming, 'balances', () =>
+      getAccountBalances(env, activeWallet.address, network),
+    ),
+    withSessionTiming(recordTiming, 'kyc', () =>
+      getKycSummaryForAccount(env, normalizedAccount.email),
+    ),
+    includeHistory
+      ? withSessionTiming(recordTiming, 'history', () =>
+          getAccountHistory(env, activeWallet.address, network),
+        )
+      : Promise.resolve([]),
+  ]);
   const sessionAccount = {
     ...normalizedAccount,
     activeWalletId: activeWallet.id,
-    wallet: activeWallet,
-    wallets: visibleWallets,
+    wallet: stripWalletSecret(activeWallet),
+    wallets: visibleWallets.map(stripWalletSecret),
   };
 
   return {
@@ -2563,10 +2920,10 @@ export async function buildAccountSession(
       xlm: balanceResult.xlm,
     },
     balances: balanceResult.balances,
-    kyc: await getKycSummaryForAccount(env, normalizedAccount.email),
+    kyc,
     network,
-    transactions: await getAccountHistory(env, activeWallet.address, network),
-    wallets: visibleWallets,
+    transactions,
+    wallets: visibleWallets.map(stripWalletSecret),
   };
 }
 

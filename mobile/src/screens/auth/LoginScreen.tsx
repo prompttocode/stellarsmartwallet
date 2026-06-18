@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   Pressable,
   ScrollView,
@@ -8,6 +7,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import LottieView from 'lottie-react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -15,7 +15,7 @@ import type { WalletState } from '@hooks/useWallet';
 import { loginStyles as styles } from './loginStyles';
 
 const OTP_LENGTH = 6;
-const loginHeroImage = require('@assets/images/background/backstellar.png');
+const loadingAnimation = require('@assets/lottie/loading.json');
 
 function sanitizeOtp(value: string) {
   return value.replace(/\D/g, '').slice(0, OTP_LENGTH);
@@ -202,7 +202,12 @@ function SessionStatus({
 }) {
   return (
     <View style={styles.sessionStatusBox}>
-      <ActivityIndicator color="#B8FF45" size="small" />
+      <LottieView
+        autoPlay
+        loop
+        source={loadingAnimation}
+        style={styles.sessionStatusAnimation}
+      />
       <View style={styles.sessionStatusCopy}>
         <Text style={styles.sessionStatusTitle}>{label}</Text>
         <Text style={styles.sessionStatusText}>{detail}</Text>
@@ -213,7 +218,7 @@ function SessionStatus({
 
 function WelcomeStep({ wallet, onSelectEmail }: { wallet: WalletState, onSelectEmail: () => void }) {
   const googleBusy = wallet.busy === 'Sign in with Google';
-  const restoringSession = wallet.busy === 'Restoring session';
+  const restoringSession = wallet.sessionSyncing && !wallet.account;
   const preparingPrivy = !wallet.isReady;
   const status = restoringSession
     ? {
@@ -254,13 +259,13 @@ function WelcomeStep({ wallet, onSelectEmail }: { wallet: WalletState, onSelectE
       <View>
         <View style={styles.buttonContainer}>
           <ActionButton 
-            disabled={preparingPrivy || wallet.isBusy}
+            disabled={preparingPrivy || restoringSession || wallet.isBusy}
             label="Continue with Email" 
             onPress={onSelectEmail} 
             variant="light" 
           />
           <GoogleButton
-            disabled={!wallet.isReady || wallet.isBusy}
+            disabled={!wallet.isReady || restoringSession || wallet.isBusy}
             label={googleLabel}
             onPress={wallet.loginWithGoogle}
           />

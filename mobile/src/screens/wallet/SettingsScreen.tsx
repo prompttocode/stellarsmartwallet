@@ -2,7 +2,10 @@ import React, { ReactNode, useEffect, useState } from 'react';
 import {
   Alert,
   AppState,
+  KeyboardAvoidingView,
+  Linking,
   Modal,
+  Platform,
   ScrollView,
   Share,
   StyleSheet,
@@ -12,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
+import * as ExpoLinking from 'expo-linking';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -67,10 +71,7 @@ function BottomSheet({
           style={StyleSheet.absoluteFill}
         />
         <View
-          style={[
-            styles.sheet,
-            { paddingBottom: Math.max(bottomInset, 18) },
-          ]}
+          style={[styles.sheet, { paddingBottom: Math.max(bottomInset, 18) }]}
         >
           <View style={styles.sheetHandle} />
           <View style={styles.sheetHeader}>
@@ -171,7 +172,7 @@ export function SettingsScreen({
   const [toolName, setToolName] = useState('');
   const [backupVisible, setBackupVisible] = useState(false);
   const [backupConfirmation, setBackupConfirmation] = useState('');
-  const [recoverySecret, setRecoverySecret] = useState('');
+  const [walletExportOpening, setWalletExportOpening] = useState(false);
 
   const activeWallet =
     wallet.wallets.find(item => item.id === wallet.activeWalletId) ||
@@ -183,12 +184,13 @@ export function SettingsScreen({
   const profileInitial = email.charAt(0).toUpperCase() || 'S';
   const networkLabel = wallet.isMainnet ? 'Mainnet' : 'Testnet';
   const kycVerified = wallet.kyc.status === 'verified';
+  const canBackupRecovery = activeWallet?.kind === 'privy';
   const walletKind = activeWallet
     ? activeWallet.kind === 'watch_only'
       ? 'Watch-only wallet'
       : activeWallet.kind === 'imported_privy'
-      ? 'Imported via Privy'
-      : 'Managed by Privy'
+        ? 'Imported via Privy'
+        : 'Managed by Privy'
     : 'No wallet on this network';
 
   function closeToolModal() {
@@ -200,7 +202,6 @@ export function SettingsScreen({
   function closeBackupModal() {
     setBackupVisible(false);
     setBackupConfirmation('');
-    setRecoverySecret('');
   }
 
   useEffect(() => {
@@ -208,7 +209,6 @@ export function SettingsScreen({
       if (nextState !== 'active') {
         setBackupVisible(false);
         setBackupConfirmation('');
-        setRecoverySecret('');
       }
     });
 
@@ -254,13 +254,16 @@ export function SettingsScreen({
       return;
     }
 
-    if (!(await requirePrivyToolSession())) {
+    if (activeWallet.kind === 'imported_privy') {
+      Alert.alert(
+        'Recovery key unavailable',
+        'This wallet was imported from your own Stellar secret key. Keep the original S... key you imported.',
+      );
       return;
     }
 
     setDetailSheet(null);
     setBackupConfirmation('');
-    setRecoverySecret('');
     setTimeout(() => setBackupVisible(true), 260);
   }
 
@@ -270,35 +273,41 @@ export function SettingsScreen({
       return;
     }
 
-    const result = await wallet.exportWalletSecret(
-      backupConfirmation.trim(),
-    );
-
-    if (
-      result &&
-      activeWallet &&
-      result.address === activeWallet.address &&
-      result.secret.startsWith('S')
-    ) {
-      setRecoverySecret(result.secret);
-    } else if (result) {
+    if (walletExportOpening) {
       Alert.alert(
-        'Recovery key rejected',
-        'The exported key did not match the selected Stellar wallet.',
+        'Export already opening',
+        'A secure export browser is already being opened. Finish or close that session first.',
       );
-    }
-  }
-
-  function copyRecoveryKey() {
-    if (!recoverySecret) {
       return;
     }
 
-    Clipboard.setString(recoverySecret);
-    Alert.alert(
-      'Recovery key copied',
-      'Paste it into secure offline storage or a trusted password manager. Clipboard contents may be visible to other apps.',
-    );
+    const returnUrl = ExpoLinking.createURL('wallet-export');
+    const exportUrl = await wallet.createWalletExportUrl(returnUrl);
+
+    if (exportUrl) {
+      closeBackupModal();
+      setWalletExportOpening(true);
+
+      try {
+        const canOpen = await Linking.canOpenURL(exportUrl);
+
+        if (!canOpen) {
+          throw new Error('iOS cannot open the secure export URL.');
+        }
+
+        await Linking.openURL(exportUrl);
+        wallet.setMessage(
+          'Opened Privy secure export page in your browser. Return to the app after copying the recovery key.',
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unable to open browser.';
+
+        Alert.alert('Recovery export failed', message);
+      } finally {
+        setWalletExportOpening(false);
+      }
+    }
   }
 
   async function submitTool() {
@@ -386,59 +395,69 @@ export function SettingsScreen({
         transparent
         visible
       >
-        <View style={styles.centerModalOverlay}>
-          <View style={styles.toolModal}>
-            <View style={styles.toolModalIcon}>
-              <Ionicons
-                color="#20242B"
-                name={isImport ? 'download-outline' : 'eye-outline'}
-                size={24}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+          style={styles.centerModalOverlay}
+        >
+          <ScrollView
+            contentContainerStyle={styles.centerModalScroll}
+            keyboardShouldPersistTaps="handled"
+            style={styles.centerModalScroller}
+          >
+            <View style={styles.toolModal}>
+              <View style={styles.toolModalIcon}>
+                <Ionicons
+                  color="#20242B"
+                  name={isImport ? 'download-outline' : 'eye-outline'}
+                  size={24}
+                />
+              </View>
+              <Text style={styles.toolModalTitle}>
+                {isImport ? 'Import wallet' : 'Add watch-only'}
+              </Text>
+              <Text style={styles.toolModalText}>
+                {isImport
+                  ? 'Import a Stellar secret key (S...) or the 64-hex private key exported by Privy. It is sent securely to Privy and is not stored locally.'
+                  : 'Track a public Stellar address (G...) without transaction signing.'}
+              </Text>
+              <TextInput
+                autoCapitalize="none"
+                onChangeText={setToolName}
+                placeholder="Wallet name (optional)"
+                placeholderTextColor="#9499A2"
+                style={styles.input}
+                value={toolName}
               />
+              <TextInput
+                autoCapitalize="characters"
+                multiline
+                onChangeText={setToolValue}
+                placeholder={isImport ? 'S... or 0x...' : 'G...'}
+                placeholderTextColor="#9499A2"
+                style={[styles.input, styles.secretInput]}
+                value={toolValue}
+              />
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  onPress={closeToolModal}
+                  style={styles.modalSecondaryButton}
+                >
+                  <Text style={styles.modalSecondaryText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  disabled={wallet.isBusy}
+                  onPress={submitTool}
+                  style={styles.modalPrimaryButton}
+                >
+                  <Text style={styles.modalPrimaryText}>
+                    {wallet.isBusy ? wallet.busy : 'Save'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-            <Text style={styles.toolModalTitle}>
-              {isImport ? 'Import wallet' : 'Add watch-only'}
-            </Text>
-            <Text style={styles.toolModalText}>
-              {isImport
-                ? 'Import a Stellar secret key (S...). It is sent securely to Privy and is not stored locally.'
-                : 'Track a public Stellar address (G...) without transaction signing.'}
-            </Text>
-            <TextInput
-              autoCapitalize="none"
-              onChangeText={setToolName}
-              placeholder="Wallet name (optional)"
-              placeholderTextColor="#9499A2"
-              style={styles.input}
-              value={toolName}
-            />
-            <TextInput
-              autoCapitalize="characters"
-              multiline
-              onChangeText={setToolValue}
-              placeholder={isImport ? 'S...' : 'G...'}
-              placeholderTextColor="#9499A2"
-              style={[styles.input, styles.secretInput]}
-              value={toolValue}
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                onPress={closeToolModal}
-                style={styles.modalSecondaryButton}
-              >
-                <Text style={styles.modalSecondaryText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                disabled={wallet.isBusy}
-                onPress={submitTool}
-                style={styles.modalPrimaryButton}
-              >
-                <Text style={styles.modalPrimaryText}>
-                  {wallet.isBusy ? wallet.busy : 'Save'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
     );
   }
@@ -451,95 +470,74 @@ export function SettingsScreen({
         transparent
         visible={backupVisible}
       >
-        <View style={styles.centerModalOverlay}>
-          <View style={styles.toolModal}>
-            <View style={styles.toolModalIcon}>
-              <Ionicons color="#FFFFFF" name="key-outline" size={24} />
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+          style={styles.centerModalOverlay}
+        >
+          <ScrollView
+            contentContainerStyle={styles.centerModalScroll}
+            keyboardShouldPersistTaps="handled"
+            style={styles.centerModalScroller}
+          >
+            <View style={styles.toolModal}>
+              <View style={styles.toolModalIcon}>
+                <Ionicons color="#FFFFFF" name="key-outline" size={24} />
+              </View>
+              <Text style={styles.toolModalTitle}>Back up recovery key</Text>
+              <Text style={styles.toolModalText}>
+                The app will ask for biometric confirmation, then open Privy's
+                secure export page in your system browser. The exported recovery
+                key is shown there by Privy and is never returned to this app.
+              </Text>
+              <View style={styles.recoveryWarning}>
+                <Ionicons color="#FFB020" name="warning-outline" size={20} />
+                <Text style={styles.recoveryWarningText}>
+                  Anyone with this key can control the wallet. Support staff
+                  will never ask for it.
+                </Text>
+              </View>
+              <Text style={styles.recoveryAddress}>
+                Wallet: {activeWallet?.address || 'Unavailable'}
+              </Text>
+              <TextInput
+                autoCapitalize="characters"
+                autoCorrect={false}
+                onChangeText={setBackupConfirmation}
+                placeholder="Type EXPORT"
+                placeholderTextColor="#9499A2"
+                style={styles.input}
+                value={backupConfirmation}
+              />
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  onPress={closeBackupModal}
+                  style={styles.modalSecondaryButton}
+                >
+                  <Text style={styles.modalSecondaryText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  disabled={wallet.isBusy || walletExportOpening}
+                  onPress={revealRecoveryKey}
+                  style={[
+                    styles.modalPrimaryButton,
+                    wallet.isBusy || walletExportOpening
+                      ? styles.rowDisabled
+                      : null,
+                  ]}
+                >
+                  <Text style={styles.modalPrimaryText}>
+                    {wallet.isBusy
+                      ? wallet.busy
+                      : walletExportOpening
+                        ? 'Opening browser'
+                        : 'Open secure page'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-            <Text style={styles.toolModalTitle}>
-              {recoverySecret ? 'Recovery key' : 'Back up recovery key'}
-            </Text>
-            {recoverySecret ? (
-              <>
-                <Text style={styles.toolModalText}>
-                  This Stellar secret key restores the selected wallet through
-                  Import wallet. Anyone who has it can control the funds.
-                </Text>
-                <View style={styles.recoveryKeyBox}>
-                  <Text style={styles.recoveryKeyLabel}>
-                    STELLAR SECRET KEY
-                  </Text>
-                  <Text selectable style={styles.recoveryKeyText}>
-                    {recoverySecret}
-                  </Text>
-                </View>
-                <Text style={styles.recoveryAddress}>
-                  Wallet: {activeWallet?.address || 'Unavailable'}
-                </Text>
-                <View style={styles.modalActions}>
-                  <TouchableOpacity
-                    onPress={copyRecoveryKey}
-                    style={styles.modalSecondaryButton}
-                  >
-                    <Text style={styles.modalSecondaryText}>Copy key</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={closeBackupModal}
-                    style={styles.modalPrimaryButton}
-                  >
-                    <Text style={styles.modalPrimaryText}>Done</Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            ) : (
-              <>
-                <Text style={styles.toolModalText}>
-                  The app will ask for biometric confirmation, then show the
-                  Stellar S... key once. Store it offline and never share it.
-                </Text>
-                <View style={styles.recoveryWarning}>
-                  <Ionicons
-                    color="#FFB020"
-                    name="warning-outline"
-                    size={20}
-                  />
-                  <Text style={styles.recoveryWarningText}>
-                    Support staff will never ask for this key.
-                  </Text>
-                </View>
-                <TextInput
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  onChangeText={setBackupConfirmation}
-                  placeholder="Type EXPORT"
-                  placeholderTextColor="#9499A2"
-                  style={styles.input}
-                  value={backupConfirmation}
-                />
-                <View style={styles.modalActions}>
-                  <TouchableOpacity
-                    onPress={closeBackupModal}
-                    style={styles.modalSecondaryButton}
-                  >
-                    <Text style={styles.modalSecondaryText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    disabled={wallet.isBusy}
-                    onPress={revealRecoveryKey}
-                    style={[
-                      styles.modalPrimaryButton,
-                      wallet.isBusy ? styles.rowDisabled : null,
-                    ]}
-                  >
-                    <Text style={styles.modalPrimaryText}>
-                      {wallet.isBusy ? wallet.busy : 'Reveal key'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            )}
-          </View>
-        </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
     );
   }
@@ -610,8 +608,8 @@ export function SettingsScreen({
                       selected
                         ? '#FFFFFF'
                         : network === 'mainnet'
-                        ? '#15966A'
-                        : '#4878D7'
+                          ? '#15966A'
+                          : '#4878D7'
                     }
                     name={
                       network === 'mainnet'
@@ -635,7 +633,9 @@ export function SettingsScreen({
           <View style={styles.networkDescriptionRow}>
             <Ionicons
               color="#858B94"
-              name={wallet.isMainnet ? 'alert-circle-outline' : 'beaker-outline'}
+              name={
+                wallet.isMainnet ? 'alert-circle-outline' : 'beaker-outline'
+              }
               size={15}
             />
             <Text style={styles.networkDescription}>
@@ -655,11 +655,7 @@ export function SettingsScreen({
             trailing={
               <View style={styles.rowTrailing}>
                 <Text style={styles.rowValue}>{selectedCurrency}</Text>
-                <Ionicons
-                  color="#A1B0C8"
-                  name="chevron-forward"
-                  size={20}
-                />
+                <Ionicons color="#A1B0C8" name="chevron-forward" size={20} />
               </View>
             }
           />
@@ -668,14 +664,20 @@ export function SettingsScreen({
             disabled={kycVerified}
             icon="shield-checkmark-outline"
             onPress={kycVerified ? undefined : onOpenKyc}
-            subtitle={kycVerified ? 'Verified for VND buy and withdrawal' : 'Required before buying or withdrawing with VND'}
+            subtitle={
+              kycVerified
+                ? 'Verified for VND buy and withdrawal'
+                : 'Required before buying or withdrawing with VND'
+            }
             title="Identity verification"
             trailing={
               <View style={styles.rowTrailing}>
                 <Text
                   style={[
                     styles.rowValue,
-                    kycVerified ? styles.rowValueSuccess : styles.rowValueWarning,
+                    kycVerified
+                      ? styles.rowValueSuccess
+                      : styles.rowValueWarning,
                   ]}
                 >
                   {kycVerified ? 'Verified' : 'Not verified'}
@@ -863,11 +865,7 @@ export function SettingsScreen({
                   <Text style={styles.currencyCode}>{currency.code}</Text>
                 </View>
                 {selected ? (
-                  <Ionicons
-                    color="#B8FF45"
-                    name="checkmark-circle"
-                    size={23}
-                  />
+                  <Ionicons color="#B8FF45" name="checkmark-circle" size={23} />
                 ) : null}
               </TouchableOpacity>
             );
@@ -883,11 +881,7 @@ export function SettingsScreen({
       >
         <View style={styles.securityIntro}>
           <View style={styles.securityHeroIcon}>
-            <Ionicons
-              color="#FFFFFF"
-              name="shield-checkmark"
-              size={28}
-            />
+            <Ionicons color="#FFFFFF" name="shield-checkmark" size={28} />
           </View>
           <Text style={styles.securityIntroTitle}>Built for safer signing</Text>
           <Text style={styles.securityIntroText}>
@@ -897,13 +891,15 @@ export function SettingsScreen({
         </View>
         <View style={styles.detailGroup}>
           <SettingsRow
-            disabled={!activeWallet?.canSign}
+            disabled={!canBackupRecovery}
             icon="key-outline"
             onPress={openBackupRecovery}
             subtitle={
-              activeWallet?.canSign
-                ? 'Reveal the Stellar S... key for independent recovery'
-                : 'Unavailable for watch-only wallets'
+              canBackupRecovery
+                ? 'Open Privy secure page in your browser to export the recovery key once'
+                : activeWallet?.kind === 'imported_privy'
+                  ? 'Imported wallets already use your own S... key'
+                  : 'Unavailable for watch-only wallets'
             }
             title="Backup recovery key"
           />
@@ -960,7 +956,7 @@ export function SettingsScreen({
           <DetailRow
             icon="lock-closed-outline"
             label="Wallet recovery"
-            value="Use Backup recovery key to export the Stellar S... key. Restore it later with Import wallet."
+            value="Backup recovery key opens Privy's secure export page in your browser for Privy-managed wallets. Restore later with Import wallet."
           />
         </View>
       </BottomSheet>
@@ -1031,6 +1027,14 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     padding: 20,
+  },
+  centerModalScroll: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingVertical: 20,
+  },
+  centerModalScroller: {
+    width: '100%',
   },
   content: {
     gap: 14,

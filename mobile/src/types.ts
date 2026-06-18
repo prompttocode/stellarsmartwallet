@@ -145,6 +145,12 @@ export type SessionResponse = {
   wallets?: Wallet[];
 };
 
+export type TransactionHistoryResponse = {
+  address: string;
+  network?: StellarNetwork;
+  transactions: TransactionItem[];
+};
+
 export type KycApiResponse = RampApiResponse<KycSummary>;
 
 export type ReceiverResponse = {

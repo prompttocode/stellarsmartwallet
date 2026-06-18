@@ -147,6 +147,7 @@ export function RampScreen({
     params?: {
       amount?: string;
       assetCode?: RampAssetCode;
+      autoCreate?: boolean;
       direction?: RampDirection;
       source?: 'history';
     };
@@ -171,6 +172,7 @@ export function RampScreen({
     null,
   );
   const [, setClock] = useState(Date.now());
+  const autoCreateAttemptedRef = useRef<string | null>(null);
   const rawOrder = wallet.activeRampOrder;
   const openedFromHistory = route?.params?.source === 'history';
   const rawOrderReference = rawOrder?.code || rawOrder?.id || '';
@@ -317,7 +319,15 @@ export function RampScreen({
     }
   }
 
-  async function createOrder() {
+  async function createOrderWithValues({
+    orderAmount,
+    orderAssetCode,
+    orderDirection,
+  }: {
+    orderAmount: string;
+    orderAssetCode: RampAssetCode;
+    orderDirection: RampDirection;
+  }) {
     if (wallet.kyc.status !== 'verified') {
       Alert.alert(
         'You are not verified',
@@ -331,16 +341,67 @@ export function RampScreen({
     }
 
     const result = await wallet.createRampOrder({
-      amount,
-      assetCode,
-      direction,
-      paymentInfo: direction === 'sell' ? paymentInfo : undefined,
+      amount: orderAmount,
+      assetCode: orderAssetCode,
+      direction: orderDirection,
+      paymentInfo: orderDirection === 'sell' ? paymentInfo : undefined,
     });
 
     if (result) {
       setQuote(null);
     }
   }
+
+  async function createOrder() {
+    await createOrderWithValues({
+      orderAmount: amount,
+      orderAssetCode: assetCode,
+      orderDirection: direction,
+    });
+  }
+
+  useEffect(() => {
+    if (
+      !route?.params?.autoCreate ||
+      order ||
+      ignoringInitialClosedOrder ||
+      wallet.isBusy ||
+      !wallet.serverSessionReady ||
+      !providerConfigured
+    ) {
+      return;
+    }
+
+    const orderAmount = route.params.amount || amount;
+    const orderAssetCode = route.params.assetCode || assetCode;
+    const orderDirection = route.params.direction || direction;
+    const autoCreateKey = `${orderDirection}:${orderAssetCode}:${orderAmount}`;
+    if (autoCreateAttemptedRef.current === autoCreateKey) {
+      return;
+    }
+
+    autoCreateAttemptedRef.current = autoCreateKey;
+    createOrderWithValues({
+      orderAmount,
+      orderAssetCode,
+      orderDirection,
+    }).catch(() => {
+      autoCreateAttemptedRef.current = null;
+    });
+  }, [
+    amount,
+    assetCode,
+    direction,
+    ignoringInitialClosedOrder,
+    order,
+    providerConfigured,
+    route?.params?.amount,
+    route?.params?.assetCode,
+    route?.params?.autoCreate,
+    route?.params?.direction,
+    wallet.serverSessionReady,
+    wallet.isBusy,
+  ]);
 
   function copyTransferValue(label: string, value?: string | number | null) {
     const text = String(value ?? '').trim();
@@ -840,6 +901,7 @@ export function RampScreen({
       /^\d{4,30}$/.test(paymentInfo.accountNumber));
   const canCreate =
     providerConfigured &&
+    wallet.serverSessionReady &&
     Boolean(quote) &&
     (direction === 'buy' || Number(quote?.total_vnd || 0) > 0) &&
     !exceedsWithdrawAvailable &&
@@ -1072,7 +1134,9 @@ export function RampScreen({
           >
             <Text style={modern.modernButtonText}>
               {quote
-                ? canCreate
+                ? !wallet.serverSessionReady
+                  ? 'Syncing wallet session'
+                  : canCreate
                   ? direction === 'buy'
                     ? 'Create buy order'
                     : 'Create withdrawal'
