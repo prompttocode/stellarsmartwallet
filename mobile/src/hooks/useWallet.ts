@@ -630,7 +630,8 @@ export function useWallet() {
         network === 'mainnet' ? 'public' : 'testnet'
       }/account/${wallet.address}`
     : null;
-  const walletCanSign = Boolean(wallet?.canSign);
+  const walletCanSign = Boolean(wallet?.canSign && serverSessionReady);
+  const walletSessionSyncing = Boolean(account && !serverSessionReady);
   const walletActive = Boolean(wallet && balances.some(item => item.exists));
   const rampOrderStorageKey =
     account && wallet
@@ -1195,6 +1196,8 @@ export function useWallet() {
       let cancelled = false;
 
       async function restoreSession() {
+        setSessionSyncing(true);
+
         const cached = await readCachedSession(restoreUserKey, network).catch(
           () => null,
         );
@@ -1215,8 +1218,6 @@ export function useWallet() {
         } else {
           setMessage('Restoring your wallet session...');
         }
-
-        setSessionSyncing(true);
 
         try {
           await finishPrivySession(
@@ -2703,6 +2704,7 @@ export function useWallet() {
     walletActive,
     walletCanSign,
     walletConnectConfig,
+    walletSessionSyncing,
     wallets: networkWallets,
     showErrorDialog,
     xlmBalance,

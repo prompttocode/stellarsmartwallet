@@ -238,10 +238,15 @@ export function SendScreen({
         <View style={styles.receiptCard}>
           {!wallet.walletCanSign ? (
             <View style={styles.noticeBox}>
-              <Text style={styles.noticeTitle}>Watch-only wallet</Text>
+              <Text style={styles.noticeTitle}>
+                {wallet.walletSessionSyncing
+                  ? 'Wallet session syncing'
+                  : 'Watch-only wallet'}
+              </Text>
               <Text style={styles.noticeText}>
-                This wallet can only view balances and QR codes. It cannot sign
-                sends, swaps, or exports.
+                {wallet.walletSessionSyncing
+                  ? 'Your saved wallet is visible. Sending will be available when the secure server session finishes syncing.'
+                  : 'This wallet can only view balances and QR codes. It cannot sign sends, swaps, or exports.'}
               </Text>
             </View>
           ) : null}

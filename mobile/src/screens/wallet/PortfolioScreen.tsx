@@ -31,6 +31,7 @@ import type { WalletState } from '@hooks/useWallet';
 type RampPreset = {
   amount?: string;
   assetCode?: RampAssetCode;
+  autoCreate?: boolean;
   direction?: RampDirection;
 };
 
@@ -259,6 +260,7 @@ export function PortfolioScreen({
                 onGoToRamp({
                   amount: '5',
                   assetCode: 'XLM',
+                  autoCreate: true,
                   direction: 'buy',
                 })
               }

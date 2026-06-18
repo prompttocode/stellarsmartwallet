@@ -199,9 +199,15 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
 
         {!wallet.walletCanSign ? (
           <View style={modern.sectionCard}>
-            <Text style={modern.emptyModernTitle}>Watch-only wallet</Text>
+            <Text style={modern.emptyModernTitle}>
+              {wallet.walletSessionSyncing
+                ? 'Wallet session syncing'
+                : 'Watch-only wallet'}
+            </Text>
             <Text style={modern.emptyModernText}>
-              This wallet cannot sign a Stellar path payment.
+              {wallet.walletSessionSyncing
+                ? 'Your saved wallet is visible. Swap will be available when the secure server session finishes syncing.'
+                : 'This wallet cannot sign a Stellar path payment.'}
             </Text>
           </View>
         ) : null}

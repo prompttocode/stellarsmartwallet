@@ -48,6 +48,7 @@ async function clearClosedRampOrder(wallet: WalletState) {
 type RampNavigationPreset = {
   amount?: string;
   assetCode?: RampAssetCode;
+  autoCreate?: boolean;
   direction?: RampDirection;
 };
 
@@ -150,6 +151,7 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
               navigation.navigate('Ramp', {
                 amount: preset.amount,
                 assetCode: preset.assetCode,
+                autoCreate: preset.autoCreate,
                 direction: preset.direction || 'buy',
               });
             }}

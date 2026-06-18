@@ -1,21 +1,22 @@
 import { useState, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const ASSET_TO_CG_ID: Record<string, string> = {
-  XLM: 'stellar',
-  USDC: 'usd-coin',
-  BTC: 'bitcoin',
-  ETH: 'ethereum',
-  USDT: 'tether',
-};
-
-export type Timeframe = '1H' | '1D' | '1W' | '1M' | 'YTD' | 'ALL';
+export type Timeframe = '7D';
 
 export type ChartDataPoint = {
   timestamp: number;
   value: number;
 };
 
-export function useHistoricalPrice(assetCode: string, timeframe: Timeframe) {
+const CACHE_KEY = '@stellar_expert_chart_cache';
+const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes in milliseconds
+
+type CacheData = {
+  timestamp: number;
+  assets: Record<string, ChartDataPoint[]>;
+};
+
+export function useHistoricalPrice(assetCode: string, timeframe: Timeframe = '7D') {
   const [data, setData] = useState<ChartDataPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -23,59 +24,68 @@ export function useHistoricalPrice(assetCode: string, timeframe: Timeframe) {
   useEffect(() => {
     let isMounted = true;
 
-    async function fetchPrice() {
-      const id = ASSET_TO_CG_ID[assetCode.toUpperCase()];
-      if (!id) {
-        // Fallback dummy data if not supported
-        if (isMounted) {
-          setData([
-            { timestamp: Date.now() - 86400000, value: 1 },
-            { timestamp: Date.now(), value: 1 },
-          ]);
-          setLoading(false);
-        }
-        return;
-      }
-
+    async function fetchAllPrices() {
       setLoading(true);
       setError(null);
 
       try {
-        let days = '1';
-        switch (timeframe) {
-          case '1H': days = '1'; break; // We'll slice the 1H data from 1D
-          case '1D': days = '1'; break;
-          case '1W': days = '7'; break;
-          case '1M': days = '30'; break;
-          case 'YTD': {
-            const start = new Date(new Date().getFullYear(), 0, 1);
-            const diffTime = Math.abs(Date.now() - start.getTime());
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            days = diffDays.toString();
-            break;
+        // 1. Check Cache
+        const cachedString = await AsyncStorage.getItem(CACHE_KEY);
+        let assetsMap: Record<string, ChartDataPoint[]> = {};
+        let needsFetch = true;
+
+        if (cachedString) {
+          try {
+            const parsedCache: CacheData = JSON.parse(cachedString);
+            if (Date.now() - parsedCache.timestamp < CACHE_DURATION) {
+              assetsMap = parsedCache.assets;
+              needsFetch = false;
+            }
+          } catch (e) {
+            // cache invalid
           }
-          case 'ALL': days = 'max'; break;
         }
 
-        const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
-        const response = await fetch(url);
-        if (!response.ok) throw new Error('Failed to fetch');
-        
-        const json = await response.json();
-        let prices = json.prices as [number, number][];
+        // 2. Fetch if needed (Fetch 1 time for all top 50 coins)
+        if (needsFetch) {
+          const url = `https://api.stellar.expert/explorer/public/asset?limit=50&sort=rating&order=desc`;
+          const response = await fetch(url, {
+            headers: { Accept: 'application/json' },
+          });
 
-        if (timeframe === '1H' && prices.length > 0) {
-          // 1D returns data every 5 mins, so 1 hour is 12 points
-          prices = prices.slice(-12);
+          if (!response.ok) throw new Error('Failed to fetch from Stellar Expert');
+
+          const json = await response.json();
+          const records = json._embedded?.records || [];
+
+          assetsMap = {};
+          for (const record of records) {
+            const code = record.toml_info?.code || record.asset.split('-')[0];
+            const price7d = record.price7d as [number, number][] | undefined;
+            
+            if (code && price7d && Array.isArray(price7d)) {
+              assetsMap[code.toUpperCase()] = price7d.map(([ts, val]) => ({
+                // Stellar expert returns timestamp in seconds, we need milliseconds
+                timestamp: ts * 1000,
+                value: val,
+              }));
+            }
+          }
+
+          // Save to cache
+          await AsyncStorage.setItem(
+            CACHE_KEY,
+            JSON.stringify({
+              timestamp: Date.now(),
+              assets: assetsMap,
+            } as CacheData)
+          );
         }
 
-        const formattedData: ChartDataPoint[] = prices.map(([timestamp, value]) => ({
-          timestamp,
-          value,
-        }));
-
+        // 3. Extract the requested asset
         if (isMounted) {
-          setData(formattedData);
+          const assetData = assetsMap[assetCode.toUpperCase()] || [];
+          setData(assetData);
           setLoading(false);
         }
       } catch (err) {
@@ -86,12 +96,12 @@ export function useHistoricalPrice(assetCode: string, timeframe: Timeframe) {
       }
     }
 
-    fetchPrice();
+    fetchAllPrices();
 
     return () => {
       isMounted = false;
     };
-  }, [assetCode, timeframe]);
+  }, [assetCode]);
 
   return { data, loading, error };
 }

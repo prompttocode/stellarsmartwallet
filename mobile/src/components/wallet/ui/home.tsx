@@ -199,7 +199,7 @@ export function ActivateWalletNotice({ onPress }: { onPress: () => void }) {
         </Text>
       </View>
       <PressScale onPress={onPress} style={modern.activateButton}>
-        <Text style={modern.activateButtonText}>Buy 5 XLM</Text>
+        <Text style={modern.activateButtonText}>Active</Text>
       </PressScale>
     </View>
   );
