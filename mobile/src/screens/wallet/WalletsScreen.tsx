@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Alert, ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, Text, TextInput, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useAppPopup } from '@components/common/AppPopup';
 import {
   ModernScreenHeader,
   PressScale,
@@ -24,6 +25,7 @@ export function WalletsScreen({
   wallet: WalletState;
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
+  const { showPopup } = useAppPopup();
   const [draftNames, setDraftNames] = useState<Record<string, string>>({});
   const networkLabel = wallet.isMainnet ? 'Mainnet' : 'Testnet';
   const wallets =
@@ -52,10 +54,8 @@ export function WalletsScreen({
   }
 
   function confirmArchive(item: Wallet) {
-    Alert.alert(
-      'Archive this wallet?',
-      'The wallet still exists in Privy/Stellar. The app only hides it from the local wallet list.',
-      [
+    showPopup({
+      actions: [
         { style: 'cancel', text: 'Cancel' },
         {
           onPress: () => wallet.archiveWallet(item.id),
@@ -63,7 +63,11 @@ export function WalletsScreen({
           text: 'Archive',
         },
       ],
-    );
+      message:
+        'The wallet still exists in Privy/Stellar. The app only hides it from the local wallet list.',
+      title: 'Archive this wallet?',
+      variant: 'warning',
+    });
   }
 
   return (

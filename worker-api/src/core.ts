@@ -1666,6 +1666,16 @@ type StellarExpertAssetRecord = {
   volume7d?: number;
 };
 
+const STELLAR_EXPERT_ASSET_CACHE_TTL_MS = 60_000;
+const STELLAR_EXPERT_ASSET_CACHE_MAX_ENTRIES = 100;
+const stellarExpertAssetCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    value: AssetDefinition[];
+  }
+>();
+
 function parseStellarExpertAssetId(assetId: string) {
   if (assetId === NATIVE_ASSET_CODE) {
     return {
@@ -1728,6 +1738,13 @@ async function fetchStellarExpertAssets(options: { limit: number; search?: unkno
     params.set('search', search);
   }
 
+  const cacheKey = params.toString();
+  const cached = stellarExpertAssetCache.get(cacheKey);
+
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+
   const response = await fetch(
     `https://api.stellar.expert/explorer/public/asset?${params.toString()}`,
     {
@@ -1747,9 +1764,23 @@ async function fetchStellarExpertAssets(options: { limit: number; search?: unkno
     };
   };
 
-  return (body._embedded?.records || [])
+  const assets = (body._embedded?.records || [])
     .map(mapStellarExpertAsset)
     .filter((asset): asset is AssetDefinition => Boolean(asset));
+
+  stellarExpertAssetCache.set(cacheKey, {
+    expiresAt: Date.now() + STELLAR_EXPERT_ASSET_CACHE_TTL_MS,
+    value: assets,
+  });
+  if (stellarExpertAssetCache.size > STELLAR_EXPERT_ASSET_CACHE_MAX_ENTRIES) {
+    const oldestKey = stellarExpertAssetCache.keys().next().value;
+
+    if (oldestKey) {
+      stellarExpertAssetCache.delete(oldestKey);
+    }
+  }
+
+  return assets;
 }
 
 export async function getSupportedAssets(env: Env, networkValue: unknown, options: { limit?: unknown; search?: unknown } = {}) {
@@ -2067,9 +2098,12 @@ export function getBalanceItems(
 
 export async function getAccountBalances(env: Env, address: string, networkValue: unknown) {
   const network = normalizeNetwork(networkValue);
-  const account = await loadAccount(env, address, network);
+  const [account, supportedAssets] = await Promise.all([
+    loadAccount(env, address, network),
+    getSupportedAssets(env, network),
+  ]);
   const assets = mergeKnownAndDiscoveredAssets(
-    await getSupportedAssets(env, network),
+    supportedAssets,
     account,
     network,
   );

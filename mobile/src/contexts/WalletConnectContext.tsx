@@ -9,7 +9,6 @@ import React, {
   useState,
 } from 'react';
 import {
-  Alert,
   AppState,
   Linking,
   type AppStateStatus,
@@ -33,6 +32,7 @@ import {
 } from '@walletconnect/utils';
 
 import { api } from '@api/client';
+import { useAppPopup } from '@components/common/AppPopup';
 import type { StellarNetwork } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
 import { getWalletKit } from '../walletconnect/client';
@@ -310,6 +310,7 @@ export function WalletConnectProvider({
   wallet: WalletState;
 }) {
   const { getIdentityToken } = useIdentityToken();
+  const { showPopup } = useAppPopup();
   const walletRef = useRef(wallet);
   const clientRef = useRef<WalletKitClient | null>(null);
   const pendingPairUriRef = useRef<string | null>(null);
@@ -467,7 +468,11 @@ export function WalletConnectProvider({
               ? error.message
               : 'WalletConnect could not initialize.';
           setLastError(message);
-          Alert.alert('WalletConnect', message);
+          showPopup({
+            message,
+            title: 'WalletConnect',
+            variant: 'danger',
+          });
         }
       } finally {
         if (!cancelled) {
@@ -543,6 +548,7 @@ export function WalletConnectProvider({
     };
   }, [
     refreshSessions,
+    showPopup,
     validateRequest,
     wallet.walletConnectConfig?.projectId,
   ]);
@@ -553,15 +559,20 @@ export function WalletConnectProvider({
       const normalizedUri = uri.trim();
 
       if (!normalizedUri.startsWith('wc:')) {
-        Alert.alert('WalletConnect', 'This is not a WalletConnect URI.');
+        showPopup({
+          message: 'This is not a WalletConnect URI.',
+          title: 'WalletConnect',
+          variant: 'warning',
+        });
         return false;
       }
 
       if (!currentWallet.walletConnectConfig?.projectId) {
-        Alert.alert(
-          'WalletConnect unavailable',
-          'Add a Reown project ID to the Worker configuration first.',
-        );
+        showPopup({
+          message: 'Add a Reown project ID to the Worker configuration first.',
+          title: 'WalletConnect unavailable',
+          variant: 'warning',
+        });
         return false;
       }
 
@@ -570,10 +581,11 @@ export function WalletConnectProvider({
         !currentWallet.walletActive ||
         !currentWallet.account
       ) {
-        Alert.alert(
-          'Signing wallet required',
-          'Select an active Privy wallet before connecting a dApp.',
-        );
+        showPopup({
+          message: 'Select an active Privy wallet before connecting a dApp.',
+          title: 'Signing wallet required',
+          variant: 'warning',
+        });
         return false;
       }
 
@@ -591,7 +603,11 @@ export function WalletConnectProvider({
         const message =
           error instanceof Error ? error.message : 'Could not pair this dApp.';
         setLastError(message);
-        Alert.alert('WalletConnect', message);
+        showPopup({
+          message,
+          title: 'WalletConnect',
+          variant: 'danger',
+        });
         return false;
       } finally {
         setPairing(false);
@@ -599,7 +615,7 @@ export function WalletConnectProvider({
 
       return true;
     },
-    [],
+    [showPopup],
   );
 
   useEffect(() => {
@@ -812,10 +828,11 @@ export function WalletConnectProvider({
       !currentWallet.wallet.canSign ||
       !currentWallet.walletActive
     ) {
-      Alert.alert(
-        'Cannot connect',
-        'The selected wallet is not active or cannot sign transactions.',
-      );
+      showPopup({
+        message: 'The selected wallet is not active or cannot sign transactions.',
+        title: 'Cannot connect',
+        variant: 'warning',
+      });
       return;
     }
 
@@ -827,12 +844,13 @@ export function WalletConnectProvider({
           : getSdkError('UNSUPPORTED_METHODS'),
       });
       setProposalData(null);
-      Alert.alert(
-        'Unsupported request',
-        unsupportedChain
+      showPopup({
+        message: unsupportedChain
           ? 'This dApp requested a different Stellar network.'
           : `This dApp requested an unsupported method: ${unsupportedMethod}`,
-      );
+        title: 'Unsupported request',
+        variant: 'warning',
+      });
       return;
     }
 
@@ -861,14 +879,16 @@ export function WalletConnectProvider({
       setProposalData(null);
       refreshSessions(nextClient);
     } catch (error) {
-      Alert.alert(
-        'WalletConnect',
-        error instanceof Error
-          ? error.message
-          : 'Could not approve this connection.',
-      );
+      showPopup({
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Could not approve this connection.',
+        title: 'WalletConnect',
+        variant: 'danger',
+      });
     }
-  }, [proposalData, refreshSessions]);
+  }, [proposalData, refreshSessions, showPopup]);
 
   const rejectProposal = useCallback(async () => {
     const nextClient = clientRef.current;
@@ -1008,7 +1028,11 @@ export function WalletConnectProvider({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Could not sign this request.';
-      Alert.alert('WalletConnect', message);
+      showPopup({
+        message,
+        title: 'WalletConnect',
+        variant: 'danger',
+      });
     }
   }, [
     activeRequestEvent,
@@ -1016,6 +1040,7 @@ export function WalletConnectProvider({
     removeActiveRequest,
     requestReview,
     respondWithError,
+    showPopup,
   ]);
 
   const disconnectSession = useCallback(

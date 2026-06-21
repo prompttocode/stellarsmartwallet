@@ -62,11 +62,14 @@ async function handleStellarLookup(
   const network = normalizeNetwork(c.req.param('network'), fallbackNetwork);
   const address = String(c.req.param('address') || '').trim();
   assertStellarAddress(address);
-  const balanceResult = await getAccountBalances(c.env, address, network);
+  const [balanceResult, transactions] = await Promise.all([
+    getAccountBalances(c.env, address, network),
+    getAccountHistory(c.env, address, network),
+  ]);
 
   return c.json({
     ...balanceResult,
-    transactions: await getAccountHistory(c.env, address, network),
+    transactions,
   });
 }
 
@@ -101,11 +104,14 @@ async function handleFund(
 
   await friendbotFund(c.env, address, network);
 
-  const balanceResult = await getAccountBalances(c.env, address, network);
+  const [balanceResult, transactions] = await Promise.all([
+    getAccountBalances(c.env, address, network),
+    getAccountHistory(c.env, address, network),
+  ]);
 
   return c.json({
     ...balanceResult,
-    transactions: await getAccountHistory(c.env, address, network),
+    transactions,
   });
 }
 
@@ -156,14 +162,17 @@ async function handleTrustline(
   );
 
   if (existingBalance) {
-    const balanceResult = await getAccountBalances(c.env, sourceAddress, network);
+    const [balanceResult, transactions] = await Promise.all([
+      getAccountBalances(c.env, sourceAddress, network),
+      getAccountHistory(c.env, sourceAddress, network),
+    ]);
 
     return c.json({
       alreadyTrusted: true,
       balances: balanceResult.balances,
       network,
       transaction: null,
-      transactions: await getAccountHistory(c.env, sourceAddress, network),
+      transactions,
     });
   }
 
@@ -183,7 +192,10 @@ async function handleTrustline(
     wallet: sourceWallet,
     walletId: sourceWalletId,
   });
-  const balanceResult = await getAccountBalances(c.env, sourceAddress, network);
+  const [balanceResult, transactions] = await Promise.all([
+    getAccountBalances(c.env, sourceAddress, network),
+    getAccountHistory(c.env, sourceAddress, network),
+  ]);
 
   return c.json({
     alreadyTrusted: false,
@@ -201,7 +213,7 @@ async function handleTrustline(
       submitted,
       to: assetDefinition.assetIssuer || '',
     }),
-    transactions: await getAccountHistory(c.env, sourceAddress, network),
+    transactions,
   });
 }
 
@@ -252,6 +264,13 @@ async function handleSend(
     network,
   });
   const asset = assetDefinition.isNative ? null : getAssetForOperation(assetDefinition);
+
+  if (network === 'mainnet' && assetDefinition.isNative && !destinationAccount) {
+    throw makeError(
+      'Recipient wallet is not active on Stellar Mainnet. Ask the recipient to activate their wallet before sending XLM.',
+      400,
+    );
+  }
 
   if (!assetDefinition.isNative) {
     ensureTrustline(sourceAccount, assetDefinition, 'Source wallet');
@@ -323,8 +342,11 @@ async function handleSend(
     sourceAddress: maskStellarAddress(sourceAddress),
   });
 
-  const refreshedSource = await getAccountBalances(c.env, sourceAddress, network);
-  const refreshedDestination = await getAccountBalances(c.env, destination, network);
+  const [refreshedSource, refreshedDestination, transactions] = await Promise.all([
+    getAccountBalances(c.env, sourceAddress, network),
+    getAccountBalances(c.env, destination, network),
+    getAccountHistory(c.env, sourceAddress, network),
+  ]);
   const transactionItem = buildSubmittedTransactionItem({
     amount,
     assetCode: assetDefinition.assetCode,
@@ -351,7 +373,7 @@ async function handleSend(
     sourceWalletId,
     sourceXlm: refreshedSource.xlm,
     transaction: transactionItem,
-    transactions: await getAccountHistory(c.env, sourceAddress, network),
+    transactions,
   });
 }
 
@@ -409,7 +431,10 @@ async function handleSwapExecute(c: Context<WorkerBindings>, fallbackNetwork?: S
     toAssetCode: body.toAssetCode,
     toAssetIssuer: body.toAssetIssuer,
   });
-  const refreshedSource = await getAccountBalances(c.env, sourceAddress, network);
+  const [refreshedSource, transactions] = await Promise.all([
+    getAccountBalances(c.env, sourceAddress, network),
+    getAccountHistory(c.env, sourceAddress, network),
+  ]);
   const transactionItem = buildSubmittedTransactionItem({
     amount: result.fromAmount,
     assetCode: result.fromAssetCode,
@@ -436,7 +461,7 @@ async function handleSwapExecute(c: Context<WorkerBindings>, fallbackNetwork?: S
     toAmount: result.toAmount,
     toAssetCode: result.toAssetCode,
     transaction: transactionItem,
-    transactions: await getAccountHistory(c.env, sourceAddress, network),
+    transactions,
   });
 }
 

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Alert, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import ReactNativeBiometrics from 'react-native-biometrics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAppPopup } from '@components/common/AppPopup';
 import {
   AssetPickerModal,
   AssetSelectButton,
@@ -103,6 +104,7 @@ export function SendScreen({
   wallet: WalletState;
 }) {
   const insets = useSafeAreaInsets();
+  const { showPopup } = useAppPopup();
   const [step, setStep] = useState<SendStep>('compose');
   const [assetPickerVisible, setAssetPickerVisible] = useState(false);
   const [lastResult, setLastResult] = useState<SendResult | null>(null);
@@ -139,14 +141,19 @@ export function SendScreen({
         });
 
         if (!success) {
-          Alert.alert(
-            'Authentication failed',
-            'Could not send the transaction.',
-          );
+          showPopup({
+            message: 'Could not send the transaction.',
+            title: 'Authentication failed',
+            variant: 'warning',
+          });
           return;
         }
       } catch {
-        Alert.alert('Authentication error', 'Please try again.');
+        showPopup({
+          message: 'Please try again.',
+          title: 'Authentication error',
+          variant: 'danger',
+        });
         return;
       }
     }

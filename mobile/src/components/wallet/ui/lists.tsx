@@ -64,21 +64,17 @@ export function AssetListItem({
     : asset.demo
     ? 'Demo'
     : asset.trustLevel === 'verified'
-    ? 'Verified'
+    ? null
     : 'Unverified';
   const badgeStyle =
     badgeLabel === 'Demo'
       ? modern.assetBadgeDemo
-      : badgeLabel === 'Verified'
-      ? modern.assetBadgeVerified
       : badgeLabel === 'Not enabled'
       ? modern.assetBadgeTrustline
       : modern.assetBadgeUnverified;
   const badgeTextStyle =
     badgeLabel === 'Demo'
       ? modern.assetBadgeTextDemo
-      : badgeLabel === 'Verified'
-      ? modern.assetBadgeTextVerified
       : badgeLabel === 'Not enabled'
       ? modern.assetBadgeTextTrustline
       : modern.assetBadgeTextUnverified;
@@ -128,15 +124,13 @@ export function AssetListItem({
             <Text numberOfLines={1} style={modern.assetModernName}>
               {asset.assetCode}
             </Text>
-            <View
-              style={[modern.assetBadge, badgeStyle]}
-            >
-              <Text
-                style={[modern.assetBadgeText, badgeTextStyle]}
-              >
-                {badgeLabel}
-              </Text>
-            </View>
+            {badgeLabel ? (
+              <View style={[modern.assetBadge, badgeStyle]}>
+                <Text style={[modern.assetBadgeText, badgeTextStyle]}>
+                  {badgeLabel}
+                </Text>
+              </View>
+            ) : null}
           </View>
           <Text numberOfLines={1} style={modern.assetModernMeta}>
             {subtitle}

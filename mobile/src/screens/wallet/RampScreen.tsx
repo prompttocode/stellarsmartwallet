@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
   Image,
   Modal,
   Pressable,
@@ -14,6 +13,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useAppPopup } from '@components/common/AppPopup';
 import {
   ExplorerLink,
   ModernInfoLine,
@@ -155,6 +155,7 @@ export function RampScreen({
   wallet: WalletState;
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
+  const { showPopup } = useAppPopup();
   const [direction, setDirection] = useState<RampDirection>(
     route?.params?.direction === 'sell' ? 'sell' : 'buy',
   );
@@ -329,14 +330,16 @@ export function RampScreen({
     orderDirection: RampDirection;
   }) {
     if (wallet.kyc.status !== 'verified') {
-      Alert.alert(
-        'You are not verified',
-        'Please verify your identity before buying or withdrawing with VND.',
-        [
+      showPopup({
+        actions: [
           { style: 'cancel', text: 'Not now' },
           { onPress: onOpenKyc, text: 'Verify now' },
         ],
-      );
+        message:
+          'Please verify your identity before buying or withdrawing with VND.',
+        title: 'You are not verified',
+        variant: 'warning',
+      });
       return;
     }
 
@@ -411,7 +414,11 @@ export function RampScreen({
     }
 
     Clipboard.setString(text);
-    Alert.alert('Copied', `${label} copied to clipboard.`);
+    showPopup({
+      message: `${label} copied to clipboard.`,
+      title: 'Copied',
+      variant: 'success',
+    });
   }
 
   async function savePaymentQr(qrUrl?: string | null, orderCode?: string) {
@@ -425,10 +432,11 @@ export function RampScreen({
       ]);
 
       if (!permission.granted) {
-        Alert.alert(
-          'Permission needed',
-          'Allow photo library access to save the payment QR.',
-        );
+        showPopup({
+          message: 'Allow photo library access to save the payment QR.',
+          title: 'Permission needed',
+          variant: 'warning',
+        });
         return;
       }
 
@@ -444,12 +452,20 @@ export function RampScreen({
       const download = await FileSystem.downloadAsync(qrUrl, fileUri);
 
       await MediaLibrary.saveToLibraryAsync(download.uri);
-      Alert.alert('Saved', 'Payment QR saved to your Photos/Gallery.');
+      showPopup({
+        message: 'Payment QR saved to your Photos/Gallery.',
+        title: 'Saved',
+        variant: 'success',
+      });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Could not save payment QR.';
 
-      Alert.alert('Save failed', message);
+      showPopup({
+        message,
+        title: 'Save failed',
+        variant: 'danger',
+      });
     }
   }
 

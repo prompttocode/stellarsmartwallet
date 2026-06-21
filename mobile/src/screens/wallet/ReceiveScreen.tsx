@@ -1,9 +1,10 @@
 import React from 'react';
-import { Alert, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import QRCode from 'react-native-qrcode-styled';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAppPopup } from '@components/common/AppPopup';
 import { PressScale, TokenIcon, getWalletAssets } from '@components/wallet';
 import type { AssetItem, BalanceItem } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
@@ -53,6 +54,7 @@ export function ReceiveScreen({
   wallet: WalletState;
 }) {
   const insets = useSafeAreaInsets();
+  const { showPopup } = useAppPopup();
   const assets = getReceiveAssets(wallet.balances, wallet.visibleAssets);
   const address = wallet.wallet?.address || '';
   const canOpenExplorer =
@@ -76,7 +78,11 @@ export function ReceiveScreen({
     }
 
     Clipboard.setString(address);
-    Alert.alert('Copied', 'Wallet address copied to clipboard.');
+    showPopup({
+      message: 'Wallet address copied to clipboard.',
+      title: 'Copied',
+      variant: 'success',
+    });
   }
 
   return (

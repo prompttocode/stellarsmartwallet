@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Alert,
   Image,
   PermissionsAndroid,
   Platform,
@@ -28,6 +27,7 @@ import {
   PressScale,
   useSafeScreenInsetStyle,
 } from '@components/wallet';
+import { useAppPopup } from '@components/common/AppPopup';
 import type { WalletState } from '@hooks/useWallet';
 
 type CaptureSide = 'front' | 'back';
@@ -143,6 +143,7 @@ export function KycScreen({
 }) {
   const insets = useSafeAreaInsets();
   const screenInsetStyle = useSafeScreenInsetStyle();
+  const { showPopup } = useAppPopup();
   const [step, setStep] = useState<Step>('intro');
   const [captureSide, setCaptureSide] = useState<CaptureSide>('front');
   const [frontImage, setFrontImage] = useState<PreparedKycImage | null>(null);
@@ -220,10 +221,11 @@ export function KycScreen({
     const hasPermission = await requestScannerPermission();
 
     if (!hasPermission) {
-      Alert.alert(
-        'Camera permission required',
-        'Please allow camera access to scan your ID card.',
-      );
+      showPopup({
+        message: 'Please allow camera access to scan your ID card.',
+        title: 'Camera permission required',
+        variant: 'warning',
+      });
       return false;
     }
 
@@ -267,12 +269,14 @@ export function KycScreen({
       setStep('preview');
       return true;
     } catch (error) {
-      Alert.alert(
-        'Unable to scan document',
-        error instanceof Error
-          ? error.message
-          : 'Please try scanning your CCCD again.',
-      );
+      showPopup({
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Please try scanning your CCCD again.',
+        title: 'Unable to scan document',
+        variant: 'danger',
+      });
       return false;
     } finally {
       setProcessingImage(false);
@@ -314,19 +318,17 @@ export function KycScreen({
       });
 
       if (result?.status === 'verified') {
-        Alert.alert(
-          'Verification complete',
-          'Your identity has been verified. You can now buy or withdraw with VND.',
-          [{ onPress: closeScreen, text: 'Done' }],
-        );
+        showPopup({
+          actions: [{ onPress: closeScreen, text: 'Done' }],
+          message:
+            'Your identity has been verified. You can now buy or withdraw with VND.',
+          title: 'Verification complete',
+          variant: 'success',
+        });
       }
     } catch (error) {
-      Alert.alert(
-        'Verification failed',
-        error instanceof Error
-          ? error.message
-          : 'Please retake clear photos and try again.',
-        [
+      showPopup({
+        actions: [
           {
             onPress: () => {
               setCaptureSide('front');
@@ -348,7 +350,13 @@ export function KycScreen({
             text: 'Retake back',
           },
         ],
-      );
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Please retake clear photos and try again.',
+        title: 'Verification failed',
+        variant: 'danger',
+      });
     } finally {
       setSubmitting(false);
     }

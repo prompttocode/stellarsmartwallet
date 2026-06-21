@@ -1,6 +1,5 @@
 import React, { ReactNode, useEffect, useState } from 'react';
 import {
-  Alert,
   AppState,
   KeyboardAvoidingView,
   Linking,
@@ -18,6 +17,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import * as ExpoLinking from 'expo-linking';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAppPopup } from '@components/common/AppPopup';
 
 import {
   ModernScreenHeader,
@@ -163,6 +163,7 @@ export function SettingsScreen({
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
   const insets = useSafeAreaInsets();
+  const { showPopup } = useAppPopup();
   const { selectedCurrency, setSelectedCurrency } = useCurrencyConfig();
   const [detailSheet, setDetailSheet] = useState<DetailSheet>(null);
   const [currencyVisible, setCurrencyVisible] = useState(false);
@@ -219,10 +220,12 @@ export function SettingsScreen({
     const hasPrivyToken = await wallet.refreshPrivySecuritySession();
 
     if (!hasPrivyToken) {
-      Alert.alert(
-        'Privy sign-in required',
-        'This security action needs an active Privy session. Please sign out and sign in again with email OTP or Google.',
-      );
+      showPopup({
+        message:
+          'This security action needs an active Privy session. Please sign out and sign in again with email OTP or Google.',
+        title: 'Privy sign-in required',
+        variant: 'warning',
+      });
       closeToolModal();
       return false;
     }
@@ -247,18 +250,21 @@ export function SettingsScreen({
 
   async function openBackupRecovery() {
     if (!activeWallet?.canSign) {
-      Alert.alert(
-        'Recovery key unavailable',
-        'Watch-only wallets do not contain a private recovery key.',
-      );
+      showPopup({
+        message: 'Watch-only wallets do not contain a private recovery key.',
+        title: 'Recovery key unavailable',
+        variant: 'warning',
+      });
       return;
     }
 
     if (activeWallet.kind === 'imported_privy') {
-      Alert.alert(
-        'Recovery key unavailable',
-        'This wallet was imported from your own Stellar secret key. Keep the original S... key you imported.',
-      );
+      showPopup({
+        message:
+          'This wallet was imported from your own Stellar secret key. Keep the original S... key you imported.',
+        title: 'Recovery key unavailable',
+        variant: 'warning',
+      });
       return;
     }
 
@@ -269,15 +275,21 @@ export function SettingsScreen({
 
   async function revealRecoveryKey() {
     if (backupConfirmation.trim() !== 'EXPORT') {
-      Alert.alert('Confirmation required', 'Enter EXPORT exactly to continue.');
+      showPopup({
+        message: 'Enter EXPORT exactly to continue.',
+        title: 'Confirmation required',
+        variant: 'warning',
+      });
       return;
     }
 
     if (walletExportOpening) {
-      Alert.alert(
-        'Export already opening',
-        'A secure export browser is already being opened. Finish or close that session first.',
-      );
+      showPopup({
+        message:
+          'A secure export browser is already being opened. Finish or close that session first.',
+        title: 'Export already opening',
+        variant: 'info',
+      });
       return;
     }
 
@@ -303,7 +315,11 @@ export function SettingsScreen({
         const message =
           error instanceof Error ? error.message : 'Unable to open browser.';
 
-        Alert.alert('Recovery export failed', message);
+        showPopup({
+          message,
+          title: 'Recovery export failed',
+          variant: 'danger',
+        });
       } finally {
         setWalletExportOpening(false);
       }
@@ -351,7 +367,11 @@ export function SettingsScreen({
     }
 
     Clipboard.setString(activeWallet.address);
-    Alert.alert('Copied', 'Wallet address copied to clipboard.');
+    showPopup({
+      message: 'Wallet address copied to clipboard.',
+      title: 'Copied',
+      variant: 'success',
+    });
   }
 
   function confirmNetworkSwitch(nextNetwork: 'mainnet' | 'testnet') {
@@ -361,19 +381,21 @@ export function SettingsScreen({
 
     const nextLabel = nextNetwork === 'mainnet' ? 'Mainnet' : 'Testnet';
 
-    Alert.alert(
-      `Switch to ${nextLabel}?`,
-      nextNetwork === 'testnet'
-        ? 'Testnet uses demo assets. Your Mainnet balances will be hidden until you switch back.'
-        : 'Mainnet uses real assets and real money. Check every transaction carefully.',
-      [
+    showPopup({
+      actions: [
         { style: 'cancel', text: 'Cancel' },
         {
           onPress: () => wallet.switchNetwork(nextNetwork),
           text: `Switch to ${nextLabel}`,
         },
       ],
-    );
+      message:
+        nextNetwork === 'testnet'
+          ? 'Testnet uses demo assets. Your Mainnet balances will be hidden until you switch back.'
+          : 'Mainnet uses real assets and real money. Check every transaction carefully.',
+      title: `Switch to ${nextLabel}?`,
+      variant: nextNetwork === 'mainnet' ? 'warning' : 'info',
+    });
   }
 
   function openWalletManager() {

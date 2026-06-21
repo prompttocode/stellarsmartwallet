@@ -1,11 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, Pressable } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { createBottomTabNavigator, BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import {
+  createBottomTabNavigator,
+  BottomTabBarProps,
+} from '@react-navigation/bottom-tabs';
 
 import { modern } from '@components/wallet';
 import { LoadingOverlay } from '@components/common/LoadingOverlay';
@@ -58,7 +65,10 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const indicatorX = useSharedValue(0);
 
   useEffect(() => {
-    indicatorX.value = withSpring(state.index * tabWidth, { damping: 200, stiffness: 160 });
+    indicatorX.value = withSpring(state.index * tabWidth, {
+      damping: 200,
+      stiffness: 160,
+    });
   }, [state.index, tabWidth]);
 
   const indicatorStyle = useAnimatedStyle(() => ({
@@ -66,22 +76,41 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   }));
 
   return (
-    <View 
-      style={modern.tabBar} 
+    <View
+      style={modern.tabBar}
       onLayout={e => setBarWidth(e.nativeEvent.layout.width)}
     >
       {tabWidth > 0 && (
-        <Animated.View style={[{ position: 'absolute', top: 0, width: tabWidth, alignItems: 'center' }, indicatorStyle]}>
+        <Animated.View
+          style={[
+            {
+              position: 'absolute',
+              top: 0,
+              width: tabWidth,
+              alignItems: 'center',
+            },
+            indicatorStyle,
+          ]}
+        >
           <View style={modern.tabIndicator} />
         </Animated.View>
       )}
       {state.routes.map((route, index) => {
         const { options } = descriptors[route.key];
-        const label = options.tabBarLabel !== undefined ? options.tabBarLabel : options.title !== undefined ? options.title : route.name;
+        const label =
+          options.tabBarLabel !== undefined
+            ? options.tabBarLabel
+            : options.title !== undefined
+            ? options.title
+            : route.name;
         const isFocused = state.index === index;
-        
+
         const onPress = () => {
-          const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+          const event = navigation.emit({
+            type: 'tabPress',
+            target: route.key,
+            canPreventDefault: true,
+          });
           if (!isFocused && !event.defaultPrevented) {
             navigation.navigate({
               name: route.name,
@@ -94,10 +123,23 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
         return (
           <Pressable key={route.key} onPress={onPress} style={modern.tabPress}>
             <View style={modern.tabItem}>
-              <View style={[modern.tabIconWrap, isFocused && modern.tabIconWrapActive]}>
-                 {options.tabBarIcon && options.tabBarIcon({ focused: isFocused, color: isFocused ? '#B8FF45' : '#8A9AA3', size: 24 })}
+              <View
+                style={[
+                  modern.tabIconWrap,
+                  isFocused && modern.tabIconWrapActive,
+                ]}
+              >
+                {options.tabBarIcon &&
+                  options.tabBarIcon({
+                    focused: isFocused,
+                    color: isFocused ? '#B8FF45' : '#8A9AA3',
+                    size: 24,
+                  })}
               </View>
-              <Text numberOfLines={1} style={[modern.tabText, isFocused && modern.tabTextActive]}>
+              <Text
+                numberOfLines={1}
+                style={[modern.tabText, isFocused && modern.tabTextActive]}
+              >
                 {label as string}
               </Text>
             </View>
@@ -220,9 +262,7 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
         {({ navigation }: any) => (
           <SettingsScreen
             onOpenKyc={() => navigation.navigate('Kyc')}
-            onOpenWalletConnect={() =>
-              navigation.navigate('WalletConnect')
-            }
+            onOpenWalletConnect={() => navigation.navigate('WalletConnect')}
             wallet={wallet}
           />
         )}
@@ -243,126 +283,128 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
       <WalletConnectProvider wallet={wallet}>
         <View style={modern.screenFill}>
           <NavigationContainer>
-          <Stack.Navigator screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="MainTabs">
-              {props => <MainTabs {...props} wallet={wallet} />}
-            </Stack.Screen>
-            <Stack.Screen name="Send">
-              {({ route, navigation }: any) => (
-                <SendScreen
-                  wallet={wallet}
-                  route={route}
-                  onBack={() => navigation.goBack()}
-                  onGoToScan={() => navigation.navigate('Scan')}
-                />
-              )}
-            </Stack.Screen>
-            <Stack.Screen name="Receive">
-              {({ navigation }: any) => (
-                <ReceiveScreen
-                  wallet={wallet}
-                  onBack={() => navigation.goBack()}
-                />
-              )}
-            </Stack.Screen>
-            <Stack.Screen name="Faucet">
-              {({ navigation }: any) => (
-                <FaucetScreen
-                  wallet={wallet}
-                  onBack={() => navigation.goBack()}
-                  onGoToRamp={async () => {
-                    await clearClosedRampOrder(wallet);
-                    navigation.navigate('Ramp', { direction: 'buy' });
-                  }}
-                />
-              )}
-            </Stack.Screen>
-            <Stack.Screen name="Ramp">
-              {({ route, navigation }: any) => (
-                <RampScreen
-                  onOpenKyc={() => navigation.navigate('Kyc')}
-                  route={route}
-                  wallet={wallet}
-                  onBack={() => {
-                    if (
-                      route?.params?.source === 'history' &&
-                      isRampOrderTerminal(wallet.activeRampOrder)
-                    ) {
-                      wallet.clearRampOrder().catch(() => null);
-                    }
-
-                    navigation.goBack();
-                  }}
-                />
-              )}
-            </Stack.Screen>
-            <Stack.Screen name="AssetSearch">
-              {({ navigation }: any) => (
-                <AssetSearchScreen
-                  wallet={wallet}
-                  onBack={() => navigation.goBack()}
-                  onGoToAssetDetail={(asset: BalanceItem) =>
-                    navigation.navigate('AssetDetail', {
-                      asset,
-                      assetCode: asset.assetCode,
-                      assetIssuer: asset.assetIssuer || null,
-                    })
-                  }
-                />
-              )}
-            </Stack.Screen>
-            <Stack.Screen name="AssetDetail">
-              {({ route, navigation }: any) => (
-                <AssetDetailScreen
-                  wallet={wallet}
-                  route={route}
-                  onBack={() => navigation.goBack()}
-                  onGoToReceive={() => navigation.navigate('Receive')}
-                  onGoToRamp={async (direction = 'buy') => {
-                    await clearClosedRampOrder(wallet);
-                    navigation.navigate('Ramp', { direction });
-                  }}
-                  onGoToSend={(assetCode?: string) => {
-                    if (assetCode) wallet.setSelectedAssetCode(assetCode);
-                    navigation.navigate('Send');
-                  }}
-                />
-              )}
-            </Stack.Screen>
-            <Stack.Screen name="TransactionDetail">
-              {({ route, navigation }: any) => {
-                const tx = wallet.transactions.find(
-                  t => t.id === route.params?.id,
-                );
-                if (!tx) return null;
-                return (
-                  <TransactionDetailScreen
+            <Stack.Navigator
+              screenOptions={{ headerShown: false, animation: 'fade' }}
+            >
+              <Stack.Screen name="MainTabs">
+                {props => <MainTabs {...props} wallet={wallet} />}
+              </Stack.Screen>
+              <Stack.Screen name="Send">
+                {({ route, navigation }: any) => (
+                  <SendScreen
                     wallet={wallet}
-                    transaction={tx}
+                    route={route}
+                    onBack={() => navigation.goBack()}
+                    onGoToScan={() => navigation.navigate('Scan')}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="Receive">
+                {({ navigation }: any) => (
+                  <ReceiveScreen
+                    wallet={wallet}
                     onBack={() => navigation.goBack()}
                   />
-                );
-              }}
-            </Stack.Screen>
-            <Stack.Screen name="Scan" component={ScanScreen} />
-            <Stack.Screen name="WalletConnect">
-              {({ navigation }: any) => (
-                <WalletConnectScreen
-                  onBack={() => navigation.goBack()}
-                  onScan={() => navigation.navigate('Scan')}
-                  wallet={wallet}
-                />
-              )}
-            </Stack.Screen>
-            <Stack.Screen name="Kyc">
-              {({ navigation }: any) => (
-                <KycScreen
-                  onBack={() => navigation.goBack()}
-                  wallet={wallet}
-                />
-              )}
-            </Stack.Screen>
-          </Stack.Navigator>
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="Faucet">
+                {({ navigation }: any) => (
+                  <FaucetScreen
+                    wallet={wallet}
+                    onBack={() => navigation.goBack()}
+                    onGoToRamp={async () => {
+                      await clearClosedRampOrder(wallet);
+                      navigation.navigate('Ramp', { direction: 'buy' });
+                    }}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="Ramp">
+                {({ route, navigation }: any) => (
+                  <RampScreen
+                    onOpenKyc={() => navigation.navigate('Kyc')}
+                    route={route}
+                    wallet={wallet}
+                    onBack={() => {
+                      if (
+                        route?.params?.source === 'history' &&
+                        isRampOrderTerminal(wallet.activeRampOrder)
+                      ) {
+                        wallet.clearRampOrder().catch(() => null);
+                      }
+
+                      navigation.goBack();
+                    }}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="AssetSearch">
+                {({ navigation }: any) => (
+                  <AssetSearchScreen
+                    wallet={wallet}
+                    onBack={() => navigation.goBack()}
+                    onGoToAssetDetail={(asset: BalanceItem) =>
+                      navigation.navigate('AssetDetail', {
+                        asset,
+                        assetCode: asset.assetCode,
+                        assetIssuer: asset.assetIssuer || null,
+                      })
+                    }
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="AssetDetail">
+                {({ route, navigation }: any) => (
+                  <AssetDetailScreen
+                    wallet={wallet}
+                    route={route}
+                    onBack={() => navigation.goBack()}
+                    onGoToReceive={() => navigation.navigate('Receive')}
+                    onGoToRamp={async (direction = 'buy') => {
+                      await clearClosedRampOrder(wallet);
+                      navigation.navigate('Ramp', { direction });
+                    }}
+                    onGoToSend={(assetCode?: string) => {
+                      if (assetCode) wallet.setSelectedAssetCode(assetCode);
+                      navigation.navigate('Send');
+                    }}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="TransactionDetail">
+                {({ route, navigation }: any) => {
+                  const tx = wallet.transactions.find(
+                    t => t.id === route.params?.id,
+                  );
+                  if (!tx) return null;
+                  return (
+                    <TransactionDetailScreen
+                      wallet={wallet}
+                      transaction={tx}
+                      onBack={() => navigation.goBack()}
+                    />
+                  );
+                }}
+              </Stack.Screen>
+              <Stack.Screen name="Scan" component={ScanScreen} />
+              <Stack.Screen name="WalletConnect">
+                {({ navigation }: any) => (
+                  <WalletConnectScreen
+                    onBack={() => navigation.goBack()}
+                    onScan={() => navigation.navigate('Scan')}
+                    wallet={wallet}
+                  />
+                )}
+              </Stack.Screen>
+              <Stack.Screen name="Kyc">
+                {({ navigation }: any) => (
+                  <KycScreen
+                    onBack={() => navigation.goBack()}
+                    wallet={wallet}
+                  />
+                )}
+              </Stack.Screen>
+            </Stack.Navigator>
           </NavigationContainer>
 
           <LoadingOverlay

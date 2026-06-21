@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, AppState, Linking } from 'react-native';
+import { AppState, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReactNativeBiometrics from 'react-native-biometrics';
 import {
@@ -51,6 +51,7 @@ import { isRampOrderTerminal } from '@utils/ramp';
 
 type RunOptions = {
   showAlert?: boolean;
+  showBusy?: boolean;
 };
 
 type ErrorDialogState = {
@@ -505,8 +506,13 @@ export function useWallet() {
       action: () => Promise<T>,
       options: RunOptions = {},
     ) => {
+      const showBusy = options.showBusy !== false;
+
       try {
-        setBusy(label);
+        if (showBusy) {
+          setBusy(label);
+        }
+
         if (options.showAlert !== false) {
           setErrorDialog(null);
         }
@@ -517,7 +523,10 @@ export function useWallet() {
         setMessage(errorMessage);
 
         if (options.showAlert !== false) {
-          setBusy(null);
+          if (showBusy) {
+            setBusy(null);
+          }
+
           setErrorDialog({
             message: errorMessage,
             title: 'Error',
@@ -526,7 +535,9 @@ export function useWallet() {
 
         return null;
       } finally {
-        setBusy(null);
+        if (showBusy) {
+          setBusy(null);
+        }
       }
     },
     [],
@@ -1452,7 +1463,7 @@ export function useWallet() {
     clearWalletSession(nextMessage);
   }
 
-  async function refreshSession() {
+  async function refreshSession(options: RunOptions = {}) {
     if (!account) {
       return;
     }
@@ -1480,7 +1491,7 @@ export function useWallet() {
       } finally {
         setSessionSyncing(false);
       }
-    });
+    }, options);
   }
 
   async function createWallet() {
@@ -1849,10 +1860,10 @@ export function useWallet() {
     const destination = recipient.trim();
 
     if (!destination) {
-      Alert.alert(
-        'Missing recipient',
-        'Enter a recipient wallet address or create a test receiver.',
-      );
+      setErrorDialog({
+        message: 'Enter a recipient wallet address or create a test receiver.',
+        title: 'Missing recipient',
+      });
       return null;
     }
 
@@ -2365,10 +2376,10 @@ export function useWallet() {
     }
 
     if (isMainnet) {
-      Alert.alert(
-        'Testnet only',
-        'Payment bypass cannot be used for Mainnet orders.',
-      );
+      setErrorDialog({
+        message: 'Payment bypass cannot be used for Mainnet orders.',
+        title: 'Testnet only',
+      });
       return null;
     }
 
@@ -2408,10 +2419,10 @@ export function useWallet() {
     }
 
     if (isMainnet) {
-      Alert.alert(
-        'Testnet only',
-        'Withdrawal bypass cannot be used for Mainnet orders.',
-      );
+      setErrorDialog({
+        message: 'Withdrawal bypass cannot be used for Mainnet orders.',
+        title: 'Testnet only',
+      });
       return null;
     }
 

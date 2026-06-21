@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -9,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useAppPopup } from '@components/common/AppPopup';
 
 import {
   ModernScreenHeader,
@@ -32,13 +32,12 @@ export function WalletConnectScreen({
   wallet: WalletState;
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
+  const { showPopup } = useAppPopup();
   const walletConnect = useWalletConnect();
 
   function confirmDisconnect(topic: string, name: string) {
-    Alert.alert(
-      `Disconnect ${name}?`,
-      'The dApp will no longer be able to request transaction signatures.',
-      [
+    showPopup({
+      actions: [
         { style: 'cancel', text: 'Keep connected' },
         {
           onPress: () => walletConnect.disconnectSession(topic),
@@ -46,7 +45,11 @@ export function WalletConnectScreen({
           text: 'Disconnect',
         },
       ],
-    );
+      message:
+        'The dApp will no longer be able to request transaction signatures.',
+      title: `Disconnect ${name}?`,
+      variant: 'warning',
+    });
   }
 
   return (
