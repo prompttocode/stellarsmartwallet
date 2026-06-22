@@ -33,6 +33,8 @@ import type {
   RampOrder,
   RampOrderHistoryResponse,
   RampPaymentInfo,
+  RampPaymentMethod,
+  RampPaymentMethodsResponse,
   RampProvider,
   RampProvidersResponse,
   RampQuote,
@@ -490,6 +492,7 @@ export function useWallet() {
     null,
   );
   const [rampOrderHistory, setRampOrderHistory] = useState<RampOrder[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<RampPaymentMethod[]>([]);
   const [walletConnectConfig, setWalletConnectConfig] =
     useState<WalletConnectConfig | null>(null);
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
@@ -862,6 +865,7 @@ export function useWallet() {
     setTransactions([]);
     setActiveRampOrder(null);
     setRampOrderHistory([]);
+    setPaymentMethods([]);
     setCode('');
     setCodeSent(false);
     setServerSessionReady(false);
@@ -996,6 +1000,15 @@ export function useWallet() {
       subscription.remove();
     };
   }, [fetchTransactionHistory, network, wallet?.address]);
+
+  useEffect(() => {
+    if (!account || !serverSessionReady) {
+      setPaymentMethods([]);
+      return;
+    }
+
+    loadPaymentMethods({ silent: true }).catch(() => null);
+  }, [account?.email, network, serverSessionReady]);
 
   const refreshPrivySecuritySession = useCallback(async () => {
     if (!isReady || !userKey) {
@@ -2494,6 +2507,160 @@ export function useWallet() {
     return run('Refreshing order history', load);
   }
 
+  async function loadPaymentMethods(options: { silent?: boolean } = {}) {
+    if (!account) {
+      setPaymentMethods([]);
+      return [];
+    }
+
+    const load = async () => {
+      const headers = await getAuthHeaders(true);
+      const params = new URLSearchParams({
+        email: account.email,
+        network,
+      });
+      const result = await api<RampPaymentMethodsResponse>(
+        `/api/ramp/payment-methods?${params.toString()}`,
+        { headers },
+      );
+      const methods = result.data.methods || [];
+
+      setPaymentMethods(methods);
+
+      return methods;
+    };
+
+    if (options.silent) {
+      try {
+        return await load();
+      } catch {
+        return [];
+      }
+    }
+
+    return run('Loading payment methods', load);
+  }
+
+  async function savePaymentMethod(
+    method: Pick<
+      RampPaymentMethod,
+      'accountNumber' | 'accountType' | 'bankId' | 'bankName' | 'fullName'
+    > & { isDefault?: boolean },
+  ) {
+    if (!account) {
+      return null;
+    }
+
+    return run('Saving payment method', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const result = await api<RampPaymentMethodsResponse>(
+        '/api/ramp/payment-methods',
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            ...method,
+            email: account.email,
+            network,
+          }),
+        },
+      );
+
+      await loadPaymentMethods({ silent: true });
+
+      return result.data.method || null;
+    });
+  }
+
+  async function updatePaymentMethod(
+    id: string,
+    method: Pick<
+      RampPaymentMethod,
+      'accountNumber' | 'accountType' | 'bankId' | 'bankName' | 'fullName'
+    > & { isDefault?: boolean },
+  ) {
+    if (!account || !id) {
+      return null;
+    }
+
+    return run('Updating payment method', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const result = await api<RampPaymentMethodsResponse>(
+        `/api/ramp/payment-methods/${encodeURIComponent(id)}`,
+        {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({
+            ...method,
+            email: account.email,
+            network,
+          }),
+        },
+      );
+
+      await loadPaymentMethods({ silent: true });
+
+      return result.data.method || null;
+    });
+  }
+
+  async function deletePaymentMethod(id: string) {
+    if (!account || !id) {
+      return false;
+    }
+
+    return run('Deleting payment method', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const params = new URLSearchParams({
+        email: account.email,
+        network,
+      });
+
+      await api<RampPaymentMethodsResponse>(
+        `/api/ramp/payment-methods/${encodeURIComponent(
+          id,
+        )}?${params.toString()}`,
+        {
+          method: 'DELETE',
+          headers,
+        },
+      );
+
+      await loadPaymentMethods({ silent: true });
+
+      return true;
+    });
+  }
+
+  async function setDefaultPaymentMethod(id: string) {
+    if (!account || !id) {
+      return null;
+    }
+
+    return run('Setting default payment method', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const result = await api<RampPaymentMethodsResponse>(
+        `/api/ramp/payment-methods/${encodeURIComponent(id)}/default`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            email: account.email,
+            network,
+          }),
+        },
+      );
+
+      await loadPaymentMethods({ silent: true });
+
+      return result.data.method || null;
+    });
+  }
+
   async function openRampOrder(order: RampOrder) {
     await persistRampOrder(order);
     upsertRampOrderHistory(order);
@@ -3183,6 +3350,7 @@ export function useWallet() {
     createRampOrder,
     createTestReceiver,
     createWallet,
+    deletePaymentMethod,
     email,
     errorDialog,
     explorerAddressUrl,
@@ -3197,6 +3365,7 @@ export function useWallet() {
     kyc,
     loginWithGoogle,
     loginState,
+    loadPaymentMethods,
     logout,
     message,
     network,
@@ -3204,6 +3373,7 @@ export function useWallet() {
     openUrl,
     oauthState,
     openRampOrder,
+    paymentMethods,
     privySessionReady,
     privyError,
     quoteSwap,
@@ -3222,6 +3392,7 @@ export function useWallet() {
     refreshSession,
     renameWallet,
     resetLoginCode,
+    savePaymentMethod,
     selectedAsset,
     selectedAssetCode,
     selectedBalance,
@@ -3233,6 +3404,7 @@ export function useWallet() {
     selectWallet,
     setAmount,
     setCode,
+    setDefaultPaymentMethod,
     setEmail,
     setMessage,
     setRecipient,
@@ -3243,6 +3415,7 @@ export function useWallet() {
     switchNetwork,
     dismissErrorDialog,
     transactions,
+    updatePaymentMethod,
     verifyCodeAndLogin,
     visibleAssets,
     wallet,

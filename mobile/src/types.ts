@@ -331,6 +331,19 @@ export type RampPaymentInfo = {
   fullName: string;
 };
 
+export type RampPaymentMethod = RampPaymentInfo & {
+  bankName: string;
+  createdAt: string;
+  id: string;
+  isDefault: boolean;
+  updatedAt: string;
+};
+
+export type RampPaymentMethodsResponse = RampApiResponse<{
+  method?: RampPaymentMethod;
+  methods?: RampPaymentMethod[];
+}>;
+
 export type WalletConnectConfig = {
   configured: boolean;
   projectId: string | null;

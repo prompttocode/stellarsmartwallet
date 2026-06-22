@@ -71,3 +71,22 @@ CREATE INDEX IF NOT EXISTS idx_ramp_orders_history
 
 CREATE INDEX IF NOT EXISTS idx_ramp_orders_provider_id
   ON ramp_orders(provider_order_id);
+
+CREATE TABLE IF NOT EXISTS account_payment_methods (
+  id TEXT PRIMARY KEY,
+  account_email TEXT NOT NULL,
+  bank_id TEXT NOT NULL,
+  bank_name TEXT NOT NULL,
+  account_number TEXT NOT NULL,
+  full_name TEXT NOT NULL,
+  account_type INTEGER NOT NULL,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_payment_methods_unique_bank
+  ON account_payment_methods(account_email, bank_id, account_number);
+
+CREATE INDEX IF NOT EXISTS idx_account_payment_methods_account_default
+  ON account_payment_methods(account_email, is_default, updated_at DESC);

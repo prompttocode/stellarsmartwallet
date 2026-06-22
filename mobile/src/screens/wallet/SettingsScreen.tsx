@@ -1,6 +1,7 @@
 import React, { ReactNode, useEffect, useState } from 'react';
 import {
   AppState,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Linking,
@@ -19,6 +20,7 @@ import * as ExpoLinking from 'expo-linking';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppPopup } from '@components/common/AppPopup';
+import { BANK_OPTIONS } from '@constants/banks';
 
 import {
   ModernScreenHeader,
@@ -31,6 +33,7 @@ import {
   useCurrencyConfig,
 } from '@contexts/CurrencyContext';
 import type { StellarNetwork } from '@app-types';
+import type { RampPaymentMethod } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
 import { shortAddress } from '@utils/format';
 import {
@@ -48,8 +51,9 @@ const CURRENCIES: { code: SupportedCurrency; name: string; symbol: string }[] =
     { code: 'GBP', name: 'British Pound', symbol: '£' },
   ];
 
-type DetailSheet = 'advanced' | 'security' | 'wallet' | null;
+type DetailSheet = 'advanced' | 'payment' | 'security' | 'wallet' | null;
 type ToolMode = 'import' | 'watch' | null;
+type PaymentSheetMode = 'form' | 'list';
 
 const HORIZON_ACCOUNT_URLS: Record<StellarNetwork, string> = {
   mainnet: 'https://horizon.stellar.org/accounts/',
@@ -62,6 +66,10 @@ function getOtherNetwork(network: StellarNetwork): StellarNetwork {
 
 function getNetworkLabel(network: StellarNetwork) {
   return network === 'mainnet' ? 'Mainnet' : 'Testnet';
+}
+
+function maskBankAccount(value: string) {
+  return value.length > 4 ? `•••• ${value.slice(-4)}` : value;
 }
 
 async function checkHorizonAccountExists(
@@ -231,6 +239,17 @@ export function SettingsScreen({
   const [walletExportOpening, setWalletExportOpening] = useState(false);
   const [addressCopied, setAddressCopied] = useState(false);
   const [toolCheckingNetwork, setToolCheckingNetwork] = useState(false);
+  const [paymentSheetMode, setPaymentSheetMode] =
+    useState<PaymentSheetMode>('list');
+  const [editingPaymentMethod, setEditingPaymentMethod] =
+    useState<RampPaymentMethod | null>(null);
+  const [paymentBankId, setPaymentBankId] = useState(BANK_OPTIONS[0].bin);
+  const [paymentFullName, setPaymentFullName] = useState('');
+  const [paymentAccountNumber, setPaymentAccountNumber] = useState('');
+  const [paymentAccountType, setPaymentAccountType] = useState<0 | 1 | 2>(0);
+  const [paymentDefault, setPaymentDefault] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentNotice, setPaymentNotice] = useState<string | null>(null);
 
   const activeWallet =
     wallet.wallets.find(item => item.id === wallet.activeWalletId) ||
@@ -250,6 +269,11 @@ export function SettingsScreen({
         ? 'Imported via Privy'
         : 'Managed by Privy'
     : 'No wallet on this network';
+  const defaultPaymentMethod = wallet.paymentMethods.find(
+    method => method.isDefault,
+  );
+  const paymentBank =
+    BANK_OPTIONS.find(bank => bank.bin === paymentBankId) || BANK_OPTIONS[0];
 
   function closeToolModal() {
     Keyboard.dismiss();
@@ -267,9 +291,104 @@ export function SettingsScreen({
     setBackupConfirmation('');
   }
 
+  function resetPaymentForm(method?: RampPaymentMethod | null) {
+    setEditingPaymentMethod(method || null);
+    setPaymentBankId(method?.bankId || BANK_OPTIONS[0].bin);
+    setPaymentFullName(method?.fullName || '');
+    setPaymentAccountNumber(method?.accountNumber || '');
+    setPaymentAccountType(method?.accountType || 0);
+    setPaymentDefault(Boolean(method?.isDefault));
+    setPaymentError(null);
+  }
+
+  function openPaymentMethods() {
+    setPaymentSheetMode('list');
+    setPaymentNotice(null);
+    setPaymentError(null);
+    setDetailSheet('payment');
+    wallet.loadPaymentMethods({ silent: true }).catch(() => null);
+  }
+
+  function openPaymentForm(method?: RampPaymentMethod) {
+    resetPaymentForm(method || null);
+    setPaymentNotice(null);
+    setPaymentSheetMode('form');
+  }
+
+  function getPaymentFormError() {
+    const fullName = paymentFullName.trim().toUpperCase();
+    const accountNumber = paymentAccountNumber.trim();
+
+    if (!/^[A-Z0-9 ]{2,100}$/.test(fullName)) {
+      return 'Account holder name must use unaccented letters and numbers.';
+    }
+
+    if (!/^\d{4,30}$/.test(accountNumber)) {
+      return 'Bank account number must contain 4-30 digits.';
+    }
+
+    return null;
+  }
+
+  async function submitPaymentMethod() {
+    const formError = getPaymentFormError();
+
+    if (formError) {
+      setPaymentError(formError);
+      return;
+    }
+
+    const payload = {
+      accountNumber: paymentAccountNumber.trim(),
+      accountType: paymentAccountType,
+      bankId: paymentBank.bin,
+      bankName: paymentBank.name,
+      fullName: paymentFullName.trim().toUpperCase(),
+      isDefault: paymentDefault,
+    };
+    const result = editingPaymentMethod
+      ? await wallet.updatePaymentMethod(editingPaymentMethod.id, payload)
+      : await wallet.savePaymentMethod(payload);
+
+    if (!result) {
+      setPaymentError('Could not save this payment method. Try again.');
+      return;
+    }
+
+    setPaymentNotice(
+      editingPaymentMethod ? 'Payment method updated.' : 'Payment method saved.',
+    );
+    resetPaymentForm(null);
+    setPaymentSheetMode('list');
+  }
+
+  async function removePaymentMethod(method: RampPaymentMethod) {
+    const deleted = await wallet.deletePaymentMethod(method.id);
+
+    if (deleted) {
+      setPaymentNotice('Payment method deleted.');
+    }
+  }
+
+  async function makeDefaultPaymentMethod(method: RampPaymentMethod) {
+    const result = await wallet.setDefaultPaymentMethod(method.id);
+
+    if (result) {
+      setPaymentNotice('Default payment method updated.');
+    }
+  }
+
   useEffect(() => {
     if (detailSheet !== 'wallet') {
       setAddressCopied(false);
+    }
+  }, [detailSheet]);
+
+  useEffect(() => {
+    if (detailSheet !== 'payment') {
+      resetPaymentForm(null);
+      setPaymentSheetMode('list');
+      setPaymentNotice(null);
     }
   }, [detailSheet]);
 
@@ -897,6 +1016,21 @@ export function SettingsScreen({
           />
           <View style={styles.divider} />
           <SettingsRow
+            icon="card-outline"
+            onPress={openPaymentMethods}
+            subtitle={
+              defaultPaymentMethod
+                ? `${defaultPaymentMethod.bankName} · ${maskBankAccount(
+                    defaultPaymentMethod.accountNumber,
+                  )}`
+                : `${wallet.paymentMethods.length} saved method${
+                    wallet.paymentMethods.length === 1 ? '' : 's'
+                  }`
+            }
+            title="Payment methods"
+          />
+          <View style={styles.divider} />
+          <SettingsRow
             icon="lock-closed-outline"
             onPress={() => setDetailSheet('security')}
             subtitle="Biometric signing and Privy custody"
@@ -1095,6 +1229,263 @@ export function SettingsScreen({
       <BottomSheet
         bottomInset={insets.bottom}
         onClose={() => setDetailSheet(null)}
+        title="Payment methods"
+        visible={detailSheet === 'payment'}
+      >
+        <ScrollView
+          contentContainerStyle={styles.paymentSheetContent}
+          showsVerticalScrollIndicator={false}
+          style={styles.paymentSheetScroll}
+        >
+          {paymentNotice ? (
+            <Text style={styles.paymentNotice}>{paymentNotice}</Text>
+          ) : null}
+
+          {paymentSheetMode === 'list' ? (
+            <>
+              {wallet.paymentMethods.length > 0 ? (
+                <View style={styles.paymentList}>
+                  {wallet.paymentMethods.map(method => {
+                    const bank =
+                      BANK_OPTIONS.find(item => item.bin === method.bankId) ||
+                      null;
+
+                    return (
+                      <View key={method.id} style={styles.paymentMethodCard}>
+                        <View style={styles.paymentMethodTop}>
+                          <View style={styles.bankLogoBoxSmall}>
+                            {bank ? (
+                              <Image
+                                resizeMode="contain"
+                                source={bank.image}
+                                style={styles.bankLogoSmall}
+                              />
+                            ) : (
+                              <Ionicons
+                                color="#FFFFFF"
+                                name="business-outline"
+                                size={20}
+                              />
+                            )}
+                          </View>
+                          <View style={styles.rowCopy}>
+                            <View style={styles.paymentMethodTitleRow}>
+                              <Text style={styles.paymentMethodTitle}>
+                                {method.bankName}
+                              </Text>
+                              {method.isDefault ? (
+                                <Text style={styles.defaultBadge}>Default</Text>
+                              ) : null}
+                            </View>
+                            <Text style={styles.paymentMethodMeta}>
+                              {maskBankAccount(method.accountNumber)} ·{' '}
+                              {method.fullName}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={styles.paymentMethodActions}>
+                          <TouchableOpacity
+                            activeOpacity={0.78}
+                            onPress={() => openPaymentForm(method)}
+                            style={styles.paymentMiniButton}
+                          >
+                            <Text style={styles.paymentMiniText}>Edit</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            activeOpacity={0.78}
+                            disabled={method.isDefault || wallet.isBusy}
+                            onPress={() => makeDefaultPaymentMethod(method)}
+                            style={[
+                              styles.paymentMiniButton,
+                              method.isDefault || wallet.isBusy
+                                ? styles.paymentMiniButtonDisabled
+                                : null,
+                            ]}
+                          >
+                            <Text style={styles.paymentMiniText}>Default</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            activeOpacity={0.78}
+                            disabled={wallet.isBusy}
+                            onPress={() => removePaymentMethod(method)}
+                            style={[
+                              styles.paymentMiniButton,
+                              styles.paymentDangerButton,
+                              wallet.isBusy
+                                ? styles.paymentMiniButtonDisabled
+                                : null,
+                            ]}
+                          >
+                            <Text style={styles.paymentDangerText}>Delete</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : (
+                <View style={styles.emptyState}>
+                  <Ionicons color="#A1B0C8" name="card-outline" size={34} />
+                  <Text style={styles.emptyTitle}>No saved bank yet</Text>
+                  <Text style={styles.emptyText}>
+                    Add a bank account here, then choose it when withdrawing VND.
+                  </Text>
+                </View>
+              )}
+              <TouchableOpacity
+                activeOpacity={0.82}
+                onPress={() => openPaymentForm()}
+                style={styles.paymentAddButton}
+              >
+                <Ionicons color="#07100B" name="add" size={20} />
+                <Text style={styles.paymentAddText}>Add payment method</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={styles.paymentFormLabel}>Bank</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.bankRail}
+              >
+                {BANK_OPTIONS.map(bank => {
+                  const selected = paymentBankId === bank.bin;
+
+                  return (
+                    <TouchableOpacity
+                      activeOpacity={0.82}
+                      key={bank.bin}
+                      onPress={() => {
+                        setPaymentBankId(bank.bin);
+                        setPaymentError(null);
+                      }}
+                      style={[
+                        styles.bankChip,
+                        selected ? styles.bankChipSelected : null,
+                      ]}
+                    >
+                      <Image
+                        resizeMode="contain"
+                        source={bank.image}
+                        style={styles.bankChipLogo}
+                      />
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.bankChipText,
+                          selected ? styles.bankChipTextSelected : null,
+                        ]}
+                      >
+                        {bank.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              <TextInput
+                autoCapitalize="characters"
+                onChangeText={value => {
+                  setPaymentFullName(value.toUpperCase());
+                  setPaymentError(null);
+                }}
+                placeholder="Account holder name without accents"
+                placeholderTextColor="#9499A2"
+                style={styles.input}
+                value={paymentFullName}
+              />
+              <TextInput
+                keyboardType="number-pad"
+                onChangeText={value => {
+                  setPaymentAccountNumber(value.replace(/\D/g, ''));
+                  setPaymentError(null);
+                }}
+                placeholder="Account number"
+                placeholderTextColor="#9499A2"
+                style={styles.input}
+                value={paymentAccountNumber}
+              />
+
+              <View style={styles.segmented}>
+                {([0, 1, 2] as const).map(type => {
+                  const selected = paymentAccountType === type;
+                  const label =
+                    type === 0 ? 'Personal' : type === 1 ? 'Business' : 'Other';
+
+                  return (
+                    <TouchableOpacity
+                      activeOpacity={0.82}
+                      key={type}
+                      onPress={() => setPaymentAccountType(type)}
+                      style={[
+                        styles.segment,
+                        selected ? styles.segmentActive : null,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.segmentText,
+                          selected ? styles.segmentTextActive : null,
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <TouchableOpacity
+                activeOpacity={0.82}
+                onPress={() => setPaymentDefault(value => !value)}
+                style={styles.paymentDefaultRow}
+              >
+                <Ionicons
+                  color={paymentDefault ? '#B8FF45' : '#A1B0C8'}
+                  name={paymentDefault ? 'checkmark-circle' : 'ellipse-outline'}
+                  size={22}
+                />
+                <Text style={styles.paymentDefaultText}>
+                  Set as default payment method
+                </Text>
+              </TouchableOpacity>
+
+              {paymentError ? (
+                <Text style={styles.validationText}>{paymentError}</Text>
+              ) : null}
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  onPress={() => {
+                    resetPaymentForm(null);
+                    setPaymentSheetMode('list');
+                  }}
+                  style={styles.modalSecondaryButton}
+                >
+                  <Text style={styles.modalSecondaryText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  disabled={wallet.isBusy}
+                  onPress={submitPaymentMethod}
+                  style={[
+                    styles.modalPrimaryButton,
+                    wallet.isBusy ? styles.modalPrimaryButtonDisabled : null,
+                  ]}
+                >
+                  <Text style={styles.modalPrimaryText}>
+                    {wallet.isBusy ? wallet.busy : 'Save'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </ScrollView>
+      </BottomSheet>
+
+      <BottomSheet
+        bottomInset={insets.bottom}
+        onClose={() => setDetailSheet(null)}
         title="Security"
         visible={detailSheet === 'security'}
       >
@@ -1240,6 +1631,49 @@ const styles = StyleSheet.create({
     gap: 7,
     marginTop: 3,
   },
+  bankChip: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 7,
+    marginRight: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    width: 92,
+  },
+  bankChipLogo: {
+    height: 26,
+    width: 48,
+  },
+  bankChipSelected: {
+    backgroundColor: 'rgba(184,255,69,0.12)',
+    borderColor: 'rgba(184,255,69,0.36)',
+  },
+  bankChipText: {
+    color: '#A1B0C8',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  bankChipTextSelected: {
+    color: '#B8FF45',
+  },
+  bankLogoBoxSmall: {
+    alignItems: 'center',
+    backgroundColor: '#1E222B',
+    borderRadius: 14,
+    height: 42,
+    justifyContent: 'center',
+    width: 54,
+  },
+  bankLogoSmall: {
+    height: 28,
+    width: 46,
+  },
+  bankRail: {
+    marginTop: 10,
+  },
   centerModalOverlay: {
     alignItems: 'center',
     backgroundColor: 'rgba(5,16,25,0.42)',
@@ -1344,6 +1778,16 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
   },
+  defaultBadge: {
+    backgroundColor: 'rgba(184,255,69,0.14)',
+    borderRadius: 9,
+    color: '#B8FF45',
+    fontSize: 10,
+    fontWeight: '900',
+    overflow: 'hidden',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
   groupCard: {
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 20,
@@ -1414,7 +1858,7 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   modalPrimaryText: {
-    color: '#FFFFFF',
+    color: '#07100B',
     fontSize: 14,
     fontWeight: '800',
   },
@@ -1427,9 +1871,119 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   modalSecondaryText: {
-    color: '#000000',
+    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '800',
+  },
+  paymentAddButton: {
+    alignItems: 'center',
+    backgroundColor: '#B8FF45',
+    borderRadius: 16,
+    flexDirection: 'row',
+    gap: 7,
+    justifyContent: 'center',
+    minHeight: 50,
+  },
+  paymentAddText: {
+    color: '#07100B',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  paymentDangerButton: {
+    backgroundColor: 'rgba(255,82,82,0.12)',
+  },
+  paymentDangerText: {
+    color: '#FF7A88',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  paymentDefaultRow: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 14,
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+    padding: 12,
+  },
+  paymentDefaultText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  paymentFormLabel: {
+    color: '#A1B0C8',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.1,
+  },
+  paymentList: {
+    gap: 10,
+  },
+  paymentMethodActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  paymentMethodCard: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 12,
+    padding: 12,
+  },
+  paymentMethodMeta: {
+    color: '#A1B0C8',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  paymentMethodTitle: {
+    color: '#FFFFFF',
+    flexShrink: 1,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  paymentMethodTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  paymentMethodTop: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 11,
+  },
+  paymentMiniButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 12,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 38,
+  },
+  paymentMiniButtonDisabled: {
+    opacity: 0.45,
+  },
+  paymentMiniText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  paymentNotice: {
+    backgroundColor: 'rgba(184,255,69,0.12)',
+    borderRadius: 13,
+    color: '#B8FF45',
+    fontSize: 12,
+    fontWeight: '800',
+    padding: 11,
+    textAlign: 'center',
+  },
+  paymentSheetContent: {
+    gap: 12,
+    paddingBottom: 4,
+  },
+  paymentSheetScroll: {
+    maxHeight: 540,
   },
   networkCard: {
     backgroundColor: 'rgba(255,255,255,0.05)',

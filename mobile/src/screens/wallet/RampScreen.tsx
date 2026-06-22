@@ -14,6 +14,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useAppPopup } from '@components/common/AppPopup';
+import { BANK_OPTIONS } from '@constants/banks';
 import {
   ExplorerLink,
   ModernInfoLine,
@@ -28,6 +29,7 @@ import type {
   RampAssetCode,
   RampDirection,
   RampPaymentInfo,
+  RampPaymentMethod,
   RampQuote,
 } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
@@ -42,74 +44,6 @@ import { formatTokenAmount, shortAddress } from '@utils/format';
 import { validateStellarAmount } from '@utils/walletValidation';
 
 const MIN_RAMP_PAYOUT_VND = 2000;
-
-const BANK_OPTIONS = [
-  {
-    bin: '970422',
-    image: require('@assets/banks/mb.png'),
-    name: 'MB Bank',
-  },
-  {
-    bin: '970436',
-    image: require('@assets/banks/vietcombank.png'),
-    name: 'Vietcombank',
-  },
-  {
-    bin: '970416',
-    image: require('@assets/banks/ACB-970416.png'),
-    name: 'ACB',
-  },
-  {
-    bin: '970405',
-    image: require('@assets/banks/Agribank-970405.png'),
-    name: 'Agribank',
-  },
-  {
-    bin: '970418',
-    image: require('@assets/banks/BIDV-970418.png'),
-    name: 'BIDV',
-  },
-  {
-    bin: '970449',
-    image: require('@assets/banks/LPBank-970449.png'),
-    name: 'LPBank',
-  },
-  {
-    bin: '970403',
-    image: require('@assets/banks/Sacombank-970403.png'),
-    name: 'Sacombank',
-  },
-  {
-    bin: '970440',
-    image: require('@assets/banks/SeABank-970440.png'),
-    name: 'SeABank',
-  },
-  {
-    bin: '970423',
-    image: require('@assets/banks/TPBank-970423.png'),
-    name: 'TPBank',
-  },
-  {
-    bin: '970407',
-    image: require('@assets/banks/Techcombank-970407.png'),
-    name: 'Techcombank',
-  },
-  {
-    bin: '970441',
-    image: require('@assets/banks/VIB-970441.png'),
-    name: 'VIB',
-  },
-  {
-    bin: '970432',
-    image: require('@assets/banks/VPBank-970432.png'),
-    name: 'VPBank',
-  },
-  {
-    bin: '970415',
-    image: require('@assets/banks/VietinBank-970415.png'),
-    name: 'VietinBank',
-  },
-] as const;
 
 function formatVnd(value: number | string | undefined) {
   const amount = Number(value || 0);
@@ -169,6 +103,8 @@ export function RampScreen({
   const [quote, setQuote] = useState<RampQuote | null>(null);
   const [bankId, setBankId] = useState('970422');
   const [bankPickerVisible, setBankPickerVisible] = useState(false);
+  const [savedPaymentPickerVisible, setSavedPaymentPickerVisible] =
+    useState(false);
   const [bankSearch, setBankSearch] = useState('');
   const [fullName, setFullName] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
@@ -247,6 +183,18 @@ export function RampScreen({
   function closeBankPicker() {
     setBankPickerVisible(false);
     setBankSearch('');
+  }
+
+  function closeSavedPaymentPicker() {
+    setSavedPaymentPickerVisible(false);
+  }
+
+  function applyPaymentMethod(method: RampPaymentMethod) {
+    setBankId(method.bankId);
+    setFullName(method.fullName);
+    setAccountNumber(method.accountNumber);
+    setQuote(null);
+    closeSavedPaymentPicker();
   }
 
   useEffect(() => {
@@ -1084,7 +1032,25 @@ export function RampScreen({
 
           {direction === 'sell' ? (
             <>
-              <SectionHeader title="Bank account" />
+              <View style={styles.bankHeaderRow}>
+                <SectionHeader title="Bank account" />
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    wallet.loadPaymentMethods({ silent: true }).catch(() => null);
+                    setSavedPaymentPickerVisible(true);
+                  }}
+                  style={({ pressed }) => [
+                    styles.savedBankButton,
+                    pressed ? styles.savedBankButtonPressed : null,
+                  ]}
+                >
+                  <Ionicons color="#B8FF45" name="card-outline" size={16} />
+                  <Text style={styles.savedBankButtonText}>
+                    Saved {wallet.paymentMethods.length || ''}
+                  </Text>
+                </Pressable>
+              </View>
               <Pressable
                 accessibilityRole="button"
                 onPress={() => setBankPickerVisible(true)}
@@ -1332,6 +1298,106 @@ export function RampScreen({
           </View>
         </View>
       </Modal>
+
+      <Modal
+        animationType="slide"
+        onRequestClose={closeSavedPaymentPicker}
+        transparent
+        visible={savedPaymentPickerVisible}
+      >
+        <View style={styles.bankSheetOverlay}>
+          <Pressable
+            accessibilityLabel="Close saved payment methods"
+            onPress={closeSavedPaymentPicker}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={styles.bankSheet}>
+            <View style={styles.bankSheetHandle} />
+            <View style={styles.bankSheetHeader}>
+              <View>
+                <Text style={styles.bankSheetTitle}>Saved payment methods</Text>
+                <Text style={styles.bankSheetSubtitle}>
+                  Choose a saved bank account for this withdrawal.
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={closeSavedPaymentPicker}
+                style={styles.bankSheetClose}
+              >
+                <Ionicons color="#4B555C" name="close" size={21} />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              contentContainerStyle={styles.bankList}
+              showsVerticalScrollIndicator={false}
+            >
+              {wallet.paymentMethods.map(method => {
+                const bank =
+                  BANK_OPTIONS.find(item => item.bin === method.bankId) ||
+                  BANK_OPTIONS[0];
+                const selected =
+                  bankId === method.bankId &&
+                  accountNumber === method.accountNumber;
+
+                return (
+                  <Pressable
+                    accessibilityRole="button"
+                    key={method.id}
+                    onPress={() => applyPaymentMethod(method)}
+                    style={({ pressed }) => [
+                      styles.bankOption,
+                      selected ? styles.bankOptionSelected : null,
+                      pressed ? styles.bankOptionPressed : null,
+                    ]}
+                  >
+                    <View style={styles.bankLogoBox}>
+                      <Image
+                        resizeMode="contain"
+                        source={bank.image}
+                        style={styles.bankLogo}
+                      />
+                    </View>
+                    <View style={styles.bankOptionCopy}>
+                      <View style={styles.savedMethodTitleRow}>
+                        <Text style={styles.bankName}>{method.bankName}</Text>
+                        {method.isDefault ? (
+                          <Text style={styles.savedDefaultBadge}>Default</Text>
+                        ) : null}
+                      </View>
+                      <Text style={styles.bankBin}>
+                        •••• {method.accountNumber.slice(-4)} ·{' '}
+                        {method.fullName}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.bankCheck,
+                        selected ? styles.bankCheckSelected : null,
+                      ]}
+                    >
+                      {selected ? (
+                        <Ionicons color="#FFFFFF" name="checkmark" size={15} />
+                      ) : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
+
+              {wallet.paymentMethods.length === 0 ? (
+                <View style={styles.bankEmpty}>
+                  <Ionicons color="#9AA6AD" name="card-outline" size={25} />
+                  <Text style={styles.bankEmptyTitle}>No saved bank yet</Text>
+                  <Text style={styles.bankEmptyText}>
+                    Add payment methods from Settings first.
+                  </Text>
+                </View>
+              ) : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -1416,6 +1482,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 2,
     textTransform: 'uppercase',
+  },
+  bankHeaderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
   bankList: {
     gap: 10,
@@ -1545,6 +1616,40 @@ const styles = StyleSheet.create({
   },
   selectedBankFieldPressed: {
     backgroundColor: '#282C35',
+  },
+  savedBankButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(184,255,69,0.12)',
+    borderColor: 'rgba(184,255,69,0.22)',
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  savedBankButtonPressed: {
+    opacity: 0.78,
+  },
+  savedBankButtonText: {
+    color: '#B8FF45',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  savedDefaultBadge: {
+    backgroundColor: 'rgba(184,255,69,0.14)',
+    borderRadius: 8,
+    color: '#B8FF45',
+    fontSize: 10,
+    fontWeight: '900',
+    overflow: 'hidden',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  savedMethodTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 7,
   },
   remoteQr: {
     height: 220,
