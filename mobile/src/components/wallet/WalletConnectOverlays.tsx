@@ -18,7 +18,12 @@ import {
   type WalletConnectOperationReview,
 } from '@contexts/WalletConnectContext';
 import type { WalletState } from '@hooks/useWallet';
-import { shortAddress } from '@utils/format';
+import { formatTokenAmount, shortAddress } from '@utils/format';
+import {
+  getAvailableAmount,
+  getXlmTrustlineReserveWarning,
+  validateStellarAmount,
+} from '@utils/walletValidation';
 
 function assetLabel(asset?: WalletConnectAssetReview | null) {
   if (!asset) {
@@ -116,6 +121,145 @@ function operationRows(operation: WalletConnectOperationReview) {
   }
 }
 
+function walletConnectAssetKey(asset?: WalletConnectAssetReview | null) {
+  return `${asset?.code || 'XLM'}:${asset?.issuer || ''}`;
+}
+
+function getWalletConnectAssetBalance(
+  wallet: WalletState,
+  asset?: WalletConnectAssetReview | null,
+) {
+  const code = asset?.code || 'XLM';
+  const issuer = asset?.issuer || null;
+
+  return wallet.balances.find(
+    balance =>
+      balance.assetCode === code && (balance.assetIssuer || null) === issuer,
+  );
+}
+
+function getWalletConnectBalanceWarnings(
+  wallet: WalletState,
+  operations: WalletConnectOperationReview[],
+) {
+  const spends = new Map<
+    string,
+    { amount: number; asset: WalletConnectAssetReview | null }
+  >();
+  const warnings: string[] = [];
+
+  function addSpend(
+    value: string | undefined,
+    asset?: WalletConnectAssetReview | null,
+  ) {
+    const amount = validateStellarAmount(value || '0', 'Amount');
+
+    if (!amount.valid) {
+      return;
+    }
+
+    const key = walletConnectAssetKey(asset);
+    const current = spends.get(key);
+
+    spends.set(key, {
+      amount: (current?.amount || 0) + amount.amount,
+      asset: asset || null,
+    });
+  }
+
+  function addSpendAmount(
+    amount: number,
+    asset?: WalletConnectAssetReview | null,
+  ) {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return;
+    }
+
+    const key = walletConnectAssetKey(asset);
+    const current = spends.get(key);
+
+    spends.set(key, {
+      amount: (current?.amount || 0) + amount,
+      asset: asset || null,
+    });
+  }
+
+  for (const operation of operations) {
+    switch (operation.type) {
+      case 'payment':
+        addSpend(operation.amount, operation.asset);
+        break;
+      case 'createAccount':
+        addSpend(operation.startingBalance, { code: 'XLM', issuer: null });
+        break;
+      case 'pathPaymentStrictSend':
+        addSpend(operation.sendAmount, operation.sendAsset);
+        break;
+      case 'pathPaymentStrictReceive':
+        addSpend(operation.sendMaximum, operation.sendAsset);
+        break;
+      case 'manageSellOffer':
+      case 'createPassiveSellOffer':
+        addSpend(operation.amount, operation.selling);
+        break;
+      case 'manageBuyOffer': {
+        const buyAmount = validateStellarAmount(operation.buyAmount || '0');
+        const price = Number(operation.price || 0);
+
+        if (buyAmount.valid && Number.isFinite(price) && price > 0) {
+          addSpendAmount(buyAmount.amount * price, operation.selling);
+        }
+        break;
+      }
+      case 'changeTrust':
+        if (Number(operation.limit || 0) !== 0) {
+          const existingTrustline = getWalletConnectAssetBalance(
+            wallet,
+            operation.asset,
+          );
+
+          if (existingTrustline?.trusted) {
+            break;
+          }
+
+          const xlmBalance = wallet.balances.find(
+            balance => balance.assetCode === 'XLM',
+          );
+          const reserveWarning = getXlmTrustlineReserveWarning(
+            xlmBalance,
+            wallet.balances,
+            operation.asset?.code || 'asset',
+          );
+
+          if (reserveWarning) {
+            warnings.push(reserveWarning);
+          }
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  for (const spend of spends.values()) {
+    const balance = getWalletConnectAssetBalance(wallet, spend.asset);
+    const available = getAvailableAmount(balance);
+    const code = spend.asset?.code || 'XLM';
+
+    if (spend.amount > available) {
+      warnings.push(
+        `This request spends up to ${formatTokenAmount(
+          String(spend.amount),
+        )} ${code}, but this wallet can use ${formatTokenAmount(
+          String(available),
+        )} ${code}.`,
+      );
+    }
+  }
+
+  return Array.from(new Set(warnings));
+}
+
 function DappIdentity({
   icon,
   name,
@@ -187,6 +331,11 @@ export function WalletConnectOverlays({ wallet }: { wallet: WalletState }) {
   const proposal = walletConnect.proposal;
   const request = walletConnect.request;
   const result = walletConnect.result;
+  const requestBalanceWarnings = request?.review
+    ? getWalletConnectBalanceWarnings(wallet, request.review.operations)
+    : [];
+  const requestApproveDisabled =
+    !request?.review || requestBalanceWarnings.length > 0;
 
   return (
     <>
@@ -377,6 +526,16 @@ export function WalletConnectOverlays({ wallet }: { wallet: WalletState }) {
                         <Text style={styles.warningText}>{warning}</Text>
                       </View>
                     ))}
+                    {requestBalanceWarnings.map(warning => (
+                      <View key={warning} style={styles.warningBox}>
+                        <Ionicons
+                          color="#9A641B"
+                          name="warning-outline"
+                          size={19}
+                        />
+                        <Text style={styles.warningText}>{warning}</Text>
+                      </View>
+                    ))}
 
                     <Text style={styles.sectionTitle}>
                       Operations ({request.review.operationCount})
@@ -422,7 +581,7 @@ export function WalletConnectOverlays({ wallet }: { wallet: WalletState }) {
             ]}
           >
             <ActionButtons
-              approveDisabled={!request?.review}
+              approveDisabled={requestApproveDisabled}
               approveLabel={wallet.isMainnet ? 'Approve' : 'Approve'}
               onApprove={() => walletConnect.approveRequest()}
               onReject={() => walletConnect.rejectRequest()}

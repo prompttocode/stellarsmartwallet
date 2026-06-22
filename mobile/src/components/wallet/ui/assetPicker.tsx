@@ -135,7 +135,6 @@ export function AssetSelectButton({
 export function AssetPickerModal({
   assets,
   disabledAssetCodes = [],
-  onAddTrustline,
   onClose,
   onRemoteSearch,
   onSelect,
@@ -146,7 +145,6 @@ export function AssetPickerModal({
 }: {
   assets: BalanceItem[];
   disabledAssetCodes?: string[];
-  onAddTrustline?: (assetCode: string, assetIssuer?: string | null) => void;
   onClose: () => void;
   onRemoteSearch?: (query: string) => Promise<BalanceItem[]>;
   onSelect: (asset: BalanceItem) => void;
@@ -398,16 +396,6 @@ export function AssetPickerModal({
                         />
                       ) : null}
                     </Pressable>
-                    {!available && onAddTrustline ? (
-                      <PressScale
-                        onPress={() =>
-                          onAddTrustline(item.assetCode, item.assetIssuer)
-                        }
-                        style={modern.assetPickerAddButton}
-                      >
-                        <Text style={modern.assetPickerAddText}>Enable</Text>
-                      </PressScale>
-                    ) : null}
                   </View>
                 </View>
               );

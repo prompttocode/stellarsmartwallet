@@ -80,10 +80,6 @@ export function AppSplashScreen({
     inputRange: [0, 1],
     outputRange: [0, 142],
   });
-  const orbitRotate = progress.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
   const rainTranslate = progress.interpolate({
     inputRange: [0, 1],
     outputRange: [-42, 118],
@@ -139,17 +135,6 @@ export function AppSplashScreen({
               },
             ]}
           />
-          <View style={styles.orbitShadow} />
-          <Animated.View
-            style={[
-              styles.orbitRing,
-              {
-                transform: [{ rotate: orbitRotate }],
-              },
-            ]}
-          >
-            <View style={styles.orbitDot} />
-          </Animated.View>
           <View style={styles.orb}>
             <MaterialCommunityIcons
               color="#B8FF00"
@@ -243,36 +228,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.44,
     shadowRadius: 18,
     width: 84,
-  },
-  orbitDot: {
-    backgroundColor: '#B8FF00',
-    borderRadius: 5,
-    height: 10,
-    left: 54,
-    position: 'absolute',
-    shadowColor: '#B8FF00',
-    shadowOffset: { height: 0, width: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 9,
-    top: -5,
-    width: 10,
-  },
-  orbitRing: {
-    borderColor: 'rgba(184, 255, 0, 0.46)',
-    borderRadius: 60,
-    borderStyle: 'dashed',
-    borderWidth: 1,
-    height: 120,
-    position: 'absolute',
-    width: 120,
-  },
-  orbitShadow: {
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 66,
-    borderWidth: 1,
-    height: 132,
-    position: 'absolute',
-    width: 132,
   },
   progressFill: {
     backgroundColor: '#B8FF00',

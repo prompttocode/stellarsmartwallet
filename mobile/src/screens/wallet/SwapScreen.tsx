@@ -3,10 +3,12 @@ import {
   Modal,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import ReactNativeBiometrics from 'react-native-biometrics';
@@ -22,13 +24,59 @@ import {
 } from '@components/wallet';
 import type { SwapResult } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
-import { formatTokenAmount } from '@utils/format';
+import { formatTokenAmount, shortAddress } from '@utils/format';
+import { validateStellarAmount } from '@utils/walletValidation';
 
 function formatSwapBalance(value?: string | null) {
   return formatTokenAmount(value || '0', {
     compact: true,
     maxFractionDigits: 4,
   });
+}
+
+function shortHash(value?: string | null) {
+  if (!value) {
+    return 'Not available';
+  }
+
+  return `${value.slice(0, 6)}...${value.slice(-6)}`;
+}
+
+function SwapSuccessDetailRow({
+  isLast,
+  label,
+  onCopy,
+  value,
+}: {
+  isLast?: boolean;
+  label: string;
+  onCopy?: () => void;
+  value: string;
+}) {
+  return (
+    <View
+      style={[successStyles.detailRow, isLast ? successStyles.detailRowLast : null]}
+    >
+      <Text style={successStyles.detailLabel}>{label}</Text>
+      <Pressable
+        disabled={!onCopy}
+        onPress={onCopy}
+        style={successStyles.detailValueWrap}
+      >
+        <Text
+          adjustsFontSizeToFit
+          minimumFontScale={0.76}
+          numberOfLines={1}
+          style={successStyles.detailValue}
+        >
+          {value}
+        </Text>
+        {onCopy ? (
+          <Ionicons color="#B8F3FF" name="copy-outline" size={14} />
+        ) : null}
+      </Pressable>
+    </View>
+  );
 }
 
 export function SwapScreen({ wallet }: { wallet: WalletState }) {
@@ -42,7 +90,9 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
   const [buyCode, setBuyCode] = useState(initialBuy);
   const [sellAmount, setSellAmount] = useState('10');
   const [pickerMode, setPickerMode] = useState<'sell' | 'buy' | null>(null);
-  const [reviewing, setReviewing] = useState(false);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [reviewVisible, setReviewVisible] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [lastSwap, setLastSwap] = useState<SwapResult | null>(null);
   const [quote, setQuote] = useState<null | {
     destMin: string;
@@ -55,11 +105,6 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
       ['XLM', 'USDC'].includes(asset.assetCode),
     ),
   );
-  const canSwap =
-    sellCode !== buyCode &&
-    Number(sellAmount) > 0 &&
-    wallet.walletCanSign &&
-    (!wallet.isMainnet || wallet.walletActive);
   const sellAsset = useMemo(
     () => assets.find(asset => asset.assetCode === sellCode),
     [assets, sellCode],
@@ -68,9 +113,44 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
     () => assets.find(asset => asset.assetCode === buyCode),
     [assets, buyCode],
   );
+  const sellBalance = useMemo(
+    () =>
+      wallet.balances.find(
+        balance =>
+          balance.assetCode === sellCode &&
+          (balance.assetIssuer || null) === (sellAsset?.assetIssuer || null),
+      ),
+    [sellAsset?.assetIssuer, sellCode, wallet.balances],
+  );
+  const amountValidation = validateStellarAmount(sellAmount, 'Swap amount');
+  const requestedSellAmount = amountValidation.amount;
+  const amountValid = amountValidation.valid;
+  const availableSellAmount = Number(
+    sellBalance?.availableBalance ||
+      sellBalance?.balance ||
+      sellAsset?.balance ||
+      0,
+  );
+  const exceedsSellBalance =
+    amountValid &&
+    Number.isFinite(availableSellAmount) &&
+    requestedSellAmount > availableSellAmount;
+  const swapAmountWarning = exceedsSellBalance
+    ? `You can swap up to ${formatTokenAmount(
+        String(availableSellAmount),
+      )} ${sellCode}.`
+    : sellAmount.trim() && !amountValid
+    ? amountValidation.message || 'Enter a valid swap amount.'
+    : null;
+  const canSwap =
+    sellCode !== buyCode &&
+    amountValid &&
+    !exceedsSellBalance &&
+    wallet.walletCanSign &&
+    (!wallet.isMainnet || wallet.walletActive);
   const quoteAmountLabel = quote
     ? formatTokenAmount(quote.toAmount)
-    : reviewing
+    : quoteLoading
     ? '0'
     : '0';
   const minimumReceived = quote?.destMin || quote?.toAmount || '0';
@@ -81,7 +161,8 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
     : 'Not loaded';
 
   function resetQuote() {
-    setReviewing(false);
+    setQuoteLoading(false);
+    setReviewVisible(false);
     setQuote(null);
   }
 
@@ -112,29 +193,47 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
   }
 
   async function startReview() {
-    const result = await wallet.quoteSwap({
-      amount: sellAmount,
-      fromAssetCode: sellCode,
-      toAssetCode: buyCode,
-    });
+    if (swapAmountWarning) {
+      wallet.showErrorDialog(swapAmountWarning, 'Swap unavailable');
+      return;
+    }
 
-    if (result) {
-      setQuote({
-        destMin: result.destMin,
-        rate: result.rate,
-        toAmount: result.toAmount,
+    setQuoteLoading(true);
+
+    try {
+      const result = await wallet.quoteSwap({
+        amount: amountValidation.valid ? amountValidation.normalized : sellAmount,
+        fromAssetCode: sellCode,
+        toAssetCode: buyCode,
       });
-      setReviewing(true);
+
+      if (result) {
+        setQuote({
+          destMin: result.destMin,
+          rate: result.rate,
+          toAmount: result.toAmount,
+        });
+        setReviewVisible(true);
+      }
+    } finally {
+      setQuoteLoading(false);
     }
   }
 
   async function handleSwap() {
-    if (wallet.isMainnet) {
-      const rnBiometrics = new ReactNativeBiometrics();
-      const { available } = await rnBiometrics.isSensorAvailable();
+    if (submitting) {
+      return;
+    }
 
-      if (available) {
-        try {
+    setReviewVisible(false);
+    setSubmitting(true);
+
+    try {
+      if (wallet.isMainnet) {
+        const rnBiometrics = new ReactNativeBiometrics();
+        const { available } = await rnBiometrics.isSensorAvailable();
+
+        if (available) {
           const { success } = await rnBiometrics.simplePrompt({
             cancelButtonText: 'Cancel',
             promptMessage: 'Confirm this real Mainnet swap',
@@ -147,68 +246,113 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
             );
             return;
           }
-        } catch {
-          wallet.showErrorDialog('Please try again.', 'Biometric error');
-          return;
         }
       }
-    }
 
-    const result = await wallet.swapAsset({
-      amount: sellAmount,
-      fromAssetCode: sellCode,
-      toAssetCode: buyCode,
-    });
+      const result = await wallet.swapAsset({
+        amount: amountValidation.valid ? amountValidation.normalized : sellAmount,
+        fromAssetCode: sellCode,
+        toAssetCode: buyCode,
+      });
 
-    if (result) {
-      setLastSwap(result);
-      resetQuote();
+      if (result) {
+        setLastSwap(result);
+        resetQuote();
+      }
+    } catch {
+      wallet.showErrorDialog('Please try again.', 'Swap error');
+    } finally {
+      setSubmitting(false);
     }
   }
 
   if (lastSwap) {
+    const networkName = wallet.isMainnet ? 'Stellar Mainnet' : 'Stellar Testnet';
+    const swapSummary = `${formatTokenAmount(lastSwap.fromAmount)} ${
+      lastSwap.fromAssetCode
+    } → ${formatTokenAmount(lastSwap.toAmount)} ${lastSwap.toAssetCode}`;
+    const swapPair = `${lastSwap.fromAssetCode} → ${lastSwap.toAssetCode}`;
+    const rateText = `1 ${lastSwap.fromAssetCode} = ${formatTokenAmount(
+      lastSwap.rate,
+      { maxFractionDigits: 7 },
+    )} ${lastSwap.toAssetCode}`;
+    const walletAddress =
+      lastSwap.transaction.to || lastSwap.transaction.from || wallet.wallet?.address;
+
     return (
-      <ScrollView
-        style={{ backgroundColor: '#000000' }}
-        contentContainerStyle={screenInsetStyle}
-        showsVerticalScrollIndicator={false}
-      >
-        <ModernScreenHeader
-          subtitle={`Transaction submitted to Stellar ${
-            wallet.isMainnet ? 'Mainnet' : 'Testnet'
-          }.`}
-          title="Swap complete"
-        />
-        <View style={modern.sectionCard}>
-          <View style={modern.successOrb}>
-            <Ionicons color="#B8FF45" name="checkmark" size={42} />
+      <View style={[successStyles.root, { paddingTop: insets.top + 8 }]}>
+        <View style={successStyles.header}>
+          <View style={successStyles.headerIconPlaceholder} />
+          <Text style={successStyles.headerTitle}>Swap complete</Text>
+          <View style={successStyles.headerIconPlaceholder} />
+        </View>
+
+        <ScrollView
+          contentContainerStyle={[
+            successStyles.content,
+            { paddingBottom: insets.bottom + 104 },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={successStyles.statusIcon}>
+            <Ionicons color="#B8FF45" name="checkmark" size={22} />
           </View>
-          <Text style={modern.successModernTitle}>Swap complete</Text>
-          <Text style={modern.successModernText}>
-            {formatTokenAmount(lastSwap.fromAmount)} {lastSwap.fromAssetCode} →{' '}
-            {formatTokenAmount(lastSwap.toAmount)} {lastSwap.toAssetCode}
-          </Text>
-          <PressScale
-            onPress={() => wallet.openUrl(lastSwap.transaction.explorerUrl)}
-            style={modern.primaryModernButton}
+          <Text style={successStyles.statusText}>Swap completed</Text>
+          <Text
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+            numberOfLines={1}
+            style={successStyles.amountText}
           >
-            <Text style={modern.modernButtonText}>Open Stellar Expert</Text>
-          </PressScale>
+            {swapSummary}
+          </Text>
+
+          <View style={successStyles.completedBadge}>
+            <View style={successStyles.completedDot} />
+            <Text style={successStyles.completedText}>COMPLETED</Text>
+          </View>
+
+          <View style={successStyles.detailsCard}>
+            <SwapSuccessDetailRow label="Pair" value={swapPair} />
+            <SwapSuccessDetailRow
+              label="Received"
+              value={`${formatTokenAmount(lastSwap.toAmount)} ${
+                lastSwap.toAssetCode
+              }`}
+            />
+            <SwapSuccessDetailRow label="Network" value={networkName} />
+            <SwapSuccessDetailRow
+              label="Wallet"
+              value={shortAddress(walletAddress)}
+            />
+            <SwapSuccessDetailRow
+              label="Transaction ID"
+              onCopy={() => Clipboard.setString(lastSwap.hash)}
+              value={shortHash(lastSwap.hash)}
+            />
+            <SwapSuccessDetailRow label="Rate" value={rateText} />
+            <SwapSuccessDetailRow
+              isLast
+              label="Network Fee"
+              value="0.00001 XLM"
+            />
+          </View>
+        </ScrollView>
+
+        <View
+          style={[
+            successStyles.bottomAction,
+            { paddingBottom: insets.bottom + 10 },
+          ]}
+        >
           <PressScale
             onPress={() => setLastSwap(null)}
-            style={modern.secondaryModernButton}
+            style={successStyles.doneButton}
           >
-            <Text
-              style={[
-                modern.modernButtonText,
-                modern.secondaryModernButtonText,
-              ]}
-            >
-              Swap again
-            </Text>
+            <Text style={successStyles.doneButtonText}>DONE</Text>
           </PressScale>
         </View>
-      </ScrollView>
+      </View>
     );
   }
 
@@ -355,13 +499,16 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
             </Text>
           </View>
 
+          {swapAmountWarning ? (
+            <Text style={swapStyles.warningText}>{swapAmountWarning}</Text>
+          ) : null}
           <PressScale
-            disabled={wallet.isBusy || !canSwap}
-            onPress={quote ? () => setReviewing(true) : startReview}
+            disabled={wallet.isBusy || quoteLoading || submitting || !canSwap}
+            onPress={quote ? () => setReviewVisible(true) : startReview}
             style={modern.primaryModernButton}
           >
             <Text style={modern.modernButtonText}>
-              {quote ? 'Review swap' : 'Review swap'}
+              {quoteLoading ? 'Loading quote...' : 'Review swap'}
             </Text>
           </PressScale>
           <Text style={modern.emptyModernText}>
@@ -372,14 +519,15 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
 
       <Modal
         animationType="slide"
-        onRequestClose={() => setReviewing(false)}
+        onRequestClose={() => setReviewVisible(false)}
+        presentationStyle="overFullScreen"
         statusBarTranslucent
         transparent
-        visible={reviewing && Boolean(quote)}
+        visible={reviewVisible && Boolean(quote)}
       >
         <View style={modern.swapConfirmOverlay}>
           <Pressable
-            onPress={() => setReviewing(false)}
+            onPress={() => setReviewVisible(false)}
             style={modern.swapConfirmBackdrop}
           />
           <View
@@ -393,7 +541,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
               <Text style={modern.swapConfirmTitle}>Confirm Swap</Text>
               <View style={modern.swapConfirmCloseSlot}>
                 <PressScale
-                  onPress={() => setReviewing(false)}
+                  onPress={() => setReviewVisible(false)}
                   style={modern.swapConfirmClose}
                 >
                   <Ionicons color="#FFFFFF" name="close" size={18} />
@@ -493,11 +641,13 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
             </Text>
 
             <PressScale
-              disabled={wallet.isBusy || !canSwap}
+              disabled={wallet.isBusy || quoteLoading || submitting || !canSwap}
               onPress={handleSwap}
               style={modern.swapConfirmButton}
             >
-              <Text style={modern.swapConfirmButtonText}>CONFIRM SWAP</Text>
+              <Text style={modern.swapConfirmButtonText}>
+                {submitting ? 'SWAPPING...' : 'CONFIRM SWAP'}
+              </Text>
             </PressScale>
           </View>
         </View>
@@ -506,7 +656,6 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
       <AssetPickerModal
         assets={assets}
         disabledAssetCodes={pickerMode === 'sell' ? [buyCode] : [sellCode]}
-        onAddTrustline={wallet.addTrustline}
         onClose={() => setPickerMode(null)}
         onRemoteSearch={searchPickerAssets}
         onSelect={asset => selectPickerAsset(asset.assetCode)}
@@ -521,3 +670,156 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
     </>
   );
 }
+
+const successStyles = StyleSheet.create({
+  amountText: {
+    color: '#FFFFFF',
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  bottomAction: {
+    backgroundColor: 'rgba(16,19,17,0.98)',
+    bottom: 0,
+    left: 0,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    position: 'absolute',
+    right: 0,
+  },
+  completedBadge: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(184,255,0,0.08)',
+    borderColor: 'rgba(184,255,0,0.85)',
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 5,
+    marginTop: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+  },
+  completedDot: {
+    backgroundColor: '#B8FF00',
+    borderRadius: 3,
+    height: 5,
+    width: 5,
+  },
+  completedText: {
+    color: '#B8FF00',
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 28,
+  },
+  detailLabel: {
+    color: '#AEB7AD',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  detailRow: {
+    alignItems: 'center',
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 40,
+    paddingVertical: 4,
+  },
+  detailRowLast: {
+    borderBottomWidth: 0,
+  },
+  detailValue: {
+    color: '#FFFFFF',
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  detailValueWrap: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 5,
+    justifyContent: 'flex-end',
+    marginLeft: 16,
+    minWidth: 0,
+  },
+  detailsCard: {
+    backgroundColor: 'rgba(255,255,255,0.035)',
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 18,
+    borderWidth: 1,
+    marginTop: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  doneButton: {
+    alignItems: 'center',
+    backgroundColor: '#B8FF00',
+    borderRadius: 18,
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+    minHeight: 54,
+  },
+  doneButtonText: {
+    color: '#071421',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  header: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  headerIconPlaceholder: {
+    height: 36,
+    width: 36,
+  },
+  headerTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  root: {
+    backgroundColor: '#101311',
+    flex: 1,
+  },
+  statusIcon: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(184,255,69,0.08)',
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 20,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  statusText: {
+    color: '#AEB7AD',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 10,
+    textAlign: 'center',
+  },
+});
+
+const swapStyles = StyleSheet.create({
+  warningText: {
+    color: '#FFB86B',
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 19,
+    textAlign: 'center',
+  },
+});

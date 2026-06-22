@@ -39,6 +39,9 @@ import {
   rampTimestampToMs,
 } from '@utils/ramp';
 import { formatTokenAmount, shortAddress } from '@utils/format';
+import { validateStellarAmount } from '@utils/walletValidation';
+
+const MIN_RAMP_PAYOUT_VND = 2000;
 
 const BANK_OPTIONS = [
   {
@@ -215,10 +218,25 @@ export function RampScreen({
     selectedBalance?.availableBalance || selectedBalance?.balance || '0';
   const selectedReservedBalance =
     selectedBalance?.reservedBalance || selectedBalance?.minimumBalance || null;
+  const amountValidation = validateStellarAmount(amount, 'Amount');
+  const amountInvalid = Boolean(amount.trim()) && !amountValidation.valid;
   const exceedsWithdrawAvailable =
     direction === 'sell' &&
-    parseNumericAmount(amount) > 0 &&
-    parseNumericAmount(amount) > parseNumericAmount(selectedAvailableBalance);
+    amountValidation.valid &&
+    amountValidation.amount > parseNumericAmount(selectedAvailableBalance);
+  const quoteTotalVnd = Number(quote?.total_vnd || 0);
+  const rampPayoutTooSmall =
+    direction === 'sell' &&
+    Boolean(quote) &&
+    quoteTotalVnd > 0 &&
+    quoteTotalVnd < MIN_RAMP_PAYOUT_VND;
+  const rampAmountWarning = amountInvalid
+    ? amountValidation.message
+    : rampPayoutTooSmall
+    ? `Withdrawal payout must be at least ${formatVnd(
+        MIN_RAMP_PAYOUT_VND,
+      )}. Increase the crypto amount.`
+    : null;
   const selectedBank =
     BANK_OPTIONS.find(bank => bank.bin === bankId) || BANK_OPTIONS[0];
   const normalizedBankSearch = bankSearch.trim().toLowerCase();
@@ -309,8 +327,17 @@ export function RampScreen({
   }
 
   async function loadQuote() {
+    if (!amountValidation.valid) {
+      showPopup({
+        message: amountValidation.message || 'Enter a valid amount.',
+        title: 'Invalid amount',
+        variant: 'warning',
+      });
+      return;
+    }
+
     const result = await wallet.quoteRamp({
-      amount,
+      amount: amountValidation.normalized,
       assetCode,
       direction,
     });
@@ -356,8 +383,21 @@ export function RampScreen({
   }
 
   async function createOrder() {
+    if (rampPayoutTooSmall) {
+      showPopup({
+        message:
+          rampAmountWarning ||
+          `Withdrawal payout must be at least ${formatVnd(
+            MIN_RAMP_PAYOUT_VND,
+          )}.`,
+        title: 'Withdrawal too small',
+        variant: 'warning',
+      });
+      return;
+    }
+
     await createOrderWithValues({
-      orderAmount: amount,
+      orderAmount: amountValidation.valid ? amountValidation.normalized : amount,
       orderAssetCode: assetCode,
       orderDirection: direction,
     });
@@ -919,8 +959,9 @@ export function RampScreen({
     providerConfigured &&
     wallet.serverSessionReady &&
     Boolean(quote) &&
-    (direction === 'buy' || Number(quote?.total_vnd || 0) > 0) &&
+    (direction === 'buy' || quoteTotalVnd >= MIN_RAMP_PAYOUT_VND) &&
     !exceedsWithdrawAvailable &&
+    !amountInvalid &&
     validSellForm &&
     Boolean(wallet.wallet) &&
     (direction === 'buy' || wallet.walletCanSign);
@@ -1136,12 +1177,20 @@ export function RampScreen({
             </View>
           ) : null}
 
+          {rampAmountWarning ? (
+            <View style={styles.feeWarning}>
+              <Ionicons color="#A25C00" name="warning-outline" size={18} />
+              <Text style={styles.feeWarningText}>{rampAmountWarning}</Text>
+            </View>
+          ) : null}
+
           <PressScale
             disabled={
               wallet.isBusy ||
               !providerConfigured ||
-              Number(amount) <= 0 ||
+              !amountValidation.valid ||
               exceedsWithdrawAvailable ||
+              rampPayoutTooSmall ||
               !validSellForm ||
               (Boolean(quote) && !canCreate)
             }
@@ -1158,9 +1207,12 @@ export function RampScreen({
                     : 'Create withdrawal'
                   : exceedsWithdrawAvailable
                   ? 'Amount exceeds available balance'
-                  : direction === 'sell' && Number(quote.total_vnd) <= 0
+                  : rampPayoutTooSmall ||
+                    (direction === 'sell' && Number(quote.total_vnd) <= 0)
                   ? 'Withdrawal amount is too small'
                   : 'Complete required details'
+                : amountInvalid
+                ? 'Enter valid amount'
                 : 'Get VND quote'}
             </Text>
           </PressScale>

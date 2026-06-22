@@ -8,6 +8,7 @@ import {
   buildPaymentTransaction,
   buildSubmittedTransactionItem,
   buildTrustlineTransaction,
+  bytesToHex,
   executeStellarSwap,
   findIssuedBalance,
   friendbotFund,
@@ -19,8 +20,10 @@ import {
   loadAccount,
   makeError,
   normalizeNetwork,
+  parseStellarXdr,
   quoteStellarSwap,
   readJsonBody,
+  requireClassicTransaction,
   requireAccountContext,
   shouldRequireMainnetAuth,
   submitPrivySignedTransaction,
@@ -53,6 +56,129 @@ function stellarPaymentLog(
   }
 
   console.info(entry);
+}
+
+function normalizeClientSignature(value: unknown) {
+  const signature = String(value || '').trim();
+
+  if (!signature) {
+    return null;
+  }
+
+  if (!/^(0x)?[0-9a-fA-F]+$/.test(signature)) {
+    throw makeError('Invalid Stellar signature format', 400);
+  }
+
+  const signatureHex = signature.replace(/^0x/i, '');
+
+  if (signatureHex.length !== 128) {
+    throw makeError('Invalid Stellar signature format', 400);
+  }
+
+  return signatureHex;
+}
+
+function assertTrustlineTransaction(
+  transaction: ReturnType<typeof requireClassicTransaction>,
+  sourceAddress: string,
+  assetCode: string,
+  assetIssuer?: string | null,
+) {
+  if (transaction.source !== sourceAddress) {
+    throw makeError('Signed transaction does not use the selected wallet', 403);
+  }
+
+  const operations = (transaction.operations || []) as Array<Record<string, any>>;
+  const operation = operations[0];
+  const line = operation?.line as Record<string, any> | undefined;
+
+  if (
+    operations.length !== 1 ||
+    operation?.type !== 'changeTrust' ||
+    String(line?.code || '') !== assetCode ||
+    String(line?.issuer || '') !== String(assetIssuer || '')
+  ) {
+    throw makeError('Signed transaction does not match the requested asset', 400);
+  }
+}
+
+function isNativeOperationAsset(asset: Record<string, any> | undefined) {
+  if (!asset) {
+    return false;
+  }
+
+  if (typeof asset.isNative === 'function') {
+    return asset.isNative();
+  }
+
+  return String(asset.code || '').toUpperCase() === 'XLM' && !asset.issuer;
+}
+
+function stellarAmountsEqual(left: unknown, right: unknown) {
+  const leftAmount = Number(left);
+  const rightAmount = Number(right);
+
+  return (
+    Number.isFinite(leftAmount) &&
+    Number.isFinite(rightAmount) &&
+    leftAmount.toFixed(7) === rightAmount.toFixed(7)
+  );
+}
+
+function assertPaymentTransaction(
+  transaction: ReturnType<typeof requireClassicTransaction>,
+  {
+    amount,
+    assetCode,
+    assetIssuer,
+    destination,
+    isNative,
+    sourceAddress,
+  }: {
+    amount: string;
+    assetCode: string;
+    assetIssuer?: string | null;
+    destination: string;
+    isNative: boolean;
+    sourceAddress: string;
+  },
+) {
+  if (transaction.source !== sourceAddress) {
+    throw makeError('Signed transaction does not use the selected wallet', 403);
+  }
+
+  const operations = (transaction.operations || []) as Array<Record<string, any>>;
+  const operation = operations[0];
+
+  if (operations.length !== 1 || !operation) {
+    throw makeError('Signed transaction does not match the transfer request', 400);
+  }
+
+  if (isNative && operation.type === 'createAccount') {
+    if (
+      String(operation.destination || '') !== destination ||
+      !stellarAmountsEqual(operation.startingBalance, amount)
+    ) {
+      throw makeError('Signed transaction does not match the transfer request', 400);
+    }
+
+    return;
+  }
+
+  const operationAsset = operation.asset as Record<string, any> | undefined;
+  const matchesAsset = isNative
+    ? isNativeOperationAsset(operationAsset)
+    : String(operationAsset?.code || '') === assetCode &&
+      String(operationAsset?.issuer || '') === String(assetIssuer || '');
+
+  if (
+    operation.type !== 'payment' ||
+    String(operation.destination || '') !== destination ||
+    !stellarAmountsEqual(operation.amount, amount) ||
+    !matchesAsset
+  ) {
+    throw makeError('Signed transaction does not match the transfer request', 400);
+  }
 }
 
 async function handleStellarLookup(
@@ -143,6 +269,10 @@ async function handleTrustline(
     throw makeError('XLM does not need a trustline', 400);
   }
 
+  if (!sourceWallet.canSign) {
+    throw makeError('This wallet cannot sign transactions', 403);
+  }
+
   assertStellarAddress(sourceAddress, 'Wallet');
   const sourceAccount = await loadAccount(c.env, sourceAddress, network);
 
@@ -178,13 +308,64 @@ async function handleTrustline(
 
   assertCanAddTrustline(sourceAccount, assetDefinition.assetCode);
 
-  const transaction = buildTrustlineTransaction({
+  const preparedTransaction = buildTrustlineTransaction({
     asset: getIssuedAsset(assetDefinition),
     env: c.env,
     network,
     sourceAccount,
   });
+  const clientSignatureHex = normalizeClientSignature(
+    body.clientSignature || body.signature,
+  );
+  const transaction =
+    clientSignatureHex && body.transactionXdr
+      ? requireClassicTransaction(parseStellarXdr(c.env, body.transactionXdr, network))
+      : preparedTransaction;
+
+  if (clientSignatureHex && body.transactionXdr) {
+    assertTrustlineTransaction(
+      transaction,
+      sourceAddress,
+      assetDefinition.assetCode,
+      assetDefinition.assetIssuer,
+    );
+  }
+
+  const signingHash = `0x${bytesToHex(transaction.hash() as Uint8Array)}`;
+  const expectedSigningHash = String(
+    body.signingHash || body.hash || '',
+  ).trim();
+
+  if (
+    clientSignatureHex &&
+    expectedSigningHash &&
+    expectedSigningHash.toLowerCase() !== signingHash.toLowerCase()
+  ) {
+    throw makeError('Transaction changed before signing. Please try again.', 409);
+  }
+
+  if (
+    sourceWallet.kind !== 'imported_privy' &&
+    !clientSignatureHex &&
+    body.clientSigningSupported === true
+  ) {
+    return c.json(
+      {
+        alreadyTrusted: false,
+        balances: [],
+        hash: signingHash,
+        network,
+        requiresClientSignature: true,
+        transaction: null,
+        transactionXdr: transaction.toEnvelope().toXDR('base64'),
+        transactions: [],
+      },
+      202,
+    );
+  }
+
   const submitted = await submitPrivySignedTransaction({
+    clientSignatureHex: clientSignatureHex || undefined,
     env: c.env,
     network,
     sourceAddress,
@@ -286,7 +467,7 @@ async function handleSend(
   }
   assertSufficientBalance(sourceAccount, assetDefinition, amount);
 
-  const { operationType, transaction } = buildPaymentTransaction({
+  const { operationType, transaction: preparedTransaction } = buildPaymentTransaction({
     amount,
     asset,
     destination,
@@ -296,6 +477,65 @@ async function handleSend(
     network,
     sourceAccount,
   });
+  const clientSignatureHex = normalizeClientSignature(
+    body.clientSignature || body.signature,
+  );
+  const transaction =
+    clientSignatureHex && body.transactionXdr
+      ? requireClassicTransaction(parseStellarXdr(c.env, body.transactionXdr, network))
+      : preparedTransaction;
+
+  if (clientSignatureHex && body.transactionXdr) {
+    assertPaymentTransaction(transaction, {
+      amount,
+      assetCode: assetDefinition.assetCode,
+      assetIssuer: assetDefinition.assetIssuer,
+      destination,
+      isNative: assetDefinition.isNative,
+      sourceAddress,
+    });
+  }
+
+  const signingHash = `0x${bytesToHex(transaction.hash() as Uint8Array)}`;
+  const expectedSigningHash = String(
+    body.signingHash || body.hash || '',
+  ).trim();
+
+  if (
+    clientSignatureHex &&
+    expectedSigningHash &&
+    expectedSigningHash.toLowerCase() !== signingHash.toLowerCase()
+  ) {
+    throw makeError('Transaction changed before signing. Please try again.', 409);
+  }
+
+  if (
+    sourceWallet.kind !== 'imported_privy' &&
+    !clientSignatureHex &&
+    body.clientSigningSupported === true
+  ) {
+    return c.json(
+      {
+        accountId,
+        assetCode: assetDefinition.assetCode,
+        destinationBalances: [],
+        destinationXlm: '0',
+        hash: signingHash,
+        ledger: 0,
+        network,
+        operation: operationType,
+        requiresClientSignature: true,
+        sourceBalances: [],
+        sourceWalletId,
+        sourceXlm: '0',
+        transaction: null,
+        transactionXdr: transaction.toEnvelope().toXDR('base64'),
+        transactions: [],
+      },
+      202,
+    );
+  }
+
   const memo = String(body.memo || '');
 
   stellarPaymentLog('info', 'stellar_payment.submit_requested', {
@@ -311,6 +551,7 @@ async function handleSend(
 
   try {
     submitted = await submitPrivySignedTransaction({
+      clientSignatureHex: clientSignatureHex || undefined,
       env: c.env,
       network,
       sourceAddress,
@@ -419,18 +660,65 @@ async function handleSwapExecute(c: Context<WorkerBindings>, fallbackNetwork?: S
     walletId: sourceWalletId,
   });
   assertStellarAddress(sourceAddress, 'Swap wallet');
+  const clientSignatureHex = normalizeClientSignature(
+    body.clientSignature || body.signature,
+  );
 
   const result = await executeStellarSwap(c.env, {
     amount: body.amount,
+    clientSigningSupported: body.clientSigningSupported === true,
+    clientSignatureHex,
     fromAssetCode: body.fromAssetCode,
     fromAssetIssuer: body.fromAssetIssuer,
     network,
     sourceAddress,
     sourceWallet,
     sourceWalletId,
+    transactionXdr: body.transactionXdr,
     toAssetCode: body.toAssetCode,
     toAssetIssuer: body.toAssetIssuer,
   });
+
+  const expectedSigningHash = String(
+    body.signingHash || body.hash || '',
+  ).trim();
+
+  if (
+    clientSignatureHex &&
+    expectedSigningHash &&
+    result.hash &&
+    expectedSigningHash.toLowerCase() !== result.hash.toLowerCase()
+  ) {
+    throw makeError('Transaction changed before signing. Please try again.', 409);
+  }
+
+  if (result.requiresClientSignature) {
+    return c.json(
+      {
+        accountId,
+        balances: [],
+        fromAmount: result.fromAmount,
+        fromAssetCode: result.fromAssetCode,
+        hash: result.hash,
+        ledger: 0,
+        network,
+        rate: result.rate,
+        requiresClientSignature: true,
+        sourceWalletId,
+        toAmount: result.toAmount,
+        toAssetCode: result.toAssetCode,
+        transaction: null,
+        transactionXdr: result.transactionXdr,
+        transactions: [],
+      },
+      202,
+    );
+  }
+
+  if (!result.submitted) {
+    throw makeError('Swap was not submitted', 500);
+  }
+
   const [refreshedSource, transactions] = await Promise.all([
     getAccountBalances(c.env, sourceAddress, network),
     getAccountHistory(c.env, sourceAddress, network),
@@ -457,6 +745,7 @@ async function handleSwapExecute(c: Context<WorkerBindings>, fallbackNetwork?: S
     ledger: result.submitted.ledger,
     network,
     rate: result.rate,
+    requiresClientSignature: false,
     sourceWalletId,
     toAmount: result.toAmount,
     toAssetCode: result.toAssetCode,

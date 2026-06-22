@@ -2212,6 +2212,43 @@ export function getAssetForOperation(assetDefinition: AssetDefinition) {
   return assetDefinition.isNative ? Asset.native() : getIssuedAsset(assetDefinition);
 }
 
+function stellarAmountsEqual(left: unknown, right: unknown) {
+  const leftAmount = Number(left);
+  const rightAmount = Number(right);
+
+  return (
+    Number.isFinite(leftAmount) &&
+    Number.isFinite(rightAmount) &&
+    leftAmount.toFixed(7) === rightAmount.toFixed(7)
+  );
+}
+
+function isNativeOperationAsset(asset: Record<string, any> | undefined) {
+  if (!asset) {
+    return false;
+  }
+
+  if (typeof asset.isNative === 'function') {
+    return asset.isNative();
+  }
+
+  return String(asset.code || '').toUpperCase() === NATIVE_ASSET_CODE && !asset.issuer;
+}
+
+function operationAssetMatches(
+  asset: Record<string, any> | undefined,
+  assetDefinition: AssetDefinition,
+) {
+  if (assetDefinition.isNative) {
+    return isNativeOperationAsset(asset);
+  }
+
+  return (
+    normalizeAssetCode(asset?.code) === assetDefinition.assetCode &&
+    String(asset?.issuer || '') === String(assetDefinition.assetIssuer || '')
+  );
+}
+
 export function buildPaymentTransaction({
   amount,
   asset,
@@ -2330,6 +2367,7 @@ export function addPrivySignature(
 }
 
 export async function submitPrivySignedTransaction({
+  clientSignatureHex,
   env,
   network,
   sourceAddress,
@@ -2337,6 +2375,7 @@ export async function submitPrivySignedTransaction({
   wallet,
   walletId,
 }: {
+  clientSignatureHex?: string;
   env: Env;
   network: StellarNetwork;
   sourceAddress: string;
@@ -2344,7 +2383,9 @@ export async function submitPrivySignedTransaction({
   wallet?: WalletRecord;
   walletId: string;
 }) {
-  if (wallet?.kind === 'imported_privy') {
+  if (clientSignatureHex) {
+    addPrivySignature(transaction, sourceAddress, clientSignatureHex);
+  } else if (wallet?.kind === 'imported_privy') {
     const secret = await decryptWalletSecret(env, wallet.encryptedSecret);
     transaction.sign(assertSecretKey(secret, 'Imported Stellar secret key'));
   } else {
@@ -2459,22 +2500,28 @@ export async function executeStellarSwap(
   env: Env,
   {
     amount,
+    clientSigningSupported = false,
+    clientSignatureHex,
     fromAssetCode,
     fromAssetIssuer,
     network,
     sourceAddress,
     sourceWallet,
     sourceWalletId,
+    transactionXdr,
     toAssetCode,
     toAssetIssuer,
   }: {
     amount: unknown;
+    clientSigningSupported?: boolean;
+    clientSignatureHex?: string | null;
     fromAssetCode: unknown;
     fromAssetIssuer?: unknown;
     network: StellarNetwork;
     sourceAddress: string;
     sourceWallet?: WalletRecord;
     sourceWalletId: string;
+    transactionXdr?: unknown;
     toAssetCode: unknown;
     toAssetIssuer?: unknown;
   },
@@ -2513,7 +2560,7 @@ export async function executeStellarSwap(
   });
   ensureTrustline(sourceAccount, toDefinition, 'Recipient wallet');
   const config = getNetworkConfig(env, network);
-  const transaction = new TransactionBuilder(sourceAccount, {
+  const preparedTransaction = new TransactionBuilder(sourceAccount, {
     fee: BASE_FEE,
     networkPassphrase: config.passphrase,
   })
@@ -2529,7 +2576,52 @@ export async function executeStellarSwap(
     )
     .setTimeout(60)
     .build();
+  const transaction =
+    clientSignatureHex && transactionXdr
+      ? requireClassicTransaction(parseStellarXdr(env, transactionXdr, network))
+      : preparedTransaction;
+  const signingHash = `0x${bytesToHex(transaction.hash() as Uint8Array)}`;
+
+  if (clientSignatureHex && transactionXdr) {
+    const operation = (transaction.operations || [])[0] as Record<string, any> | undefined;
+    const operationSource = operation?.source
+      ? String(operation.source)
+      : sourceAddress;
+    const destMinAmount = Number(operation?.destMin || 0);
+
+    if (
+      transaction.source !== sourceAddress ||
+      transaction.operations.length !== 1 ||
+      operation?.type !== 'pathPaymentStrictSend' ||
+      operationSource !== sourceAddress ||
+      String(operation.destination || '') !== sourceAddress ||
+      !stellarAmountsEqual(operation.sendAmount, quote.fromAmount) ||
+      !Number.isFinite(destMinAmount) ||
+      destMinAmount <= 0 ||
+      !operationAssetMatches(operation.sendAsset, fromDefinition) ||
+      !operationAssetMatches(operation.destAsset, toDefinition)
+    ) {
+      throw makeError('Signed transaction does not match the swap request', 400);
+    }
+  }
+
+  if (
+    sourceWallet?.kind !== 'imported_privy' &&
+    !clientSignatureHex &&
+    clientSigningSupported
+  ) {
+    return {
+      ...quote,
+      hash: signingHash,
+      payoutAddress: sourceAddress,
+      requiresClientSignature: true,
+      submitted: null,
+      transactionXdr: transaction.toEnvelope().toXDR('base64'),
+    };
+  }
+
   const submitted = await submitPrivySignedTransaction({
+    clientSignatureHex: clientSignatureHex || undefined,
     env,
     network,
     sourceAddress,
@@ -2540,8 +2632,11 @@ export async function executeStellarSwap(
 
   return {
     ...quote,
+    hash: null,
     payoutAddress: sourceAddress,
+    requiresClientSignature: false,
     submitted,
+    transactionXdr: null,
   };
 }
 
@@ -2595,22 +2690,6 @@ export function normalizeOperationRecord(
     return null;
   }
 
-  const assetCode = isCreateAccount
-    ? NATIVE_ASSET_CODE
-    : operation.asset_type === 'native' || operation.source_asset_type === 'native'
-      ? NATIVE_ASSET_CODE
-      : operation.asset_code ||
-        operation.source_asset_code ||
-        operation.destination_asset_code ||
-        NATIVE_ASSET_CODE;
-  const amount = isCreateAccount
-    ? operation.starting_balance || '0'
-    : isChangeTrust
-      ? '0'
-      : operation.amount ||
-        operation.source_amount ||
-        operation.destination_amount ||
-        '0';
   const from =
     operation.from ||
     operation.funder ||
@@ -2630,6 +2709,48 @@ export function normalizeOperationRecord(
       : from === address || operation.funder === address
         ? 'sent'
         : 'other';
+  const pathShowsReceivedAsset = isPathPayment && direction !== 'sent';
+  const pathAssetType = pathShowsReceivedAsset
+    ? operation.destination_asset_type || operation.asset_type
+    : operation.source_asset_type;
+  const assetCode = isPathPayment
+    ? pathAssetType === 'native'
+      ? NATIVE_ASSET_CODE
+      : pathShowsReceivedAsset
+        ? operation.destination_asset_code ||
+          operation.asset_code ||
+          operation.source_asset_code ||
+          NATIVE_ASSET_CODE
+        : operation.source_asset_code ||
+          operation.asset_code ||
+          operation.destination_asset_code ||
+          NATIVE_ASSET_CODE
+    : isCreateAccount
+    ? NATIVE_ASSET_CODE
+    : operation.asset_type === 'native' || operation.source_asset_type === 'native'
+      ? NATIVE_ASSET_CODE
+      : operation.asset_code ||
+        operation.source_asset_code ||
+        operation.destination_asset_code ||
+        NATIVE_ASSET_CODE;
+  const amount = isPathPayment
+    ? pathShowsReceivedAsset
+      ? operation.destination_amount ||
+        operation.amount ||
+        operation.source_amount ||
+        '0'
+      : operation.source_amount ||
+        operation.amount ||
+        operation.destination_amount ||
+        '0'
+    : isCreateAccount
+    ? operation.starting_balance || '0'
+    : isChangeTrust
+      ? '0'
+      : operation.amount ||
+        operation.source_amount ||
+        operation.destination_amount ||
+        '0';
 
   return {
     id: operation.id,
@@ -2638,10 +2759,20 @@ export function normalizeOperationRecord(
     assetIssuer:
       assetCode === NATIVE_ASSET_CODE
         ? null
-        : operation.asset_issuer ||
-          operation.source_asset_issuer ||
-          operation.destination_asset_issuer ||
-          null,
+        : isPathPayment
+          ? pathShowsReceivedAsset
+            ? operation.destination_asset_issuer ||
+              operation.asset_issuer ||
+              operation.source_asset_issuer ||
+              null
+            : operation.source_asset_issuer ||
+              operation.asset_issuer ||
+              operation.destination_asset_issuer ||
+              null
+          : operation.asset_issuer ||
+            operation.source_asset_issuer ||
+            operation.destination_asset_issuer ||
+            null,
     createdAt: operation.created_at,
     direction,
     explorerUrl: getExplorerUrl(env, network, 'tx', hash),
@@ -2838,6 +2969,8 @@ export function reviewStellarXdr({
 }
 
 export async function signStellarXdr({
+  clientSigningSupported = false,
+  clientSignatureHex,
   env,
   network,
   sourceAddress,
@@ -2846,6 +2979,8 @@ export async function signStellarXdr({
   walletId,
   xdr,
 }: {
+  clientSigningSupported?: boolean;
+  clientSignatureHex?: string | null;
   env: Env;
   network: StellarNetwork;
   sourceAddress: string;
@@ -2861,9 +2996,28 @@ export async function signStellarXdr({
     sourceAddress,
     xdr,
   });
+  const signingHash = `0x${bytesToHex(transaction.hash() as Uint8Array)}`;
+
+  if (
+    wallet?.kind !== 'imported_privy' &&
+    !clientSignatureHex &&
+    clientSigningSupported
+  ) {
+    return {
+      requiresClientSignature: true,
+      review,
+      signedXdr: '',
+      signingHash,
+      submitted: null,
+      transactionXdr: transaction.toEnvelope().toXDR('base64'),
+    };
+  }
+
   if (wallet?.kind === 'imported_privy') {
     const secret = await decryptWalletSecret(env, wallet.encryptedSecret);
     transaction.sign(assertSecretKey(secret, 'Imported Stellar secret key'));
+  } else if (clientSignatureHex) {
+    addPrivySignature(transaction, sourceAddress, clientSignatureHex);
   } else {
     const signatureHex = await signStellarTransaction(env, walletId, transaction);
     addPrivySignature(transaction, sourceAddress, signatureHex);
@@ -2871,9 +3025,12 @@ export async function signStellarXdr({
 
   if (!submit) {
     return {
+      requiresClientSignature: false,
       review,
       signedXdr: transaction.toEnvelope().toXDR('base64'),
+      signingHash,
       submitted: null,
+      transactionXdr: null,
     };
   }
 
@@ -2897,9 +3054,12 @@ export async function signStellarXdr({
   }
 
   return {
+    requiresClientSignature: false,
     review,
     signedXdr: transaction.toEnvelope().toXDR('base64'),
+    signingHash,
     submitted,
+    transactionXdr: null,
   };
 }
 

@@ -6,7 +6,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppPopup } from '@components/common/AppPopup';
 import {
   AssetPickerModal,
-  AssetSelectButton,
   getModernAssets,
   InfoLine,
   PressScale,
@@ -15,6 +14,11 @@ import {
 import type { WalletState } from '@hooks/useWallet';
 import type { SendResult } from '@app-types';
 import { formatDate, formatTokenAmount, shortAddress } from '@utils/format';
+import {
+  getAvailableAmount,
+  isLikelyStellarPublicKey,
+  validateStellarAmount,
+} from '@utils/walletValidation';
 
 type SendStep = 'compose' | 'review' | 'success';
 
@@ -123,13 +127,67 @@ export function SendScreen({
     wallet.recipientContact?.wallet.address === wallet.recipient
       ? wallet.recipientContact.label
       : shortAddress(wallet.recipient);
+  const recipientValue = wallet.recipient.trim();
+  const recipientValid = isLikelyStellarPublicKey(recipientValue);
+  const sendAmountValidation = validateStellarAmount(wallet.amount);
+  const availableSendAmount = getAvailableAmount(
+    wallet.selectedBalance,
+    selectedAsset?.balance,
+  );
+  const exceedsSendBalance =
+    sendAmountValidation.valid &&
+    sendAmountValidation.amount > availableSendAmount;
+  const sendFormWarning = wallet.amount.trim() && !sendAmountValidation.valid
+    ? sendAmountValidation.message
+    : recipientValue && !recipientValid
+    ? 'Enter a valid Stellar recipient address that starts with G.'
+    : exceedsSendBalance
+    ? selectedAsset?.isNative
+      ? `You can send up to ${formatTokenAmount(
+          String(availableSendAmount),
+        )} XLM. Stellar keeps ${
+          formatTokenAmount(
+            wallet.selectedBalance?.reservedBalance ||
+              wallet.selectedBalance?.minimumBalance ||
+              '0',
+          )
+        } XLM reserved for account minimum balance and network fees.`
+      : `You can send up to ${formatTokenAmount(
+          String(availableSendAmount),
+        )} ${wallet.selectedAssetCode}.`
+    : null;
   const canSubmit =
     wallet.walletCanSign &&
     (!wallet.isMainnet || wallet.walletActive) &&
-    Boolean(wallet.amount) &&
-    Boolean(wallet.recipient.trim());
+    sendAmountValidation.valid &&
+    recipientValid &&
+    !exceedsSendBalance;
+
+  function startReview() {
+    if (sendFormWarning) {
+      showPopup({
+        message: sendFormWarning,
+        title: 'Transfer unavailable',
+        variant: 'warning',
+      });
+      return;
+    }
+
+    setStep('review');
+  }
 
   async function handleConfirmSend() {
+    if (!canSubmit) {
+      showPopup({
+        message:
+          sendFormWarning ||
+          'Enter a valid recipient and amount before sending.',
+        title: 'Transfer unavailable',
+        variant: 'warning',
+      });
+      return;
+    }
+
     const rnBiometrics = new ReactNativeBiometrics();
     const { available } = await rnBiometrics.isSensorAvailable();
 
@@ -450,9 +508,12 @@ export function SendScreen({
               style={styles.input}
               value={wallet.amount}
             />
+            {sendFormWarning ? (
+              <Text style={styles.warningText}>{sendFormWarning}</Text>
+            ) : null}
             <PressScale
               disabled={wallet.isBusy || !canSubmit}
-              onPress={() => setStep('review')}
+              onPress={startReview}
               style={[styles.primaryButton, (wallet.isBusy || !canSubmit) ? styles.disabledButton : null]}
             >
               <Text style={styles.primaryButtonText}>Review transfer</Text>
@@ -463,7 +524,6 @@ export function SendScreen({
 
       <AssetPickerModal
         assets={assets}
-        onAddTrustline={wallet.addTrustline}
         onClose={() => setAssetPickerVisible(false)}
         onRemoteSearch={searchPickerAssets}
         onSelect={asset => wallet.setSelectedAssetCode(asset.assetCode)}
@@ -806,6 +866,14 @@ const styles = StyleSheet.create({
     color: '#AEB7AD',
     fontSize: 12,
     fontWeight: '800',
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  warningText: {
+    color: '#B96B00',
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
     marginTop: 10,
     textAlign: 'center',
   },

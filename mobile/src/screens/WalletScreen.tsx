@@ -17,9 +17,7 @@ export function WalletScreen() {
   const wallet = useWallet();
   const [startupSplashComplete, setStartupSplashComplete] = useState(false);
   const isLoggedIn = Boolean(wallet.account);
-  const shouldShowStartupSplash =
-    !startupSplashComplete ||
-    (!isLoggedIn && (!wallet.isReady || wallet.sessionSyncing));
+  const shouldShowStartupSplash = !startupSplashComplete;
 
   useEffect(() => {
     prefetchHistoricalPrices().catch(() => null);

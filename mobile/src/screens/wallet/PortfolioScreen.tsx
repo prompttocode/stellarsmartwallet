@@ -224,6 +224,7 @@ export function PortfolioScreen({
           network={wallet.network}
           portfolioNote={portfolioNote}
           portfolioValue={portfolioValue}
+          walletName={wallet.wallet?.displayName}
         >
           <QuickActionGrid
             actions={[

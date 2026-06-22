@@ -164,6 +164,7 @@ export type SendResult = {
   hash: string;
   ledger: number;
   network?: StellarNetwork;
+  requiresClientSignature?: boolean;
   sourceBalances: BalanceItem[];
   sourceXlm: string;
   destinationXlm: string;
@@ -173,14 +174,18 @@ export type SendResult = {
     | 'change_trust'
     | 'path_payment_strict_send';
   transaction: TransactionItem;
+  transactionXdr?: string;
   transactions: TransactionItem[];
 };
 
 export type TrustlineResult = {
   alreadyTrusted: boolean;
   balances: BalanceItem[];
+  hash?: `0x${string}`;
   network?: StellarNetwork;
+  requiresClientSignature?: boolean;
   transaction: TransactionItem | null;
+  transactionXdr?: string;
   transactions: TransactionItem[];
 };
 
@@ -188,8 +193,11 @@ export type FundNftResult = {
   alreadyClaimed: boolean;
   balances: BalanceItem[];
   collectibles: CollectibleItem[];
+  hash?: `0x${string}`;
   network?: StellarNetwork;
+  requiresClientSignature?: boolean;
   transaction: TransactionItem | null;
+  transactionXdr?: string;
   transactions: TransactionItem[];
   trustlineTransaction?: TransactionItem | null;
 };
@@ -217,10 +225,12 @@ export type SwapResult = {
   ledger: number;
   network?: StellarNetwork;
   rate: number;
+  requiresClientSignature?: boolean;
   sourceWalletId: string;
   toAmount: string;
   toAssetCode: string;
   transaction: TransactionItem;
+  transactionXdr?: string;
   transactions: TransactionItem[];
 };
 

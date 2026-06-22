@@ -273,8 +273,11 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
 
 export function WalletApp({ wallet }: { wallet: WalletState }) {
   const statusText = wallet.busy || 'Loading...';
+  const shouldKeepBusyLocal =
+    wallet.busy === 'Importing wallet' || wallet.busy === 'Adding watch-only wallet';
   const shouldShowLoadingOverlay =
     wallet.isBusy &&
+    !shouldKeepBusyLocal &&
     !wallet.errorDialog &&
     !isRampOrderTerminal(wallet.activeRampOrder);
 

@@ -1,6 +1,7 @@
 import React, { ReactNode, useEffect, useState } from 'react';
 import {
   AppState,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -31,6 +32,11 @@ import {
 } from '@contexts/CurrencyContext';
 import type { WalletState } from '@hooks/useWallet';
 import { shortAddress } from '@utils/format';
+import {
+  getImportSecretPublicAddress,
+  validateImportSecret,
+  validateWatchOnlyAddress,
+} from '@utils/walletValidation';
 
 const CURRENCIES: { code: SupportedCurrency; name: string; symbol: string }[] =
   [
@@ -171,6 +177,7 @@ export function SettingsScreen({
   const [toolMode, setToolMode] = useState<ToolMode>(null);
   const [toolValue, setToolValue] = useState('');
   const [toolName, setToolName] = useState('');
+  const [toolError, setToolError] = useState<string | null>(null);
   const [backupVisible, setBackupVisible] = useState(false);
   const [backupConfirmation, setBackupConfirmation] = useState('');
   const [walletExportOpening, setWalletExportOpening] = useState(false);
@@ -195,9 +202,13 @@ export function SettingsScreen({
     : 'No wallet on this network';
 
   function closeToolModal() {
+    Keyboard.dismiss();
     setToolMode(null);
-    setToolValue('');
-    setToolName('');
+    setToolError(null);
+    setTimeout(() => {
+      setToolValue('');
+      setToolName('');
+    }, 260);
   }
 
   function closeBackupModal() {
@@ -220,13 +231,15 @@ export function SettingsScreen({
     const hasPrivyToken = await wallet.refreshPrivySecuritySession();
 
     if (!hasPrivyToken) {
-      showPopup({
-        message:
-          'This security action needs an active Privy session. Please sign out and sign in again with email OTP or Google.',
-        title: 'Privy sign-in required',
-        variant: 'warning',
-      });
       closeToolModal();
+      setTimeout(() => {
+        showPopup({
+          message:
+            'This security action needs an active Privy session. Please sign out and sign in again with email OTP or Google.',
+          title: 'Privy sign-in required',
+          variant: 'warning',
+        });
+      }, 280);
       return false;
     }
 
@@ -239,6 +252,7 @@ export function SettingsScreen({
     }
 
     setToolMode(mode);
+    setToolError(null);
   }
 
   function openToolFromAdvanced(mode: Exclude<ToolMode, null>) {
@@ -327,22 +341,71 @@ export function SettingsScreen({
   }
 
   async function submitTool() {
+    setToolError(null);
+
+    if (!toolMode) {
+      return;
+    }
+
+    const trimmedValue = toolValue.trim();
+    const validationMessage =
+      toolMode === 'import'
+        ? validateImportSecret(trimmedValue)
+        : validateWatchOnlyAddress(trimmedValue);
+
+    if (validationMessage) {
+      setToolError(validationMessage);
+      return;
+    }
+
+    if (toolMode === 'import') {
+      const importedAddress = getImportSecretPublicAddress(trimmedValue);
+
+      if (!importedAddress) {
+        setToolError(
+          'This import key could not be decoded. Check that you pasted the full Privy 64-hex key or Stellar S... key.',
+        );
+        return;
+      }
+
+      const duplicateWallet = wallet.wallets.find(
+        item =>
+          item.network === wallet.network &&
+          item.address.toUpperCase() === importedAddress.toUpperCase(),
+      );
+
+      if (duplicateWallet) {
+        setToolError(
+          `${shortAddress(
+            importedAddress,
+          )} is already in this account on Stellar ${wallet.network}.`,
+        );
+        return;
+      }
+    }
+
     if (toolMode === 'import' && !(await requirePrivyToolSession())) {
       return;
     }
 
     if (toolMode === 'import') {
-      const result = await wallet.importWallet(toolValue, toolName);
+      const result = await wallet.importWallet(trimmedValue, toolName, {
+        showAlert: false,
+      });
 
       if (result) {
         closeToolModal();
+      } else {
+        setToolError(
+          'Import failed or timed out. Check your connection and try again.',
+        );
       }
 
       return;
     }
 
     if (toolMode === 'watch') {
-      const result = await wallet.addWatchOnlyWallet(toolValue, toolName);
+      const result = await wallet.addWatchOnlyWallet(trimmedValue, toolName);
 
       if (result) {
         closeToolModal();
@@ -404,18 +467,24 @@ export function SettingsScreen({
   }
 
   function renderToolModal() {
-    if (!toolMode) {
-      return null;
-    }
-
+    const modalVisible = Boolean(toolMode);
     const isImport = toolMode === 'import';
+    const trimmedToolValue = toolValue.trim();
+    const toolValidationMessage = trimmedToolValue
+      ? isImport
+        ? validateImportSecret(trimmedToolValue)
+        : validateWatchOnlyAddress(trimmedToolValue)
+      : null;
+    const visibleToolError = toolError || toolValidationMessage;
+    const saveDisabled =
+      wallet.isBusy || !trimmedToolValue || Boolean(toolValidationMessage);
 
     return (
       <Modal
         animationType="fade"
         onRequestClose={closeToolModal}
         transparent
-        visible
+        visible={modalVisible}
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -445,7 +514,10 @@ export function SettingsScreen({
               </Text>
               <TextInput
                 autoCapitalize="none"
-                onChangeText={setToolName}
+                onChangeText={value => {
+                  setToolName(value);
+                  setToolError(null);
+                }}
                 placeholder="Wallet name (optional)"
                 placeholderTextColor="#9499A2"
                 style={styles.input}
@@ -454,12 +526,20 @@ export function SettingsScreen({
               <TextInput
                 autoCapitalize="characters"
                 multiline
-                onChangeText={setToolValue}
-                placeholder={isImport ? 'S... or 0x...' : 'G...'}
+                onChangeText={value => {
+                  setToolValue(value);
+                  setToolError(null);
+                }}
+                placeholder={isImport ? 'S... or 64-hex Privy key' : 'G...'}
                 placeholderTextColor="#9499A2"
                 style={[styles.input, styles.secretInput]}
                 value={toolValue}
               />
+              {visibleToolError ? (
+                <Text style={styles.validationText}>
+                  {visibleToolError}
+                </Text>
+              ) : null}
               <View style={styles.modalActions}>
                 <TouchableOpacity
                   onPress={closeToolModal}
@@ -468,9 +548,12 @@ export function SettingsScreen({
                   <Text style={styles.modalSecondaryText}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  disabled={wallet.isBusy}
+                  disabled={saveDisabled}
                   onPress={submitTool}
-                  style={styles.modalPrimaryButton}
+                  style={[
+                    styles.modalPrimaryButton,
+                    saveDisabled ? styles.modalPrimaryButtonDisabled : null,
+                  ]}
                 >
                   <Text style={styles.modalPrimaryText}>
                     {wallet.isBusy ? wallet.busy : 'Save'}
@@ -1213,6 +1296,9 @@ const styles = StyleSheet.create({
     minHeight: 48,
     justifyContent: 'center',
   },
+  modalPrimaryButtonDisabled: {
+    opacity: 0.45,
+  },
   modalPrimaryText: {
     color: '#FFFFFF',
     fontSize: 14,
@@ -1544,6 +1630,13 @@ const styles = StyleSheet.create({
     fontSize: 21,
     fontWeight: '800',
     marginBottom: 6,
+  },
+  validationText: {
+    color: '#FFB86B',
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
+    marginTop: -4,
   },
   walletAction: {
     alignItems: 'center',

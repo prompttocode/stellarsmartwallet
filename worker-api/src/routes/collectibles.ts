@@ -6,6 +6,7 @@ import {
   buildPaymentTransaction,
   buildSubmittedTransactionItem,
   buildTrustlineTransaction,
+  bytesToHex,
   DEMO_NFT_ASSET_CODE,
   ensureDemoAssetIssuer,
   findIssuedBalance,
@@ -16,7 +17,9 @@ import {
   loadAccount,
   makeError,
   normalizeNetwork,
+  parseStellarXdr,
   readJsonBody,
+  requireClassicTransaction,
   requireAccountContext,
   submitPrivySignedTransaction,
   type AssetDefinition,
@@ -25,6 +28,26 @@ import {
 } from '../core';
 
 const DEMO_NFT_AMOUNT = '1';
+
+function normalizeClientSignature(value: unknown) {
+  const signature = String(value || '').trim();
+
+  if (!signature) {
+    return null;
+  }
+
+  if (!/^(0x)?[0-9a-fA-F]+$/.test(signature)) {
+    throw makeError('Invalid Stellar signature format', 400);
+  }
+
+  const signatureHex = signature.replace(/^0x/i, '');
+
+  if (signatureHex.length !== 128) {
+    throw makeError('Invalid Stellar signature format', 400);
+  }
+
+  return signatureHex;
+}
 
 function buildDemoNftDefinition(
   issuerAddress: string,
@@ -112,6 +135,12 @@ async function handleFundNft(
 
   const sourceWalletId = String(body.sourceWalletId || '').trim();
   const sourceAddress = String(body.sourceAddress || body.address || '').trim();
+  const clientSignatureHex = normalizeClientSignature(
+    body.clientSignature || body.signature,
+  );
+  const expectedSigningHash = String(
+    body.signingHash || body.hash || '',
+  ).trim();
   const account = await requireAccountContext(c.env, c.req.header('authorization'), body, {
     network,
     requireAuth: false,
@@ -165,11 +194,53 @@ async function handleFundNft(
       network,
       sourceAccount,
     });
+    const trustlineToSubmit =
+      clientSignatureHex && body.transactionXdr
+        ? requireClassicTransaction(
+            parseStellarXdr(c.env, body.transactionXdr, network),
+          )
+        : changeTrust;
+    const signingHash = `0x${bytesToHex(
+      trustlineToSubmit.hash() as Uint8Array,
+    )}`;
+
+    if (
+      clientSignatureHex &&
+      expectedSigningHash &&
+      expectedSigningHash.toLowerCase() !== signingHash.toLowerCase()
+    ) {
+      throw makeError('Transaction changed before signing. Please try again.', 409);
+    }
+
+    if (
+      sourceWallet.kind !== 'imported_privy' &&
+      !clientSignatureHex &&
+      body.clientSigningSupported === true
+    ) {
+      return c.json(
+        {
+          alreadyClaimed: false,
+          balances: [],
+          collectibles: (await getCollectibleItems(c.env, sourceAddress, network))
+            .collectibles,
+          hash: signingHash,
+          network,
+          requiresClientSignature: true,
+          transaction: null,
+          transactionXdr: trustlineToSubmit.toEnvelope().toXDR('base64'),
+          transactions: [],
+          trustlineTransaction: null,
+        },
+        202,
+      );
+    }
+
     const submittedTrustline = await submitPrivySignedTransaction({
+      clientSignatureHex: clientSignatureHex || undefined,
       env: c.env,
       network,
       sourceAddress,
-      transaction: changeTrust,
+      transaction: trustlineToSubmit,
       wallet: sourceWallet,
       walletId: sourceWalletId,
     });

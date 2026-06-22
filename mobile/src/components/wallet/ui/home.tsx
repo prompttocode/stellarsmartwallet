@@ -28,6 +28,7 @@ export function WalletHero({
   portfolioNote,
   portfolioValue,
   network = 'testnet',
+  walletName,
 }: {
   address?: string;
   children?: ReactNode;
@@ -38,6 +39,7 @@ export function WalletHero({
   portfolioNote?: string;
   portfolioValue: string;
   network?: 'testnet' | 'mainnet';
+  walletName?: string;
 }) {
   const [networkPillExpanded, setNetworkPillExpanded] = useState(false);
   const networkPillWidth = useSharedValue(72);
@@ -125,7 +127,7 @@ export function WalletHero({
               size={15}
             />
             <Text numberOfLines={1} style={modern.addressPillText}>
-              {shortAddress(address)}
+              {walletName || shortAddress(address)}
             </Text>
           </Pressable>
           <View style={modern.heroActions}>

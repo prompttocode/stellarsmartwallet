@@ -136,8 +136,6 @@ function mergeRouteAsset(
   return makeFallbackAsset(params, wallet.network);
 }
 
-
-
 export function AssetDetailScreen({
   onBack,
   onGoToReceive,
@@ -158,16 +156,23 @@ export function AssetDetailScreen({
     () => mergeRouteAsset(route.params || {}, wallet),
     [route.params, wallet],
   );
-  
+
   const [timeframe, setTimeframe] = useState<Timeframe>('7D');
-  const { data: chartData, loading: chartLoading } = useHistoricalPrice(asset.assetCode, timeframe);
-  
+  const { data: chartData, loading: chartLoading } = useHistoricalPrice(
+    asset.assetCode,
+    timeframe,
+  );
+
   const needsTrustline = !asset.isNative && !asset.trusted;
 
-  const currentPrice = asset.priceUsd ? `$${asset.priceUsd.toPrecision(4)}` : '$0.00';
+  const currentPrice = asset.priceUsd
+    ? `$${asset.priceUsd.toPrecision(4)}`
+    : '$0.00';
   const balanceValue = Number(asset.balance);
-  const balanceUsd = asset.priceUsd ? formatUsd(balanceValue * asset.priceUsd) : '$0.00';
-  
+  const balanceUsd = asset.priceUsd
+    ? formatUsd(balanceValue * asset.priceUsd)
+    : '$0.00';
+
   // Calculate price change if we have chart data
   let priceChangeStr = '+0.00%';
   let isPositive = true;
@@ -201,20 +206,33 @@ export function AssetDetailScreen({
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 32 }}
+      >
         {/* Asset Header Info */}
         <View style={styles.assetHeaderInfo}>
           <View style={styles.assetTitleRow}>
-            <TokenIcon assetCode={asset.assetCode} imageUrl={asset.image} size={40} />
+            <TokenIcon
+              assetCode={asset.assetCode}
+              imageUrl={asset.image}
+              size={40}
+            />
             <View style={styles.assetNameCol}>
               <Text style={styles.assetName}>{asset.displayName}</Text>
               <Text style={styles.assetSymbol}>{asset.assetCode}</Text>
             </View>
           </View>
-          
+
           <Text style={styles.currentPrice}>{currentPrice}</Text>
-          <Text style={[styles.priceChange, { color: isPositive ? '#B8FF45' : '#FF453A' }]}>
-            <Ionicons name={isPositive ? "arrow-up" : "arrow-down"} size={12} /> {priceChangeStr}
+          <Text
+            style={[
+              styles.priceChange,
+              { color: isPositive ? '#B8FF45' : '#FF453A' },
+            ]}
+          >
+            <Ionicons name={isPositive ? 'arrow-up' : 'arrow-down'} size={12} />{' '}
+            {priceChangeStr}
           </Text>
         </View>
 
@@ -230,8 +248,16 @@ export function AssetDetailScreen({
               </LineChart>
             </LineChart.Provider>
           ) : (
-            <View style={{ height: 200, justifyContent: 'center', alignItems: 'center' }}>
-              <Text style={{ color: '#555' }}>{chartLoading ? 'Loading chart...' : 'No chart data'}</Text>
+            <View
+              style={{
+                height: 200,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{ color: '#555' }}>
+                {chartLoading ? 'Loading chart...' : 'No chart data'}
+              </Text>
             </View>
           )}
         </View>
@@ -241,7 +267,9 @@ export function AssetDetailScreen({
         {/* Balance Card */}
         <View style={styles.balanceCard}>
           <Text style={styles.balanceLabel}>Your Balance</Text>
-          <Text style={styles.balanceAmount}>{formatTokenAmount(asset.balance)} {asset.assetCode}</Text>
+          <Text style={styles.balanceAmount}>
+            {formatTokenAmount(asset.balance)} {asset.assetCode}
+          </Text>
           <Text style={styles.balanceUsd}>{balanceUsd}</Text>
         </View>
 
@@ -249,13 +277,21 @@ export function AssetDetailScreen({
           {needsTrustline ? (
             <PressScale
               style={styles.buyButton}
-              onPress={() => wallet.addTrustline(asset.assetCode, asset.assetIssuer || undefined)}
+              onPress={() =>
+                wallet.addTrustline(
+                  asset.assetCode,
+                  asset.assetIssuer || undefined,
+                )
+              }
               disabled={wallet.isBusy}
             >
-              <Text style={styles.buyButtonText}>Enable Asset</Text>
+              <Text style={styles.buyButtonText}>Enable Crypto</Text>
             </PressScale>
           ) : (
-            <PressScale style={styles.buyButton} onPress={() => onGoToRamp('buy')}>
+            <PressScale
+              style={styles.buyButton}
+              onPress={() => onGoToRamp('buy')}
+            >
               <Text style={styles.buyButtonText}>Buy {asset.assetCode}</Text>
             </PressScale>
           )}

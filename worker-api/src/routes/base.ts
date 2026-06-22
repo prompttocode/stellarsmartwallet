@@ -1,4 +1,5 @@
 import type { Context, Hono } from 'hono';
+import { Keypair } from '@stellar/stellar-sdk';
 import {
   assertAccountWallet,
   assertSecretKey,
@@ -19,6 +20,7 @@ import {
   getIssuedAsset,
   getOrCreateSessionAccountByEmail,
   getPrivyClient,
+  getStellarServer,
   getSupportedAssets,
   getVisibleWallets,
   isEmailLike,
@@ -38,7 +40,6 @@ import {
   saveAccount,
   saveContact,
   shouldRequireMainnetAuth,
-  submitPrivySignedTransaction,
   type StellarNetwork,
   type WorkerBindings,
 } from '../core';
@@ -207,6 +208,9 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     const network = normalizeNetwork(body.network);
     const identityToken = String(body.identityToken || '').trim();
     const clientWallet = getClientStellarWalletInput(body.wallet);
+    const requestedActiveWalletId = String(
+      body.activeWalletId || body.sourceWalletId || '',
+    ).trim();
 
     if (identityToken) {
       const user = await timing.time('privy_user', () =>
@@ -233,8 +237,11 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
           verifiedClientWallet,
         ),
       );
+      const sessionAccount = requestedActiveWalletId
+        ? { ...account, activeWalletId: requestedActiveWalletId }
+        : account;
       const session = await timing.time('session', () =>
-        buildAccountSession(c.env, account, network, timing.record, {
+        buildAccountSession(c.env, sessionAccount, network, timing.record, {
           includeHistory: false,
         }),
       );
@@ -253,8 +260,11 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     const account = await timing.time('account', () =>
       getOrCreateSessionAccountByEmail(c.env, email, network),
     );
+    const sessionAccount = requestedActiveWalletId
+      ? { ...account, activeWalletId: requestedActiveWalletId }
+      : account;
     const session = await timing.time('session', () =>
-      buildAccountSession(c.env, account, network, timing.record, {
+      buildAccountSession(c.env, sessionAccount, network, timing.record, {
         includeHistory: false,
       }),
     );
@@ -428,14 +438,30 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     });
 
     const keypair = assertSecretKey(body.secret, 'Stellar secret key');
+    const importedAddress = keypair.publicKey();
+    const duplicateWallet = (account.wallets || []).find(
+      wallet =>
+        wallet.network === network &&
+        wallet.address.toUpperCase() === importedAddress.toUpperCase(),
+    );
+
+    if (duplicateWallet) {
+      throw makeError(
+        `${importedAddress.slice(0, 6)}...${importedAddress.slice(
+          -6,
+        )} is already in this account on Stellar ${network}.`,
+        409,
+      );
+    }
+
     const displayName = sanitizeWalletName(body.displayName, `Imported ${network} wallet`);
     const wallet = normalizeWallet(
       {
-        address: keypair.publicKey(),
+        address: importedAddress,
         chain_type: 'stellar',
         display_name: displayName,
         id: `stellar_import_${network}_${Date.now()}`,
-        public_key: keypair.publicKey(),
+        public_key: importedAddress,
       },
       {
         canSign: true,
@@ -792,15 +818,18 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
   app.post('/api/demo/receiver', async c => {
     const body = await readJsonBody(c);
     const network: StellarNetwork = 'testnet';
+    const receiverKeypair = Keypair.random();
+    const receiverAddress = receiverKeypair.publicKey();
     const wallet = normalizeWallet(
-      await createSignableStellarWallet(
-        c.env,
-        `receiver-${Date.now()}@demo.local`,
-        String(body.displayName || 'Demo recipient'),
-      ),
       {
-        canSign: true,
-        kind: 'privy',
+        address: receiverAddress,
+        display_name: String(body.displayName || 'Demo recipient'),
+        id: `demo-receiver-${receiverAddress}`,
+        public_key: receiverAddress,
+      },
+      {
+        canSign: false,
+        kind: 'watch_only',
         network,
       },
     );
@@ -823,13 +852,8 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
         sourceAccount,
       });
 
-      await submitPrivySignedTransaction({
-        env: c.env,
-        network,
-        sourceAddress: wallet.address,
-        transaction,
-        walletId: wallet.id,
-      });
+      transaction.sign(receiverKeypair);
+      await getStellarServer(c.env, network).submitTransaction(transaction);
     }
 
     const contact = await saveContact(c.env, {

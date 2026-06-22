@@ -8,7 +8,10 @@ import {
   useLoginWithOAuth,
   usePrivy,
 } from '@privy-io/expo';
-import { useCreateWallet as useCreateExtendedWallet } from '@privy-io/expo/extended-chains';
+import {
+  useCreateWallet as useCreateExtendedWallet,
+  useSignRawHash,
+} from '@privy-io/expo/extended-chains';
 import { api } from '@api/client';
 import { API_BASE_URL, PRIVY_WEB_EXPORT_CLIENT_ID } from '@config';
 import type {
@@ -48,6 +51,15 @@ import type {
 } from '@app-types';
 import { formatTokenAmount, getErrorMessage, isEmailLike } from '@utils/format';
 import { isRampOrderTerminal } from '@utils/ramp';
+import {
+  getAvailableAmount,
+  getImportSecretPublicAddress,
+  getXlmTrustlineReserveWarning,
+  isLikelyStellarPublicKey,
+  validateImportSecret,
+  validateStellarAmount,
+  validateWatchOnlyAddress,
+} from '@utils/walletValidation';
 
 type RunOptions = {
   showAlert?: boolean;
@@ -70,6 +82,10 @@ const SESSION_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const MARKET_PRICE_REFRESH_MS = 60_000;
 const DEFAULT_NETWORK: StellarNetwork = 'mainnet';
 const DEFAULT_KYC: KycSummary = { status: 'not_started' };
+const TRUSTLINE_ENABLE_TIMEOUT_MS = 30_000;
+const TRUSTLINE_SIGN_TIMEOUT_MS = 15_000;
+const IMPORT_WALLET_TIMEOUT_MS = 8_000;
+const PRIVY_SECURITY_SESSION_TIMEOUT_MS = 8_000;
 
 type CachedWalletSession = {
   network: StellarNetwork;
@@ -199,6 +215,31 @@ function mergePopulatedFields<T extends object>(
   }
 
   return result;
+}
+
+function isPrivyHash(value: unknown): value is `0x${string}` {
+  return typeof value === 'string' && /^0x[0-9a-fA-F]+$/.test(value);
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+) {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 type PrivyLinkedEmailAccount = {
@@ -481,6 +522,7 @@ export function useWallet() {
   const { login: loginWithOAuth, state: oauthState } = useLoginWithOAuth();
   const { createWallet: createPrivyExtendedWallet } =
     useCreateExtendedWallet();
+  const { signRawHash } = useSignRawHash();
 
   const setPreferredNetwork = useCallback((nextNetwork: StellarNetwork) => {
     setNetwork(nextNetwork);
@@ -961,7 +1003,11 @@ export function useWallet() {
       return false;
     }
 
-    const identityToken = await getTokenWithRetry(getIdentityTokenRef.current);
+    const identityToken = await withTimeout(
+      getTokenWithRetry(getIdentityTokenRef.current),
+      PRIVY_SECURITY_SESSION_TIMEOUT_MS,
+      'Privy session check timed out.',
+    ).catch(() => null);
     const hasToken = Boolean(identityToken);
 
     setPrivySessionReady(hasToken);
@@ -1474,7 +1520,13 @@ export function useWallet() {
       try {
         const session = await api<SessionResponse>('/api/session', {
           method: 'POST',
-          body: JSON.stringify({ email: account.email, network }),
+          body: JSON.stringify({
+            activeWalletId: activeNetworkWalletId,
+            email: account.email,
+            network,
+            sourceAddress: wallet?.address,
+            sourceWalletId: wallet?.id,
+          }),
         });
         applySession(session);
         const sessionWalletAddress = session.account.wallet?.address;
@@ -1677,6 +1729,15 @@ export function useWallet() {
       );
     }
 
+    const reserveWarning = getTrustlineReserveWarningForAsset(
+      assetDefinition.assetCode,
+      assetDefinition.assetIssuer,
+    );
+
+    if (reserveWarning) {
+      throw new Error(reserveWarning);
+    }
+
     if (isMainnet && options.confirmMainnet) {
       await requireBiometric(
         `Confirm to enable receiving ${assetDefinition.assetCode} on Mainnet`,
@@ -1684,21 +1745,57 @@ export function useWallet() {
     }
 
     const headers = await getAuthHeaders(isMainnet);
-    const result = await api<TrustlineResult>(
+    const trustlineBody = {
+      accountId: account.id,
+      assetCode: assetDefinition.assetCode,
+      assetIssuer: assetIssuer || assetDefinition.assetIssuer || null,
+      clientSigningSupported: true,
+      email: account.email,
+      sourceAddress: wallet.address,
+      sourceWalletId: wallet.id,
+    };
+    let result = await api<TrustlineResult>(
       `/api/stellar/${network}/trustline`,
       {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          accountId: account.id,
-          assetCode: assetDefinition.assetCode,
-          assetIssuer: assetIssuer || assetDefinition.assetIssuer || null,
-          email: account.email,
-          sourceAddress: wallet.address,
-          sourceWalletId: wallet.id,
-        }),
+        body: JSON.stringify(trustlineBody),
       },
     );
+
+    if (result.requiresClientSignature) {
+      if (!isPrivyHash(result.hash)) {
+        throw new Error('Asset enable request is missing a valid signing hash.');
+      }
+
+      if (!result.transactionXdr) {
+        throw new Error('Asset enable request is missing the transaction XDR.');
+      }
+
+      const signedTrustline = await withTimeout(
+        signRawHash({
+          address: wallet.address,
+          chainType: 'stellar',
+          hash: result.hash,
+        }),
+        TRUSTLINE_SIGN_TIMEOUT_MS,
+        'Wallet signing timed out. Please try again.',
+      );
+
+      result = await api<TrustlineResult>(
+        `/api/stellar/${network}/trustline`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            ...trustlineBody,
+            clientSignature: signedTrustline.signature,
+            signingHash: result.hash,
+            transactionXdr: result.transactionXdr,
+          }),
+        },
+      );
+    }
 
     setBalances(result.balances);
     setTransactions(result.transactions);
@@ -1707,15 +1804,69 @@ export function useWallet() {
     return result;
   }
 
+  function getTrustlineReserveWarningForAsset(
+    assetCode: string,
+    assetIssuer?: string | null,
+  ) {
+    const assetDefinition =
+      visibleAssets.find(
+        asset =>
+          asset.assetCode === assetCode &&
+          (!assetIssuer || asset.assetIssuer === assetIssuer),
+      ) || visibleAssets.find(asset => asset.assetCode === assetCode);
+
+    if (!assetDefinition || assetDefinition.isNative) {
+      return null;
+    }
+
+    const existingBalance = balances.find(
+      balance =>
+        balance.assetCode === assetDefinition.assetCode &&
+        (balance.assetIssuer || null) ===
+          (assetDefinition.assetIssuer || null),
+    );
+
+    if (existingBalance?.trusted) {
+      return null;
+    }
+
+    const xlmBalance = balances.find(balance => balance.assetCode === 'XLM');
+
+    return getXlmTrustlineReserveWarning(
+      xlmBalance,
+      balances,
+      assetDefinition.assetCode,
+    );
+  }
+
   async function addTrustline(assetCode: string, assetIssuer?: string | null) {
     if (!wallet) {
       return;
     }
 
+    const reserveWarning = getTrustlineReserveWarningForAsset(
+      assetCode,
+      assetIssuer,
+    );
+
+    if (reserveWarning) {
+      setMessage(reserveWarning);
+      showErrorDialog(reserveWarning, 'Not enough XLM');
+      return;
+    }
+
     await run(`Enabling ${assetCode}`, async () => {
-      const result = await ensureWalletTrustline(assetCode, assetIssuer, {
-        confirmMainnet: true,
-      });
+      const result = await withTimeout(
+        ensureWalletTrustline(assetCode, assetIssuer, {
+          confirmMainnet: true,
+        }),
+        TRUSTLINE_ENABLE_TIMEOUT_MS,
+        `Enabling ${assetCode} timed out. Please try again.`,
+      );
+
+      if (!result) {
+        throw new Error(`Could not enable ${assetCode}. Please try again.`);
+      }
 
       setMessage(
         result.alreadyTrusted
@@ -1804,18 +1955,53 @@ export function useWallet() {
         );
       }
 
-      const result = await api<FundNftResult>(
+      const fundNftBody = {
+        accountId: account.id,
+        clientSigningSupported: true,
+        email: account.email,
+        sourceAddress: wallet.address,
+        sourceWalletId: wallet.id,
+      };
+      let result = await api<FundNftResult>(
         `/api/stellar/${network}/fund-nft`,
         {
           method: 'POST',
-          body: JSON.stringify({
-            accountId: account.id,
-            email: account.email,
-            sourceAddress: wallet.address,
-            sourceWalletId: wallet.id,
-          }),
+          body: JSON.stringify(fundNftBody),
         },
       );
+
+      if (result.requiresClientSignature) {
+        if (!isPrivyHash(result.hash)) {
+          throw new Error('NFT claim is missing a valid signing hash.');
+        }
+
+        if (!result.transactionXdr) {
+          throw new Error('NFT claim is missing the transaction XDR.');
+        }
+
+        const signedClaim = await withTimeout(
+          signRawHash({
+            address: wallet.address,
+            chainType: 'stellar',
+            hash: result.hash,
+          }),
+          TRUSTLINE_SIGN_TIMEOUT_MS,
+          'Wallet signing timed out. Please try again.',
+        );
+
+        result = await api<FundNftResult>(
+          `/api/stellar/${network}/fund-nft`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              ...fundNftBody,
+              clientSignature: signedClaim.signature,
+              signingHash: result.hash,
+              transactionXdr: result.transactionXdr,
+            }),
+          },
+        );
+      }
 
       setBalances(result.balances);
       setCollectibles(result.collectibles);
@@ -1857,12 +2043,51 @@ export function useWallet() {
       return null;
     }
 
-    const destination = recipient.trim();
+    const destination = recipient.trim().toUpperCase();
+    const amountCheck = validateStellarAmount(amount);
 
     if (!destination) {
       setErrorDialog({
         message: 'Enter a recipient wallet address or create a test receiver.',
         title: 'Missing recipient',
+      });
+      return null;
+    }
+
+    if (!isLikelyStellarPublicKey(destination)) {
+      setErrorDialog({
+        message: 'Enter a valid Stellar recipient address that starts with G.',
+        title: 'Invalid recipient',
+      });
+      return null;
+    }
+
+    if (!amountCheck.valid) {
+      setErrorDialog({
+        message: amountCheck.message || 'Enter a valid amount.',
+        title: 'Invalid amount',
+      });
+      return null;
+    }
+
+    const availableBalance = getAvailableAmount(selectedBalance);
+
+    if (amountCheck.amount > availableBalance) {
+      setErrorDialog({
+        message: selectedAsset?.isNative
+          ? `You can send up to ${formatTokenAmount(
+              String(availableBalance),
+            )} XLM. Stellar keeps ${
+              formatTokenAmount(
+                selectedBalance?.reservedBalance ||
+                  selectedBalance?.minimumBalance ||
+                  '0',
+              )
+            } XLM reserved for the account minimum balance and network fees.`
+          : `You can send up to ${formatTokenAmount(
+              String(availableBalance),
+            )} ${selectedAssetCode}.`,
+        title: 'Insufficient balance',
       });
       return null;
     }
@@ -1877,20 +2102,53 @@ export function useWallet() {
       }
 
       const headers = await getAuthHeaders(isMainnet);
-      const result = await api<SendResult>(`/api/stellar/${network}/send`, {
+      const sendBody = {
+        accountId: account.id,
+        amount: amountCheck.normalized,
+        assetCode: selectedAssetCode,
+        assetIssuer: selectedAsset?.assetIssuer || null,
+        clientSigningSupported: true,
+        destination,
+        email: account.email,
+        sourceAddress: wallet.address,
+        sourceWalletId: wallet.id,
+      };
+      let result = await api<SendResult>(`/api/stellar/${network}/send`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          accountId: account.id,
-          assetCode: selectedAssetCode,
-          assetIssuer: selectedAsset?.assetIssuer || null,
-          email: account.email,
-          sourceWalletId: wallet.id,
-          sourceAddress: wallet.address,
-          destination,
-          amount,
-        }),
+        body: JSON.stringify(sendBody),
       });
+
+      if (result.requiresClientSignature) {
+        if (!isPrivyHash(result.hash)) {
+          throw new Error('Transfer request is missing a valid signing hash.');
+        }
+
+        if (!result.transactionXdr) {
+          throw new Error('Transfer request is missing the transaction XDR.');
+        }
+
+        const signedTransfer = await withTimeout(
+          signRawHash({
+            address: wallet.address,
+            chainType: 'stellar',
+            hash: result.hash,
+          }),
+          TRUSTLINE_SIGN_TIMEOUT_MS,
+          'Wallet signing timed out. Please try again.',
+        );
+
+        result = await api<SendResult>(`/api/stellar/${network}/send`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            ...sendBody,
+            clientSignature: signedTransfer.signature,
+            signingHash: result.hash,
+            transactionXdr: result.transactionXdr,
+          }),
+        });
+      }
 
       setBalances(result.sourceBalances);
       setTransactions(result.transactions);
@@ -1901,7 +2159,7 @@ export function useWallet() {
 
       setMessage(
         `Sent ${formatTokenAmount(
-          amount,
+          amountCheck.normalized,
         )} ${selectedAssetCode} on Stellar ${network}.`,
       );
 
@@ -1929,11 +2187,53 @@ export function useWallet() {
       const toAsset = visibleAssets.find(
         asset => asset.assetCode === toAssetCode,
       );
+      const amountCheck = validateStellarAmount(swapAmount, 'Swap amount');
+      const requestedAmount = amountCheck.amount;
+
+      if (!amountCheck.valid) {
+        throw new Error(amountCheck.message || 'Enter a valid swap amount.');
+      }
+
+      if (!fromAsset || !toAsset) {
+        throw new Error('Selected swap asset is not available.');
+      }
+
+      const fromBalance = balances.find(
+        balance =>
+          balance.assetCode === fromAssetCode &&
+          (balance.assetIssuer || null) ===
+            (fromAsset.assetIssuer || null),
+      );
+      const availableBalance = Number(
+        fromBalance?.availableBalance || fromBalance?.balance || 0,
+      );
+
+      if (requestedAmount > availableBalance) {
+        if (fromAsset.isNative) {
+          throw new Error(
+            `You can swap up to ${formatTokenAmount(
+              String(availableBalance),
+            )} XLM. Stellar keeps ${
+              formatTokenAmount(
+                fromBalance?.reservedBalance ||
+                  fromBalance?.minimumBalance ||
+                  '0',
+              )
+            } XLM reserved for the account minimum balance and network fees.`,
+          );
+        }
+
+        throw new Error(
+          `You can swap up to ${formatTokenAmount(
+            String(availableBalance),
+          )} ${fromAssetCode}.`,
+        );
+      }
 
       return api<SwapQuoteResult>(`/api/stellar/${network}/swap/quote`, {
         method: 'POST',
         body: JSON.stringify({
-          amount: swapAmount,
+          amount: amountCheck.normalized,
           fromAssetCode,
           fromAssetIssuer: fromAsset?.assetIssuer || null,
           sourceAddress: wallet.address,
@@ -1988,10 +2288,11 @@ export function useWallet() {
       const toAsset = visibleAssets.find(
         asset => asset.assetCode === toAssetCode,
       );
-      const requestedAmount = Number(String(swapAmount).replace(',', '.'));
+      const amountCheck = validateStellarAmount(swapAmount, 'Swap amount');
+      const requestedAmount = amountCheck.amount;
 
-      if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
-        throw new Error('Enter a valid swap amount.');
+      if (!amountCheck.valid) {
+        throw new Error(amountCheck.message || 'Enter a valid swap amount.');
       }
 
       if (!fromAsset || !toAsset) {
@@ -2032,24 +2333,60 @@ export function useWallet() {
 
       await ensureWalletTrustline(toAssetCode, toAsset?.assetIssuer || null);
 
-      const result = await api<SwapResult>(
+      const swapBody = {
+        accountId: account.id,
+        amount: amountCheck.normalized,
+        clientSigningSupported: true,
+        email: account.email,
+        fromAssetCode,
+        fromAssetIssuer: fromAsset?.assetIssuer || null,
+        sourceAddress: wallet.address,
+        sourceWalletId: wallet.id,
+        toAssetCode,
+        toAssetIssuer: toAsset?.assetIssuer || null,
+      };
+      let result = await api<SwapResult>(
         `/api/stellar/${network}/swap/execute`,
         {
           method: 'POST',
           headers,
-          body: JSON.stringify({
-            accountId: account.id,
-            amount: swapAmount,
-            email: account.email,
-            fromAssetCode,
-            fromAssetIssuer: fromAsset?.assetIssuer || null,
-            sourceAddress: wallet.address,
-            sourceWalletId: wallet.id,
-            toAssetCode,
-            toAssetIssuer: toAsset?.assetIssuer || null,
-          }),
+          body: JSON.stringify(swapBody),
         },
       );
+
+      if (result.requiresClientSignature) {
+        if (!isPrivyHash(result.hash)) {
+          throw new Error('Swap request is missing a valid signing hash.');
+        }
+
+        if (!result.transactionXdr) {
+          throw new Error('Swap request is missing the transaction XDR.');
+        }
+
+        const signedSwap = await withTimeout(
+          signRawHash({
+            address: wallet.address,
+            chainType: 'stellar',
+            hash: result.hash,
+          }),
+          TRUSTLINE_SIGN_TIMEOUT_MS,
+          'Wallet signing timed out. Please try again.',
+        );
+
+        result = await api<SwapResult>(
+          `/api/stellar/${network}/swap/execute`,
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              ...swapBody,
+              clientSignature: signedSwap.signature,
+              signingHash: result.hash,
+              transactionXdr: result.transactionXdr,
+            }),
+          },
+        );
+      }
 
       setBalances(result.balances);
       setTransactions(result.transactions);
@@ -2176,12 +2513,18 @@ export function useWallet() {
     return run(
       `Quote ${direction}`,
       async () => {
+        const amountCheck = validateStellarAmount(rampAmount, 'Ramp amount');
+
+        if (!amountCheck.valid) {
+          throw new Error(amountCheck.message || 'Enter a valid ramp amount.');
+        }
+
         const result = await api<RampApiResponse<RampQuote>>(
           '/api/ramp/quote',
           {
             method: 'POST',
             body: JSON.stringify({
-              amount: rampAmount,
+              amount: amountCheck.normalized,
               assetCode,
               direction,
             }),
@@ -2209,6 +2552,16 @@ export function useWallet() {
       return null;
     }
 
+    const amountCheck = validateStellarAmount(rampAmount, 'Ramp amount');
+
+    if (!amountCheck.valid) {
+      setErrorDialog({
+        message: amountCheck.message || 'Enter a valid ramp amount.',
+        title: 'Invalid amount',
+      });
+      return null;
+    }
+
     return run(`Creating ${direction} order`, async () => {
       requireFreshServerSession();
       if (kyc.status !== 'verified') {
@@ -2231,7 +2584,7 @@ export function useWallet() {
           balance?.availableBalance || balance?.balance || 0,
         );
 
-        if (Number(rampAmount) > availableBalance) {
+        if (amountCheck.amount > availableBalance) {
           throw new Error(
             `You can withdraw up to ${formatTokenAmount(
               String(availableBalance),
@@ -2255,7 +2608,7 @@ export function useWallet() {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          amount: rampAmount,
+          amount: amountCheck.normalized,
           assetCode,
           email: account.email,
           network,
@@ -2311,7 +2664,13 @@ export function useWallet() {
     if (completedNow && account) {
       const session = await api<SessionResponse>('/api/session', {
         method: 'POST',
-        body: JSON.stringify({ email: account.email, network }),
+        body: JSON.stringify({
+          activeWalletId: activeNetworkWalletId,
+          email: account.email,
+          network,
+          sourceAddress: wallet?.address,
+          sourceWalletId: wallet?.id,
+        }),
       });
       applySession(session, `Order ${nextOrder.code} completed.`);
     }
@@ -2491,21 +2850,54 @@ export function useWallet() {
         item => item.assetCode === order.asset_code,
       );
       const headers = await getAuthHeaders(isMainnet);
-      const result = await api<SendResult>(`/api/stellar/${network}/send`, {
+      const sendBody = {
+        accountId: account.id,
+        amount: String(order.amount),
+        assetCode: order.asset_code,
+        assetIssuer: asset?.assetIssuer || null,
+        clientSigningSupported: true,
+        destination,
+        email: account.email,
+        memo: order.code,
+        sourceAddress: wallet.address,
+        sourceWalletId: wallet.id,
+      };
+      let result = await api<SendResult>(`/api/stellar/${network}/send`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          accountId: account.id,
-          amount: String(order.amount),
-          assetCode: order.asset_code,
-          assetIssuer: asset?.assetIssuer || null,
-          destination,
-          email: account.email,
-          memo: order.code,
-          sourceAddress: wallet.address,
-          sourceWalletId: wallet.id,
-        }),
+        body: JSON.stringify(sendBody),
       });
+
+      if (result.requiresClientSignature) {
+        if (!isPrivyHash(result.hash)) {
+          throw new Error('Withdrawal transfer is missing a valid signing hash.');
+        }
+
+        if (!result.transactionXdr) {
+          throw new Error('Withdrawal transfer is missing the transaction XDR.');
+        }
+
+        const signedTransfer = await withTimeout(
+          signRawHash({
+            address: wallet.address,
+            chainType: 'stellar',
+            hash: result.hash,
+          }),
+          TRUSTLINE_SIGN_TIMEOUT_MS,
+          'Wallet signing timed out. Please try again.',
+        );
+
+        result = await api<SendResult>(`/api/stellar/${network}/send`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            ...sendBody,
+            clientSignature: signedTransfer.signature,
+            signingHash: result.hash,
+            transactionXdr: result.transactionXdr,
+          }),
+        });
+      }
       const nextOrder = {
         ...order,
         sell_transaction_hash: result.hash,
@@ -2615,34 +3007,89 @@ export function useWallet() {
     });
   }
 
-  async function importWallet(secret: string, displayName?: string) {
+  async function importWallet(
+    secret: string,
+    displayName?: string,
+    options: RunOptions = {},
+  ) {
     if (!account) {
       return null;
     }
 
-    return run('Importing wallet', async () => {
-      requireFreshServerSession();
-      const headers = await getAuthHeaders(true);
-      await requireBiometric('Confirm to import this Stellar wallet');
-      const session = await api<SessionResponse>('/api/wallets/import', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          displayName,
-          email: account.email,
-          network,
-          secret,
-        }),
+    const normalizedSecret = secret.trim();
+    const secretError = validateImportSecret(normalizedSecret);
+    const importedAddress = getImportSecretPublicAddress(normalizedSecret);
+
+    if (secretError) {
+      setErrorDialog({
+        message: secretError,
+        title: 'Invalid import key',
       });
+      return null;
+    }
 
-      applySession(session, 'Wallet imported into Privy.');
+    if (!importedAddress) {
+      setErrorDialog({
+        message:
+          'This import key could not be decoded. Check that you pasted the full Privy 64-hex key or Stellar S... key.',
+        title: 'Invalid import key',
+      });
+      return null;
+    }
 
-      return session;
-    });
+    const duplicateWallet = (account.wallets || []).find(
+      item =>
+        item.network === network &&
+        item.address.toUpperCase() === importedAddress.toUpperCase(),
+    );
+
+    if (duplicateWallet) {
+      setErrorDialog({
+        message: `${importedAddress} is already in this account on Stellar ${network}.`,
+        title: 'Wallet already exists',
+      });
+      return null;
+    }
+
+    return run(
+      'Importing wallet',
+      async () => {
+        requireFreshServerSession();
+        const headers = await getAuthHeaders(true);
+        await requireBiometric('Confirm to import this Stellar wallet');
+        const session = await api<SessionResponse>('/api/wallets/import', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            displayName,
+            email: account.email,
+            network,
+            secret: normalizedSecret,
+          }),
+          timeoutMs: IMPORT_WALLET_TIMEOUT_MS,
+        });
+
+        applySession(session, 'Wallet imported into Privy.');
+
+        return session;
+      },
+      options,
+    );
   }
 
   async function addWatchOnlyWallet(address: string, displayName?: string) {
     if (!account) {
+      return null;
+    }
+
+    const normalizedAddress = address.trim().toUpperCase();
+    const addressError = validateWatchOnlyAddress(normalizedAddress);
+
+    if (addressError) {
+      setErrorDialog({
+        message: addressError,
+        title: 'Invalid address',
+      });
       return null;
     }
 
@@ -2653,7 +3100,7 @@ export function useWallet() {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          address,
+          address: normalizedAddress,
           displayName,
           email: account.email,
           network,

@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import ReactNativeBiometrics from 'react-native-biometrics';
 import { useIdentityToken } from '@privy-io/expo';
+import { useSignRawHash } from '@privy-io/expo/extended-chains';
 import type WalletKitClient from '@reown/walletkit';
 import type {
   PendingRequestTypes,
@@ -84,8 +85,11 @@ export type WalletConnectXdrReview = {
 
 type WalletConnectSignResponse = {
   hash: string | null;
+  requiresClientSignature?: boolean;
   signedXdr: string;
+  signingHash?: `0x${string}`;
   submitted: { hash?: string } | null;
+  transactionXdr?: string | null;
 };
 
 export type WalletConnectSessionView = {
@@ -302,6 +306,31 @@ function isSupportedMethod(value: string): value is StellarMethod {
   return STELLAR_METHODS.includes(value as StellarMethod);
 }
 
+function isPrivyHash(value: unknown): value is `0x${string}` {
+  return typeof value === 'string' && /^0x[0-9a-fA-F]+$/.test(value);
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+) {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 export function WalletConnectProvider({
   children,
   wallet,
@@ -310,6 +339,7 @@ export function WalletConnectProvider({
   wallet: WalletState;
 }) {
   const { getIdentityToken } = useIdentityToken();
+  const { signRawHash } = useSignRawHash();
   const { showPopup } = useAppPopup();
   const walletRef = useRef(wallet);
   const clientRef = useRef<WalletKitClient | null>(null);
@@ -987,26 +1017,65 @@ export function WalletConnectProvider({
       }
 
       const session = nextClient.getActiveSessions()[event.topic];
-      const response = await api<WalletConnectSignResponse>(
+      const signBody = {
+        clientSigningSupported: true,
+        email: currentWallet.account.email,
+        method,
+        network: currentWallet.network,
+        peerName: session?.peer.metadata.name || '',
+        sourceAddress: currentWallet.wallet.address,
+        sourceWalletId: currentWallet.wallet.id,
+        submit: method === 'stellar_signAndSubmitXDR',
+        topic: event.topic,
+        xdr: extractXdr(event.params.request.params),
+      };
+      let response = await api<WalletConnectSignResponse>(
         '/api/walletconnect/stellar/sign-xdr',
         {
-          body: JSON.stringify({
-            email: currentWallet.account.email,
-            method,
-            network: currentWallet.network,
-            peerName: session?.peer.metadata.name || '',
-            sourceAddress: currentWallet.wallet.address,
-            sourceWalletId: currentWallet.wallet.id,
-            submit: method === 'stellar_signAndSubmitXDR',
-            topic: event.topic,
-            xdr: extractXdr(event.params.request.params),
-          }),
+          body: JSON.stringify(signBody),
           headers: {
             Authorization: `Bearer ${identityToken}`,
           },
           method: 'POST',
         },
       );
+
+      if (response.requiresClientSignature) {
+        if (!isPrivyHash(response.signingHash)) {
+          throw new Error('WalletConnect request is missing a valid signing hash.');
+        }
+
+        if (!response.transactionXdr) {
+          throw new Error('WalletConnect request is missing the transaction XDR.');
+        }
+
+        const signedRequest = await withTimeout(
+          signRawHash({
+            address: currentWallet.wallet.address,
+            chainType: 'stellar',
+            hash: response.signingHash,
+          }),
+          15_000,
+          'Wallet signing timed out. Please try again.',
+        );
+
+        response = await api<WalletConnectSignResponse>(
+          '/api/walletconnect/stellar/sign-xdr',
+          {
+            body: JSON.stringify({
+              ...signBody,
+              clientSignature: signedRequest.signature,
+              signingHash: response.signingHash,
+              transactionXdr: response.transactionXdr,
+              xdr: response.transactionXdr,
+            }),
+            headers: {
+              Authorization: `Bearer ${identityToken}`,
+            },
+            method: 'POST',
+          },
+        );
+      }
 
       await nextClient.respondSessionRequest({
         response:
@@ -1041,6 +1110,7 @@ export function WalletConnectProvider({
     requestReview,
     respondWithError,
     showPopup,
+    signRawHash,
   ]);
 
   const disconnectSession = useCallback(

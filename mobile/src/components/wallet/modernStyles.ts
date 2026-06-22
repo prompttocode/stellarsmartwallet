@@ -655,19 +655,6 @@ export const modern = StyleSheet.create({
     fontWeight: '900',
     textAlign: 'right',
   },
-  assetPickerAddButton: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(184,255,69,0.15)',
-    borderRadius: 14,
-    height: 32,
-    justifyContent: 'center',
-    width: 58,
-  },
-  assetPickerAddText: {
-    color: '#B8FF45',
-    fontSize: 12,
-    fontWeight: '900',
-  },
   assetPickerBalance: {
     color: '#FFFFFF',
     fontSize: 14,
@@ -1467,6 +1454,7 @@ export const modern = StyleSheet.create({
   },
   swapConfirmBackdrop: {
     ...StyleSheet.absoluteFillObject,
+    zIndex: 0,
   },
   swapConfirmSheet: {
     backgroundColor: '#151715',
@@ -1477,6 +1465,7 @@ export const modern = StyleSheet.create({
     gap: 14,
     paddingHorizontal: 10,
     paddingTop: 10,
+    zIndex: 1,
   },
   swapConfirmHandle: {
     alignSelf: 'center',
