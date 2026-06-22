@@ -3582,6 +3582,8 @@ export function useWallet() {
     createWallet,
     deletePaymentMethod,
     email,
+    isRestoringSession:
+      Boolean(user) && (!account || sessionSyncing),
     errorDialog,
     explorerAddressUrl,
     createWalletExportUrl,

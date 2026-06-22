@@ -11,29 +11,33 @@ import { ErrorPopup } from '@components/common/ErrorPopup';
 import { LoginScreen } from '@screens/auth/LoginScreen';
 import { WalletApp } from '@screens/wallet/WalletApp';
 
-const STARTUP_SPLASH_MS = 3000;
+const STARTUP_SPLASH_MAX_MS = 3000;
 
 export function WalletScreen() {
   const wallet = useWallet();
-  const [startupSplashComplete, setStartupSplashComplete] = useState(false);
+  const [splashTimedOut, setSplashTimedOut] = useState(false);
   const isLoggedIn = Boolean(wallet.account);
-  const shouldShowStartupSplash = !startupSplashComplete;
+  const isAppReady = wallet.isReady && !wallet.isRestoringSession;
+  const shouldShowStartupSplash = !splashTimedOut && !isAppReady;
 
   useEffect(() => {
     prefetchHistoricalPrices().catch(() => null);
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(
-      () => setStartupSplashComplete(true),
-      STARTUP_SPLASH_MS,
+    const maxTimer = setTimeout(
+      () => setSplashTimedOut(true),
+      STARTUP_SPLASH_MAX_MS,
     );
 
-    return () => clearTimeout(timer);
+    return () => clearTimeout(maxTimer);
   }, []);
 
   const content = shouldShowStartupSplash ? (
-    <AppSplashScreen network={wallet.network} durationMs={STARTUP_SPLASH_MS} />
+    <AppSplashScreen
+      network={wallet.network}
+      durationMs={STARTUP_SPLASH_MAX_MS}
+    />
   ) : isLoggedIn ? (
     <WalletApp wallet={wallet} />
   ) : (

@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import ReactNativeBiometrics from 'react-native-biometrics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,7 +31,13 @@ type SendStep = 'compose' | 'review' | 'success';
 
 import { TokenIcon } from '@components/wallet';
 
-function LocalSectionHeader({ title, action }: { title: string; action?: React.ReactNode }) {
+function LocalSectionHeader({
+  title,
+  action,
+}: {
+  title: string;
+  action?: React.ReactNode;
+}) {
   return (
     <View style={styles.sectionHeader}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -36,18 +49,30 @@ function LocalSectionHeader({ title, action }: { title: string; action?: React.R
 function LocalAssetSelectButton({ asset, label, onPress, valueLabel }: any) {
   return (
     <PressScale onPress={onPress} style={styles.assetSelectButton}>
-      <TokenIcon assetCode={asset?.assetCode} imageUrl={asset?.image} size={42} />
+      <TokenIcon
+        assetCode={asset?.assetCode}
+        imageUrl={asset?.image}
+        size={42}
+      />
       <View style={styles.assetSelectCopy}>
         <Text style={styles.assetSelectLabel}>{label}</Text>
-        <Text style={styles.assetSelectTitle}>{asset?.assetCode || 'Select'}</Text>
+        <Text style={styles.assetSelectTitle}>
+          {asset?.assetCode || 'Select'}
+        </Text>
         <Text style={styles.assetSelectSubtitle}>
-          {asset?.assetIssuer ? 'Custom asset' : 'Lumens'} · Balance {valueLabel.split(' ')[0]}
+          {asset?.assetIssuer ? 'Custom asset' : 'Lumens'} · Balance{' '}
+          {valueLabel.split(' ')[0]}
         </Text>
       </View>
       <View style={styles.assetSelectTrailing}>
         <Text style={styles.assetSelectValue}>{valueLabel}</Text>
-        <Text style={styles.assetSelectFiat}>≈ $0.00</Text>
-        <Ionicons color="#6C757D" name="chevron-down" size={16} style={{ alignSelf: 'flex-end', marginTop: 4 }} />
+
+        <Ionicons
+          color="#6C757D"
+          name="chevron-down"
+          size={16}
+          style={{ alignSelf: 'flex-end', marginTop: 4 }}
+        />
       </View>
     </PressScale>
   );
@@ -137,25 +162,24 @@ export function SendScreen({
   const exceedsSendBalance =
     sendAmountValidation.valid &&
     sendAmountValidation.amount > availableSendAmount;
-  const sendFormWarning = wallet.amount.trim() && !sendAmountValidation.valid
-    ? sendAmountValidation.message
-    : recipientValue && !recipientValid
-    ? 'Enter a valid Stellar recipient address that starts with G.'
-    : exceedsSendBalance
-    ? selectedAsset?.isNative
-      ? `You can send up to ${formatTokenAmount(
-          String(availableSendAmount),
-        )} XLM. Stellar keeps ${
-          formatTokenAmount(
+  const sendFormWarning =
+    wallet.amount.trim() && !sendAmountValidation.valid
+      ? sendAmountValidation.message
+      : recipientValue && !recipientValid
+      ? 'Enter a valid Stellar recipient address that starts with G.'
+      : exceedsSendBalance
+      ? selectedAsset?.isNative
+        ? `You can send up to ${formatTokenAmount(
+            String(availableSendAmount),
+          )} XLM. Stellar keeps ${formatTokenAmount(
             wallet.selectedBalance?.reservedBalance ||
               wallet.selectedBalance?.minimumBalance ||
               '0',
-          )
-        } XLM reserved for account minimum balance and network fees.`
-      : `You can send up to ${formatTokenAmount(
-          String(availableSendAmount),
-        )} ${wallet.selectedAssetCode}.`
-    : null;
+          )} XLM reserved for account minimum balance and network fees.`
+        : `You can send up to ${formatTokenAmount(
+            String(availableSendAmount),
+          )} ${wallet.selectedAssetCode}.`
+      : null;
   const canSubmit =
     wallet.walletCanSign &&
     (!wallet.isMainnet || wallet.walletActive) &&
@@ -240,11 +264,18 @@ export function SendScreen({
     });
   }
 
-  function renderHero(title: string, subtitle: string, onHeroBack?: () => void) {
+  function renderHero(
+    title: string,
+    subtitle: string,
+    onHeroBack?: () => void,
+  ) {
     return (
       <View style={[styles.hero, { paddingTop: insets.top + 12 }]}>
         <View style={styles.heroHeader}>
-          <PressScale onPress={onHeroBack || onBack} style={styles.heroBackButton}>
+          <PressScale
+            onPress={onHeroBack || onBack}
+            style={styles.heroBackButton}
+          >
             <Ionicons color="#FFFFFF" name="chevron-back" size={24} />
           </PressScale>
           <Text style={styles.heroHeaderTitle}>Transfer</Text>
@@ -261,9 +292,9 @@ export function SendScreen({
     const transaction = lastResult.transaction;
     const networkName =
       wallet.network === 'mainnet' ? 'Stellar Mainnet' : 'Stellar Testnet';
-    const amountText = `- ${formatTokenAmount(transaction.amount || wallet.amount)} ${
-      lastResult.assetCode
-    }`;
+    const amountText = `- ${formatTokenAmount(
+      transaction.amount || wallet.amount,
+    )} ${lastResult.assetCode}`;
     const detailRows = [
       {
         label: 'Date & Time',
@@ -354,12 +385,16 @@ export function SendScreen({
           </View>
         </ScrollView>
 
-        <View style={[styles.txBottomAction, { paddingBottom: insets.bottom + 10 }]}>
+        <View
+          style={[styles.txBottomAction, { paddingBottom: insets.bottom + 10 }]}
+        >
           <PressScale
             onPress={() => wallet.openUrl(transaction.explorerUrl)}
             style={styles.txExpertButton}
           >
-            <Text style={styles.txExpertButtonText}>View on Stellar Expert</Text>
+            <Text style={styles.txExpertButtonText}>
+              View on Stellar Expert
+            </Text>
             <Ionicons color="#071421" name="open-outline" size={14} />
           </PressScale>
         </View>
@@ -370,11 +405,20 @@ export function SendScreen({
   if (step === 'review') {
     return (
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 48 }]}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: insets.bottom + 48 },
+        ]}
         style={styles.root}
         showsVerticalScrollIndicator={false}
       >
-        {renderHero('Review transfer', wallet.isMainnet ? 'Review carefully. Mainnet transactions move real assets.' : 'Review carefully before sending test tokens.', () => setStep('compose'))}
+        {renderHero(
+          'Review transfer',
+          wallet.isMainnet
+            ? 'Review carefully. Mainnet transactions move real assets.'
+            : 'Review carefully before sending test tokens.',
+          () => setStep('compose'),
+        )}
         <View style={styles.receiptCard}>
           <LocalSectionHeader title="Transfer details" />
           <InfoLine
@@ -408,7 +452,10 @@ export function SendScreen({
           <PressScale
             disabled={wallet.isBusy || !canSubmit}
             onPress={handleConfirmSend}
-            style={[styles.primaryButton, (wallet.isBusy || !canSubmit) ? styles.disabledButton : null]}
+            style={[
+              styles.primaryButton,
+              wallet.isBusy || !canSubmit ? styles.disabledButton : null,
+            ]}
           >
             <Text style={styles.primaryButtonText}>
               {wallet.busy || (wallet.isMainnet ? 'Confirm' : 'Send')}
@@ -422,11 +469,19 @@ export function SendScreen({
   return (
     <>
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 48 }]}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: insets.bottom + 48 },
+        ]}
         style={styles.root}
         showsVerticalScrollIndicator={false}
       >
-        {renderHero('Send crypto', wallet.isMainnet ? 'Transfer crypto to another Stellar wallet on Mainnet.' : 'Transfer Testnet XLM or USDC to another Stellar wallet.')}
+        {renderHero(
+          'Send crypto',
+          wallet.isMainnet
+            ? 'Transfer crypto to another Stellar wallet on Mainnet.'
+            : 'Transfer Testnet XLM or USDC to another Stellar wallet.',
+        )}
 
         <View style={styles.receiptCard}>
           {!wallet.walletCanSign ? (
@@ -461,7 +516,9 @@ export function SendScreen({
               label="Sending asset"
               onPress={() => setAssetPickerVisible(true)}
               valueLabel={`${formatTokenAmount(
-                wallet.selectedBalance?.balance || selectedAsset?.balance || '0',
+                wallet.selectedBalance?.balance ||
+                  selectedAsset?.balance ||
+                  '0',
                 { compact: true },
               )} ${wallet.selectedAssetCode}`}
             />
@@ -514,7 +571,10 @@ export function SendScreen({
             <PressScale
               disabled={wallet.isBusy || !canSubmit}
               onPress={startReview}
-              style={[styles.primaryButton, (wallet.isBusy || !canSubmit) ? styles.disabledButton : null]}
+              style={[
+                styles.primaryButton,
+                wallet.isBusy || !canSubmit ? styles.disabledButton : null,
+              ]}
             >
               <Text style={styles.primaryButtonText}>Review transfer</Text>
             </PressScale>
