@@ -30,6 +30,7 @@ import {
   SupportedCurrency,
   useCurrencyConfig,
 } from '@contexts/CurrencyContext';
+import type { StellarNetwork } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
 import { shortAddress } from '@utils/format';
 import {
@@ -49,6 +50,53 @@ const CURRENCIES: { code: SupportedCurrency; name: string; symbol: string }[] =
 
 type DetailSheet = 'advanced' | 'security' | 'wallet' | null;
 type ToolMode = 'import' | 'watch' | null;
+
+const HORIZON_ACCOUNT_URLS: Record<StellarNetwork, string> = {
+  mainnet: 'https://horizon.stellar.org/accounts/',
+  testnet: 'https://horizon-testnet.stellar.org/accounts/',
+};
+
+function getOtherNetwork(network: StellarNetwork): StellarNetwork {
+  return network === 'mainnet' ? 'testnet' : 'mainnet';
+}
+
+function getNetworkLabel(network: StellarNetwork) {
+  return network === 'mainnet' ? 'Mainnet' : 'Testnet';
+}
+
+async function checkHorizonAccountExists(
+  address: string,
+  network: StellarNetwork,
+) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  let response: Response;
+
+  try {
+    response = await fetch(
+      `${HORIZON_ACCOUNT_URLS[network]}${encodeURIComponent(address)}`,
+      { signal: controller.signal },
+    );
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`${getNetworkLabel(network)} account check timed out`);
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (response.ok) {
+    return true;
+  }
+
+  if (response.status === 404) {
+    return false;
+  }
+
+  throw new Error(`Horizon ${getNetworkLabel(network)} returned ${response.status}`);
+}
 
 function BottomSheet({
   bottomInset,
@@ -181,6 +229,8 @@ export function SettingsScreen({
   const [backupVisible, setBackupVisible] = useState(false);
   const [backupConfirmation, setBackupConfirmation] = useState('');
   const [walletExportOpening, setWalletExportOpening] = useState(false);
+  const [addressCopied, setAddressCopied] = useState(false);
+  const [toolCheckingNetwork, setToolCheckingNetwork] = useState(false);
 
   const activeWallet =
     wallet.wallets.find(item => item.id === wallet.activeWalletId) ||
@@ -205,6 +255,7 @@ export function SettingsScreen({
     Keyboard.dismiss();
     setToolMode(null);
     setToolError(null);
+    setToolCheckingNetwork(false);
     setTimeout(() => {
       setToolValue('');
       setToolName('');
@@ -215,6 +266,12 @@ export function SettingsScreen({
     setBackupVisible(false);
     setBackupConfirmation('');
   }
+
+  useEffect(() => {
+    if (detailSheet !== 'wallet') {
+      setAddressCopied(false);
+    }
+  }, [detailSheet]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextState => {
@@ -382,6 +439,44 @@ export function SettingsScreen({
         );
         return;
       }
+
+      setToolCheckingNetwork(true);
+
+      try {
+        const currentNetwork = wallet.network;
+        const otherNetwork = getOtherNetwork(currentNetwork);
+        const [currentExists, otherExists] = await Promise.all([
+          checkHorizonAccountExists(importedAddress, currentNetwork),
+          checkHorizonAccountExists(importedAddress, otherNetwork),
+        ]);
+
+        if (!currentExists) {
+          setToolError(
+            otherExists
+              ? `This key belongs to an active ${getNetworkLabel(
+                  otherNetwork,
+                )} account. Switch to ${getNetworkLabel(
+                  otherNetwork,
+                )} before importing it.`
+              : `This address is not active on ${getNetworkLabel(
+                  currentNetwork,
+                )}. Fund it on ${getNetworkLabel(
+                  currentNetwork,
+                )} first, then import again.`,
+          );
+          return;
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Unable to verify this wallet network.';
+
+        setToolError(`${message}. Please try again before importing.`);
+        return;
+      } finally {
+        setToolCheckingNetwork(false);
+      }
     }
 
     if (toolMode === 'import' && !(await requirePrivyToolSession())) {
@@ -430,11 +525,7 @@ export function SettingsScreen({
     }
 
     Clipboard.setString(activeWallet.address);
-    showPopup({
-      message: 'Wallet address copied to clipboard.',
-      title: 'Copied',
-      variant: 'success',
-    });
+    setAddressCopied(true);
   }
 
   function confirmNetworkSwitch(nextNetwork: 'mainnet' | 'testnet') {
@@ -477,7 +568,10 @@ export function SettingsScreen({
       : null;
     const visibleToolError = toolError || toolValidationMessage;
     const saveDisabled =
-      wallet.isBusy || !trimmedToolValue || Boolean(toolValidationMessage);
+      wallet.isBusy ||
+      toolCheckingNetwork ||
+      !trimmedToolValue ||
+      Boolean(toolValidationMessage);
 
     return (
       <Modal
@@ -517,6 +611,7 @@ export function SettingsScreen({
                 onChangeText={value => {
                   setToolName(value);
                   setToolError(null);
+                  setToolCheckingNetwork(false);
                 }}
                 placeholder="Wallet name (optional)"
                 placeholderTextColor="#9499A2"
@@ -529,6 +624,7 @@ export function SettingsScreen({
                 onChangeText={value => {
                   setToolValue(value);
                   setToolError(null);
+                  setToolCheckingNetwork(false);
                 }}
                 placeholder={isImport ? 'S... or 64-hex Privy key' : 'G...'}
                 placeholderTextColor="#9499A2"
@@ -556,7 +652,11 @@ export function SettingsScreen({
                   ]}
                 >
                   <Text style={styles.modalPrimaryText}>
-                    {wallet.isBusy ? wallet.busy : 'Save'}
+                    {toolCheckingNetwork
+                      ? 'Checking...'
+                      : wallet.isBusy
+                        ? wallet.busy
+                        : 'Save'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -866,7 +966,7 @@ export function SettingsScreen({
 
             <View style={styles.addressBox}>
               <Text style={styles.addressLabel}>WALLET ADDRESS</Text>
-              <Text selectable style={styles.addressText}>
+              <Text style={styles.addressText}>
                 {activeWallet.address}
               </Text>
             </View>
@@ -875,10 +975,24 @@ export function SettingsScreen({
               <TouchableOpacity
                 activeOpacity={0.75}
                 onPress={copyActiveWalletAddress}
-                style={styles.walletAction}
+                style={[
+                  styles.walletAction,
+                  addressCopied ? styles.walletActionSuccess : null,
+                ]}
               >
-                <Ionicons color="#FFFFFF" name="copy-outline" size={21} />
-                <Text style={styles.walletActionText}>Copy</Text>
+                <Ionicons
+                  color={addressCopied ? '#B8FF45' : '#FFFFFF'}
+                  name={addressCopied ? 'checkmark-circle' : 'copy-outline'}
+                  size={21}
+                />
+                <Text
+                  style={[
+                    styles.walletActionText,
+                    addressCopied ? styles.walletActionSuccessText : null,
+                  ]}
+                >
+                  {addressCopied ? 'Copied' : 'Copy'}
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 activeOpacity={0.75}
@@ -1651,6 +1765,14 @@ const styles = StyleSheet.create({
   },
   walletActionDisabled: {
     opacity: 0.42,
+  },
+  walletActionSuccess: {
+    backgroundColor: 'rgba(184, 255, 69, 0.12)',
+    borderColor: 'rgba(184, 255, 69, 0.22)',
+    borderWidth: 1,
+  },
+  walletActionSuccessText: {
+    color: '#B8FF45',
   },
   walletActionText: {
     color: '#FFFFFF',

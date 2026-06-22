@@ -1,14 +1,9 @@
 import React, { useState } from 'react';
-import {
-  Image,
-  RefreshControl,
-  ScrollView,
-  Text,
-  View,
-} from 'react-native';
+import { Image, RefreshControl, ScrollView, Text, View } from 'react-native';
 import type { ImageSourcePropType } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppPopup } from '@components/common/AppPopup';
 import {
   ActivateWalletNotice,
@@ -28,6 +23,7 @@ import { WalletManagerModal } from '@components/wallet';
 import { useCurrencyConfig } from '@contexts/CurrencyContext';
 import type { BalanceItem, RampAssetCode, RampDirection } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
+import LottieView from 'lottie-react-native';
 
 type RampPreset = {
   amount?: string;
@@ -77,6 +73,7 @@ export function PortfolioScreen({
   onGoToScan: () => void;
   wallet: WalletState;
 }) {
+  const insets = useSafeAreaInsets();
   const [isWalletModalVisible, setIsWalletModalVisible] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeAssetTab, setActiveAssetTab] =
@@ -202,15 +199,36 @@ export function PortfolioScreen({
         }}
         resizeMode="cover"
       />
+      {isRefreshing ? (
+        <View
+          pointerEvents="none"
+          style={[
+            modern.homeRefreshLottieWrap,
+            { top: Math.max(34, insets.top + 4) },
+          ]}
+        >
+          <LottieView
+            autoPlay
+            colorFilters={[
+              { color: '#FFFFFF', keypath: '**' },
+              { color: '#FFFFFF', keypath: 'ddd Outlines 2.Fill 1' },
+              { color: '#FFFFFF', keypath: 'Fill 1' },
+            ]}
+            loop
+            source={require('@assets/lottie/loading2.json')}
+            style={modern.homeRefreshLottie}
+          />
+        </View>
+      ) : null}
       <ScrollView
         alwaysBounceVertical
         contentContainerStyle={modern.screen}
         refreshControl={
           <RefreshControl
-            colors={['#3867D6']}
+            colors={['#FFFFFF']}
             onRefresh={refreshPortfolio}
             refreshing={isRefreshing}
-            tintColor="#3867D6"
+            tintColor="#FFFFFF"
           />
         }
         showsVerticalScrollIndicator={false}
@@ -332,39 +350,35 @@ export function PortfolioScreen({
               </View>
 
               <View style={modern.assetTabPanel}>
-                {activeAssetTab === 'crypto'
-                  ? (
-                    <>
-                      {visibleCryptoAssets.map((asset, index) => (
-                        <AssetListItem
-                          asset={asset}
-                          disabled={wallet.isBusy}
-                          index={index}
-                          key={`${asset.assetCode}:${
-                            asset.assetIssuer || 'native'
-                          }`}
-                          onAdd={wallet.addTrustline}
-                          onSend={onGoToSend}
-                          onFaucet={faucetAsset}
-                          onPress={onGoToAssetDetail}
-                          showAction={false}
-                        />
-                      ))}
-                      {canToggleCryptoAssets ? (
-                        <PressScale
-                          onPress={() =>
-                            setShowAllCryptoAssets(value => !value)
-                          }
-                          style={modern.assetShowMoreButton}
-                        >
-                          <Text style={modern.assetShowMoreText}>
-                            {showAllCryptoAssets ? 'Show less' : 'Show more'}
-                          </Text>
-                        </PressScale>
-                      ) : null}
-                    </>
-                  )
-                  : null}
+                {activeAssetTab === 'crypto' ? (
+                  <>
+                    {visibleCryptoAssets.map((asset, index) => (
+                      <AssetListItem
+                        asset={asset}
+                        disabled={wallet.isBusy}
+                        index={index}
+                        key={`${asset.assetCode}:${
+                          asset.assetIssuer || 'native'
+                        }`}
+                        onAdd={wallet.addTrustline}
+                        onSend={onGoToSend}
+                        onFaucet={faucetAsset}
+                        onPress={onGoToAssetDetail}
+                        showAction={false}
+                      />
+                    ))}
+                    {canToggleCryptoAssets ? (
+                      <PressScale
+                        onPress={() => setShowAllCryptoAssets(value => !value)}
+                        style={modern.assetShowMoreButton}
+                      >
+                        <Text style={modern.assetShowMoreText}>
+                          {showAllCryptoAssets ? 'Show less' : 'Show more'}
+                        </Text>
+                      </PressScale>
+                    ) : null}
+                  </>
+                ) : null}
 
                 {activeAssetTab === 'nft' ? (
                   wallet.isMainnet ? (
@@ -385,7 +399,10 @@ export function PortfolioScreen({
                           >
                             {collectible.displayName}
                           </Text>
-                          <Text numberOfLines={2} style={modern.assetModernMeta}>
+                          <Text
+                            numberOfLines={2}
+                            style={modern.assetModernMeta}
+                          >
                             {collectible.claimed
                               ? `${collectible.assetCode} claimed · supply ${collectible.supply}`
                               : `${collectible.assetCode} demo NFT · claim on Testnet`}

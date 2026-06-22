@@ -16,6 +16,20 @@ export const modern = StyleSheet.create({
   portfolioBackgroundImage: {
     opacity: 0.98,
   },
+  homeRefreshLottie: {
+    height: 38,
+    opacity: 0.95,
+    width: 38,
+  },
+  homeRefreshLottieWrap: {
+    alignItems: 'center',
+    height: 42,
+    justifyContent: 'center',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    zIndex: 30,
+  },
   screenInset: {
     gap: 18,
     paddingBottom: 126,

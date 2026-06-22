@@ -7,7 +7,6 @@ import React, {
   useState,
 } from 'react';
 import {
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -106,67 +105,63 @@ export function AppPopup({
   const popupActions =
     actions && actions.length > 0 ? actions : [{ text: 'OK' }];
 
+  if (!visible) {
+    return null;
+  }
+
   function handleActionPress(action: AppPopupAction) {
     onDismiss();
     action.onPress?.();
   }
 
   return (
-    <Modal
-      animationType="fade"
-      onRequestClose={onDismiss}
-      statusBarTranslucent
-      transparent
-      visible={visible}
-    >
-      <View style={styles.overlay}>
-        <Pressable
-          accessibilityRole="button"
-          disabled={!dismissOnBackdrop}
-          onPress={onDismiss}
-          style={styles.backdrop}
-        >
-          <Pressable accessibilityViewIsModal style={styles.card}>
-            <View style={[styles.iconWrap, { backgroundColor: meta.iconBg }]}>
-              <Ionicons color={meta.color} name={meta.icon} size={34} />
-            </View>
-            <Text style={styles.title}>{title}</Text>
-            {message ? <Text style={styles.message}>{message}</Text> : null}
-            <View
-              style={[
-                styles.actions,
-                popupActions.length > 1 ? styles.actionsRow : null,
-              ]}
-            >
-              {popupActions.map((action, index) => (
-                <Pressable
-                  accessibilityRole="button"
-                  key={`${action.text}-${index}`}
-                  onPress={() => handleActionPress(action)}
-                  style={({ pressed }) => [
-                    getActionStyle(action, index, popupActions.length),
-                    pressed ? styles.buttonPressed : null,
-                  ]}
+    <View pointerEvents="box-none" style={styles.overlay}>
+      <Pressable
+        accessibilityRole="button"
+        disabled={!dismissOnBackdrop}
+        onPress={onDismiss}
+        style={styles.backdrop}
+      >
+        <Pressable accessibilityViewIsModal style={styles.card}>
+          <View style={[styles.iconWrap, { backgroundColor: meta.iconBg }]}>
+            <Ionicons color={meta.color} name={meta.icon} size={34} />
+          </View>
+          <Text style={styles.title}>{title}</Text>
+          {message ? <Text style={styles.message}>{message}</Text> : null}
+          <View
+            style={[
+              styles.actions,
+              popupActions.length > 1 ? styles.actionsRow : null,
+            ]}
+          >
+            {popupActions.map((action, index) => (
+              <Pressable
+                accessibilityRole="button"
+                key={`${action.text}-${index}`}
+                onPress={() => handleActionPress(action)}
+                style={({ pressed }) => [
+                  getActionStyle(action, index, popupActions.length),
+                  pressed ? styles.buttonPressed : null,
+                ]}
+              >
+                <Text
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.78}
+                  style={getActionTextStyle(
+                    action,
+                    index,
+                    popupActions.length,
+                  )}
                 >
-                  <Text
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.78}
-                    style={getActionTextStyle(
-                      action,
-                      index,
-                      popupActions.length,
-                    )}
-                  >
-                    {action.text}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </Pressable>
+                  {action.text}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
         </Pressable>
-      </View>
-    </Modal>
+      </Pressable>
+    </View>
   );
 }
 
@@ -191,16 +186,18 @@ export function AppPopupProvider({ children }: { children: ReactNode }) {
 
   return (
     <AppPopupContext.Provider value={value}>
-      {children}
-      <AppPopup
-        actions={popup?.actions}
-        dismissOnBackdrop={popup?.dismissOnBackdrop}
-        message={popup?.message}
-        onDismiss={hidePopup}
-        title={popup?.title || ''}
-        variant={popup?.variant}
-        visible={Boolean(popup)}
-      />
+      <View style={styles.providerRoot}>
+        {children}
+        <AppPopup
+          actions={popup?.actions}
+          dismissOnBackdrop={popup?.dismissOnBackdrop}
+          message={popup?.message}
+          onDismiss={hidePopup}
+          title={popup?.title || ''}
+          variant={popup?.variant}
+          visible={Boolean(popup)}
+        />
+      </View>
     </AppPopupContext.Provider>
   );
 }
@@ -288,10 +285,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   overlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
+    elevation: 999,
+    zIndex: 999,
   },
   primaryButton: {
     backgroundColor: '#B8FF45',
+  },
+  providerRoot: {
+    flex: 1,
   },
   primaryText: {
     color: '#07100B',
