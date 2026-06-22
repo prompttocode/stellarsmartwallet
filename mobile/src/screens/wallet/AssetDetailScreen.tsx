@@ -167,7 +167,7 @@ export function AssetDetailScreen({
 
   const [timeframe, setTimeframe] = useState<Timeframe>('7D');
   const { data: chartData, loading: chartLoading } = useHistoricalPrice(
-    asset.assetCode,
+    asset,
     timeframe,
   );
   const [favoriteNotice, setFavoriteNotice] = useState<string | null>(null);
@@ -190,6 +190,11 @@ export function AssetDetailScreen({
   const balanceUsd = asset.priceUsd
     ? formatUsd(balanceValue * asset.priceUsd)
     : '$0.00';
+  const chartEmptyText = chartLoading
+    ? 'Loading chart...'
+    : asset.network === 'testnet' && !['XLM', 'USDC'].includes(asset.assetCode)
+    ? 'No public market chart for this Testnet asset'
+    : 'No public market chart for this asset';
 
   // Calculate price change if we have chart data
   let priceChangeStr = '+0.00%';
@@ -312,7 +317,7 @@ export function AssetDetailScreen({
               }}
             >
               <Text style={{ color: '#555' }}>
-                {chartLoading ? 'Loading chart...' : 'No chart data'}
+                {chartEmptyText}
               </Text>
             </View>
           )}

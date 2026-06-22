@@ -79,6 +79,7 @@ const LEGACY_LOCAL_SESSION_STORAGE_KEYS = [
   'lobstr-demo-session-email',
   'lobstr-demo-session-network',
 ];
+const ACTIVE_WALLET_STORAGE_PREFIX = 'privy-wallet-active-wallet-v1';
 const PREFERRED_NETWORK_STORAGE_KEY = 'privy-wallet-preferred-network';
 const RAMP_ORDER_STORAGE_PREFIX = 'privy-ramp-order';
 const SESSION_CACHE_STORAGE_PREFIX = 'privy-wallet-session-cache-v1';
@@ -138,6 +139,40 @@ function getAssetIdentity(asset: AssetIdentityInput) {
   return asset.isNative
     ? `${asset.network}:native`
     : `${asset.network}:${asset.assetCode}:${asset.assetIssuer || ''}`;
+}
+
+function getActiveWalletStorageKey(accountEmail: string, targetNetwork: StellarNetwork) {
+  return `${ACTIVE_WALLET_STORAGE_PREFIX}:${accountEmail
+    .trim()
+    .toLowerCase()}:${targetNetwork}`;
+}
+
+async function readStoredActiveWalletId(
+  accountEmail: string,
+  targetNetwork: StellarNetwork,
+) {
+  if (!accountEmail) {
+    return null;
+  }
+
+  return AsyncStorage.getItem(
+    getActiveWalletStorageKey(accountEmail, targetNetwork),
+  );
+}
+
+async function rememberActiveWalletId(
+  accountEmail: string,
+  targetNetwork: StellarNetwork,
+  walletId: string,
+) {
+  if (!accountEmail || !walletId) {
+    return;
+  }
+
+  await AsyncStorage.setItem(
+    getActiveWalletStorageKey(accountEmail, targetNetwork),
+    walletId,
+  );
 }
 
 function hasMarketPrice(asset: AssetItem) {
@@ -670,6 +705,7 @@ export function useWallet() {
       ? [account.wallet]
       : [];
   const networkWallets = allWallets.filter(item => item.network === network);
+  const networkWalletIds = networkWallets.map(item => item.id).join('|');
   const wallet =
     networkWallets.find(item => item.id === activeWalletId) ||
     networkWallets[0] ||
@@ -680,6 +716,42 @@ export function useWallet() {
   useEffect(() => {
     getIdentityTokenRef.current = getIdentityToken;
   }, [getIdentityToken]);
+
+  useEffect(() => {
+    if (!account?.email || networkWallets.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    readStoredActiveWalletId(account.email, network)
+      .then(storedWalletId => {
+        if (cancelled || !storedWalletId) {
+          return;
+        }
+
+        const storedWalletExists = networkWallets.some(
+          item => item.id === storedWalletId,
+        );
+
+        if (!storedWalletExists) {
+          AsyncStorage.removeItem(
+            getActiveWalletStorageKey(account.email, network),
+          ).catch(() => null);
+          return;
+        }
+
+        if (storedWalletId !== activeWalletId) {
+          setActiveWalletId(storedWalletId);
+        }
+      })
+      .catch(() => null);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [account?.email, activeWalletId, network, networkWalletIds]);
+
   const visibleAssets = assets.length > 0 ? assets : balances;
   const selectedBalance = getBalanceForAsset(balances, selectedAssetCode);
   const selectedAsset =
@@ -1625,6 +1697,7 @@ export function useWallet() {
 
       resetRecipientState();
       applySession(session, 'Active wallet switched.');
+      await rememberActiveWalletId(account.email, network, walletId);
 
       return session;
     });
@@ -3270,6 +3343,20 @@ export function useWallet() {
         item =>
           item.network === nextNetwork && !item.archived && item.canSign,
       );
+      const storedTargetWalletId = await readStoredActiveWalletId(
+        account.email,
+        nextNetwork,
+      );
+      const requestedActiveWalletId =
+        storedTargetWalletId &&
+        (account.wallets || []).some(
+          item =>
+            item.id === storedTargetWalletId &&
+            item.network === nextNetwork &&
+            !item.archived,
+        )
+          ? storedTargetWalletId
+          : undefined;
       const bootstrapWallet = hasTargetNetworkWallet
         ? undefined
         : hasLinkedStellarEmbeddedWallet(user)
@@ -3290,11 +3377,13 @@ export function useWallet() {
         body: JSON.stringify(
           identityToken
             ? {
+                activeWalletId: requestedActiveWalletId,
                 identityToken,
                 network: nextNetwork,
                 wallet: bootstrapWallet,
               }
             : {
+                activeWalletId: requestedActiveWalletId,
                 email: account.email,
                 network: nextNetwork,
               },
@@ -3306,6 +3395,9 @@ export function useWallet() {
           ? 'Switched to Mainnet. Deposit real XLM to activate this wallet.'
           : 'Switched to Testnet.',
       );
+      if (requestedActiveWalletId) {
+        setActiveWalletId(requestedActiveWalletId);
+      }
       await loadCollectibles(session.account.wallet?.address, nextNetwork);
 
       return session;
