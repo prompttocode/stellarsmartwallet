@@ -72,6 +72,21 @@ export type AssetsResponse = {
   network?: StellarNetwork;
 };
 
+export type FavoriteAsset = AssetItem & {
+  createdAt: string;
+  id: string;
+  updatedAt: string;
+};
+
+export type FavoriteAssetsResponse = {
+  data: {
+    asset?: FavoriteAsset | null;
+    assets?: FavoriteAsset[];
+    deleted?: boolean;
+  };
+  success: boolean;
+};
+
 export type CollectibleItem = AssetItem & {
   balance: string;
   claimed: boolean;

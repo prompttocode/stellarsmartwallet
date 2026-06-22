@@ -90,3 +90,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_account_payment_methods_unique_bank
 
 CREATE INDEX IF NOT EXISTS idx_account_payment_methods_account_default
   ON account_payment_methods(account_email, is_default, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS account_favorite_assets (
+  id TEXT PRIMARY KEY,
+  account_email TEXT NOT NULL,
+  network TEXT NOT NULL,
+  asset_code TEXT NOT NULL,
+  asset_issuer TEXT NOT NULL DEFAULT '',
+  display_name TEXT NOT NULL,
+  home_domain TEXT,
+  image TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_favorite_assets_unique_asset
+  ON account_favorite_assets(account_email, network, asset_code, asset_issuer);
+
+CREATE INDEX IF NOT EXISTS idx_account_favorite_assets_account_network
+  ON account_favorite_assets(account_email, network, updated_at DESC);

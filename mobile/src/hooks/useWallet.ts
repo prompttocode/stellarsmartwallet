@@ -22,6 +22,8 @@ import type {
   CollectibleItem,
   CollectiblesResponse,
   Contact,
+  FavoriteAsset,
+  FavoriteAssetsResponse,
   WalletAccount,
   FundNftResult,
   Health,
@@ -127,7 +129,12 @@ type SessionBootstrapWalletRequest = {
   promise: Promise<ClientStellarWalletPayload | undefined>;
 };
 
-function getAssetIdentity(asset: AssetItem) {
+type AssetIdentityInput = Pick<
+  AssetItem,
+  'assetCode' | 'assetIssuer' | 'isNative' | 'network'
+>;
+
+function getAssetIdentity(asset: AssetIdentityInput) {
   return asset.isNative
     ? `${asset.network}:native`
     : `${asset.network}:${asset.assetCode}:${asset.assetIssuer || ''}`;
@@ -493,6 +500,7 @@ export function useWallet() {
   );
   const [rampOrderHistory, setRampOrderHistory] = useState<RampOrder[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<RampPaymentMethod[]>([]);
+  const [favoriteAssets, setFavoriteAssets] = useState<FavoriteAsset[]>([]);
   const [walletConnectConfig, setWalletConnectConfig] =
     useState<WalletConnectConfig | null>(null);
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
@@ -866,6 +874,7 @@ export function useWallet() {
     setActiveRampOrder(null);
     setRampOrderHistory([]);
     setPaymentMethods([]);
+    setFavoriteAssets([]);
     setCode('');
     setCodeSent(false);
     setServerSessionReady(false);
@@ -1004,10 +1013,12 @@ export function useWallet() {
   useEffect(() => {
     if (!account || !serverSessionReady) {
       setPaymentMethods([]);
+      setFavoriteAssets([]);
       return;
     }
 
     loadPaymentMethods({ silent: true }).catch(() => null);
+    loadFavoriteAssets({ silent: true }).catch(() => null);
   }, [account?.email, network, serverSessionReady]);
 
   const refreshPrivySecuritySession = useCallback(async () => {
@@ -2507,6 +2518,133 @@ export function useWallet() {
     return run('Refreshing order history', load);
   }
 
+  async function loadFavoriteAssets(options: { silent?: boolean } = {}) {
+    if (!account) {
+      setFavoriteAssets([]);
+      return [];
+    }
+
+    const load = async () => {
+      const headers = await getAuthHeaders(true);
+      const params = new URLSearchParams({
+        email: account.email,
+        network,
+      });
+      const result = await api<FavoriteAssetsResponse>(
+        `/api/assets/favorites?${params.toString()}`,
+        { headers },
+      );
+      const assets = result.data.assets || [];
+
+      setFavoriteAssets(assets);
+
+      return assets;
+    };
+
+    if (options.silent) {
+      try {
+        return await load();
+      } catch {
+        return [];
+      }
+    }
+
+    return run('Loading favorite assets', load);
+  }
+
+  function findFavoriteAsset(asset: AssetIdentityInput) {
+    const identity = getAssetIdentity(asset);
+
+    return (
+      favoriteAssets.find(item => getAssetIdentity(item) === identity) || null
+    );
+  }
+
+  function isFavoriteAsset(asset: AssetIdentityInput) {
+    return Boolean(findFavoriteAsset(asset));
+  }
+
+  async function toggleFavoriteAsset(asset: AssetItem) {
+    if (!account) {
+      setMessage('Sign in before saving favorite assets.');
+      return null;
+    }
+
+    const existing = findFavoriteAsset(asset);
+
+    if (existing) {
+      return run(
+        'Updating favorites',
+        async () => {
+          requireFreshServerSession();
+          const headers = await getAuthHeaders(true);
+          const params = new URLSearchParams({
+            email: account.email,
+            network,
+          });
+
+          await api<FavoriteAssetsResponse>(
+            `/api/assets/favorites/${encodeURIComponent(
+              existing.id,
+            )}?${params.toString()}`,
+            {
+              method: 'DELETE',
+              headers,
+            },
+          );
+
+          setFavoriteAssets(current =>
+            current.filter(item => item.id !== existing.id),
+          );
+          setMessage(`${asset.assetCode} removed from favorites.`);
+
+          return false;
+        },
+        { showAlert: false },
+      );
+    }
+
+    return run(
+      'Updating favorites',
+      async () => {
+        requireFreshServerSession();
+        const headers = await getAuthHeaders(true);
+        const result = await api<FavoriteAssetsResponse>(
+          '/api/assets/favorites',
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              assetCode: asset.assetCode,
+              assetIssuer: asset.isNative ? null : asset.assetIssuer,
+              displayName: asset.displayName || asset.assetCode,
+              email: account.email,
+              homeDomain: asset.homeDomain || null,
+              image: asset.image || null,
+              network,
+            }),
+          },
+        );
+        const savedAsset = result.data.asset;
+
+        if (!savedAsset) {
+          throw new Error('Could not save favorite asset. Please try again.');
+        }
+
+        setFavoriteAssets(current => [
+          savedAsset,
+          ...current.filter(
+            item => getAssetIdentity(item) !== getAssetIdentity(savedAsset),
+          ),
+        ]);
+        setMessage(`${asset.assetCode} added to favorites.`);
+
+        return true;
+      },
+      { showAlert: false },
+    );
+  }
+
   async function loadPaymentMethods(options: { silent?: boolean } = {}) {
     if (!account) {
       setPaymentMethods([]);
@@ -3355,9 +3493,11 @@ export function useWallet() {
     errorDialog,
     explorerAddressUrl,
     createWalletExportUrl,
+    favoriteAssets,
     fundTestUsdc,
     fundWallet,
     health,
+    isFavoriteAsset,
     isBusy: busy !== null,
     isMainnet,
     isReady,
@@ -3365,6 +3505,7 @@ export function useWallet() {
     kyc,
     loginWithGoogle,
     loginState,
+    loadFavoriteAssets,
     loadPaymentMethods,
     logout,
     message,
@@ -3413,6 +3554,7 @@ export function useWallet() {
     sessionSyncing,
     swapAsset,
     switchNetwork,
+    toggleFavoriteAsset,
     dismissErrorDialog,
     transactions,
     updatePaymentMethod,

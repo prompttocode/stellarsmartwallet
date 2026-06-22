@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { getTransactionIcon, getTransactionTitle } from '@hooks/useWallet';
 import type { AssetItem, BalanceItem, TransactionItem } from '@app-types';
 import { formatDate, formatTokenAmount, shortAddress } from '@utils/format';
@@ -12,6 +13,7 @@ export function AssetListItem({
   asset,
   disabled,
   index,
+  isFavorite = false,
   onAdd,
   onSend,
   onFaucet,
@@ -22,6 +24,7 @@ export function AssetListItem({
   asset: BalanceItem;
   disabled?: boolean;
   index: number;
+  isFavorite?: boolean;
   onAdd: (assetCode: string, assetIssuer?: string | null) => void;
   onSend: (assetCode: string) => void;
   onFaucet: (assetCode: string, assetIssuer?: string | null) => void;
@@ -124,6 +127,9 @@ export function AssetListItem({
             <Text numberOfLines={1} style={modern.assetModernName}>
               {asset.assetCode}
             </Text>
+            {isFavorite ? (
+              <Ionicons color="#FFD60A" name="star" size={15} />
+            ) : null}
             {badgeLabel ? (
               <View style={[modern.assetBadge, badgeStyle]}>
                 <Text style={[modern.assetBadgeText, badgeTextStyle]}>

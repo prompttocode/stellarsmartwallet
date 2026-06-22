@@ -28,6 +28,7 @@ import {
   loadAccount,
   makeError,
   normalizeAccountWallets,
+  normalizeAssetCode,
   normalizeEmail,
   normalizeNetwork,
   normalizeWallet,
@@ -40,6 +41,7 @@ import {
   saveAccount,
   saveContact,
   shouldRequireMainnetAuth,
+  type Env,
   type StellarNetwork,
   type WorkerBindings,
 } from '../core';
@@ -52,10 +54,201 @@ type ClientStellarWalletInput = {
   public_key?: string;
 };
 
+type StoredFavoriteAssetRow = {
+  account_email: string;
+  asset_code: string;
+  asset_issuer: string;
+  created_at: string;
+  display_name: string;
+  home_domain: string | null;
+  id: string;
+  image: string | null;
+  network: StellarNetwork;
+  updated_at: string;
+};
+
+type FavoriteAssetInput = {
+  assetCode: string;
+  assetIssuer: string;
+  displayName: string;
+  homeDomain: string | null;
+  image: string | null;
+  network: StellarNetwork;
+};
+
 function getClientStellarWalletInput(value: unknown) {
   const wallet = value as ClientStellarWalletInput | undefined;
 
   return wallet?.id && wallet.address ? wallet : undefined;
+}
+
+function requireFavoriteAssetsDb(env: Env) {
+  if (!env.DB) {
+    throw makeError('Favorite asset storage is not configured', 500);
+  }
+
+  return env.DB;
+}
+
+function optionalText(value: unknown) {
+  const text = String(value || '').trim();
+  return text || null;
+}
+
+function normalizeFavoriteAssetInput(value: Record<string, unknown>): FavoriteAssetInput {
+  const network = normalizeNetwork(value.network);
+  const assetCode = normalizeAssetCode(value.assetCode || value.asset_code).trim();
+  const assetIssuer = String(value.assetIssuer ?? value.asset_issuer ?? '').trim();
+  const isNative = assetCode === 'XLM' && !assetIssuer;
+
+  if (!/^[A-Za-z0-9]{1,12}$/.test(assetCode)) {
+    throw makeError('Asset code must be 1-12 alphanumeric characters', 400);
+  }
+
+  if (assetIssuer) {
+    assertStellarAddress(assetIssuer, 'Asset issuer');
+  }
+
+  if (!isNative && !assetIssuer) {
+    throw makeError('Asset issuer is required for issued assets', 400);
+  }
+
+  return {
+    assetCode,
+    assetIssuer: isNative ? '' : assetIssuer,
+    displayName:
+      String(value.displayName || value.display_name || assetCode)
+        .trim()
+        .slice(0, 80) || assetCode,
+    homeDomain: optionalText(value.homeDomain ?? value.home_domain),
+    image: optionalText(value.image),
+    network,
+  };
+}
+
+function serializeFavoriteAsset(row: StoredFavoriteAssetRow) {
+  const isNative = row.asset_code === 'XLM' && !row.asset_issuer;
+
+  return {
+    assetCode: row.asset_code,
+    assetIssuer: row.asset_issuer || null,
+    createdAt: row.created_at,
+    demo: row.network === 'testnet',
+    displayName: row.display_name || row.asset_code,
+    homeDomain: row.home_domain || null,
+    id: row.id,
+    image: row.image || null,
+    isNative,
+    network: row.network,
+    trustLevel: isNative ? 'verified' : row.home_domain ? 'verified' : 'discovered',
+    updatedAt: row.updated_at,
+  };
+}
+
+async function getFavoriteAssetAccount(
+  c: Context<WorkerBindings>,
+  value: Record<string, unknown>,
+) {
+  const network = normalizeNetwork(value.network);
+  const account = await requireAccountContext(c.env, c.req.header('authorization'), value, {
+    network,
+    requireAuth: true,
+  });
+
+  return { account, network };
+}
+
+async function listFavoriteAssets(env: Env, accountEmail: string, network: StellarNetwork) {
+  const { results } = await requireFavoriteAssetsDb(env)
+    .prepare(
+      `SELECT *
+       FROM account_favorite_assets
+       WHERE account_email = ? AND network = ?
+       ORDER BY updated_at DESC`,
+    )
+    .bind(accountEmail, network)
+    .all<StoredFavoriteAssetRow>();
+
+  return (results || []).map(serializeFavoriteAsset);
+}
+
+async function findFavoriteAssetById(env: Env, accountEmail: string, id: string) {
+  const row = await requireFavoriteAssetsDb(env)
+    .prepare(
+      `SELECT *
+       FROM account_favorite_assets
+       WHERE account_email = ? AND id = ?
+       LIMIT 1`,
+    )
+    .bind(accountEmail, id)
+    .first<StoredFavoriteAssetRow>();
+
+  return row ? serializeFavoriteAsset(row) : null;
+}
+
+async function findFavoriteAssetByIdentity(
+  env: Env,
+  accountEmail: string,
+  input: FavoriteAssetInput,
+) {
+  const row = await requireFavoriteAssetsDb(env)
+    .prepare(
+      `SELECT *
+       FROM account_favorite_assets
+       WHERE account_email = ? AND network = ? AND asset_code = ? AND asset_issuer = ?
+       LIMIT 1`,
+    )
+    .bind(accountEmail, input.network, input.assetCode, input.assetIssuer)
+    .first<StoredFavoriteAssetRow>();
+
+  return row ? serializeFavoriteAsset(row) : null;
+}
+
+async function upsertFavoriteAsset(
+  env: Env,
+  accountEmail: string,
+  input: FavoriteAssetInput,
+) {
+  const existing = await findFavoriteAssetByIdentity(env, accountEmail, input);
+  const now = nowIso();
+  const id = existing?.id || crypto.randomUUID();
+
+  await requireFavoriteAssetsDb(env)
+    .prepare(
+      `INSERT INTO account_favorite_assets (
+         id,
+         account_email,
+         network,
+         asset_code,
+         asset_issuer,
+         display_name,
+         home_domain,
+         image,
+         created_at,
+         updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(account_email, network, asset_code, asset_issuer) DO UPDATE SET
+         display_name = excluded.display_name,
+         home_domain = excluded.home_domain,
+         image = excluded.image,
+         updated_at = excluded.updated_at`,
+    )
+    .bind(
+      id,
+      accountEmail,
+      input.network,
+      input.assetCode,
+      input.assetIssuer,
+      input.displayName,
+      input.homeDomain,
+      input.image,
+      existing?.createdAt || now,
+      now,
+    )
+    .run();
+
+  return findFavoriteAssetById(env, accountEmail, id);
 }
 
 async function getVerifiedClientStellarWallet(
@@ -185,6 +378,66 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     return c.json({
       assets,
       network,
+    });
+  });
+
+  app.get('/api/assets/favorites', async c => {
+    const { account, network } = await getFavoriteAssetAccount(c, {
+      email: c.req.query('email'),
+      network: c.req.query('network'),
+    });
+
+    return c.json({
+      success: true,
+      data: {
+        assets: await listFavoriteAssets(c.env, account.email, network),
+      },
+    });
+  });
+
+  app.post('/api/assets/favorites', async c => {
+    const body = await readJsonBody(c);
+    const input = normalizeFavoriteAssetInput(body);
+    const { account } = await getFavoriteAssetAccount(c, {
+      ...body,
+      network: input.network,
+    });
+    const asset = await upsertFavoriteAsset(c.env, account.email, input);
+
+    return c.json({
+      success: true,
+      data: { asset },
+    });
+  });
+
+  app.delete('/api/assets/favorites/:id', async c => {
+    const id = String(c.req.param('id') || '').trim();
+    const { account } = await getFavoriteAssetAccount(c, {
+      email: c.req.query('email'),
+      network: c.req.query('network'),
+    });
+
+    if (!id) {
+      throw makeError('Favorite asset id is required', 400);
+    }
+
+    const existing = await findFavoriteAssetById(c.env, account.email, id);
+
+    if (!existing) {
+      throw makeError('Favorite asset not found', 404);
+    }
+
+    await requireFavoriteAssetsDb(c.env)
+      .prepare(
+        `DELETE FROM account_favorite_assets
+         WHERE account_email = ? AND id = ?`,
+      )
+      .bind(account.email, id)
+      .run();
+
+    return c.json({
+      success: true,
+      data: { deleted: true },
     });
   });
 

@@ -1,17 +1,13 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { LineChart } from 'react-native-wagmi-charts';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useHistoricalPrice, Timeframe } from '../../hooks/useHistoricalPrice';
 import {
-  ModernScreenHeader,
   PressScale,
-  SectionHeader,
   TokenIcon,
-  modern,
   useSafeScreenInsetStyle,
-  ExplorerLink,
 } from '@components/wallet';
 import type { AssetItem, BalanceItem } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
@@ -51,6 +47,18 @@ function formatCompact(value?: number | null) {
     maximumFractionDigits: 2,
     notation: 'compact',
   });
+}
+
+function getAssetExplorerUrl(asset: AssetItem | BalanceItem) {
+  const explorerNetwork = asset.network === 'mainnet' ? 'public' : 'testnet';
+
+  if (asset.isNative) {
+    return `https://stellar.expert/explorer/${explorerNetwork}/asset/XLM`;
+  }
+
+  return `https://stellar.expert/explorer/${explorerNetwork}/asset/${
+    asset.assetCode
+  }-${asset.assetIssuer || ''}`;
 }
 
 function makeFallbackAsset(
@@ -162,8 +170,18 @@ export function AssetDetailScreen({
     asset.assetCode,
     timeframe,
   );
+  const [favoriteNotice, setFavoriteNotice] = useState<string | null>(null);
 
   const needsTrustline = !asset.isNative && !asset.trusted;
+  const isFavorite = wallet.isFavoriteAsset(asset);
+  const explorerUrl = getAssetExplorerUrl(asset);
+  const assetNoticeKey = asset.isNative
+    ? `${asset.network}:native`
+    : `${asset.network}:${asset.assetCode}:${asset.assetIssuer || ''}`;
+
+  useEffect(() => {
+    setFavoriteNotice(null);
+  }, [assetNoticeKey]);
 
   const currentPrice = asset.priceUsd
     ? `$${asset.priceUsd.toPrecision(4)}`
@@ -184,6 +202,33 @@ export function AssetDetailScreen({
     priceChangeStr = `${isPositive ? '+' : ''}${change.toFixed(2)}%`;
   }
 
+  async function toggleFavorite() {
+    setFavoriteNotice(null);
+    const nextFavorite = await wallet.toggleFavoriteAsset(asset);
+
+    if (nextFavorite === true) {
+      setFavoriteNotice(`${asset.assetCode} added to favorites.`);
+    } else if (nextFavorite === false) {
+      setFavoriteNotice(`${asset.assetCode} removed from favorites.`);
+    } else {
+      setFavoriteNotice('Could not update favorite asset.');
+    }
+  }
+
+  async function shareAsset() {
+    const networkLabel =
+      asset.network === 'mainnet' ? 'Stellar Mainnet' : 'Stellar Testnet';
+    const issuerLabel = asset.isNative
+      ? 'Native Stellar asset'
+      : `Issuer: ${shortAddress(asset.assetIssuer || '')}`;
+
+    await Share.share({
+      message: `${asset.displayName} (${asset.assetCode})\n${networkLabel}\n${issuerLabel}\n${explorerUrl}`,
+      title: `${asset.assetCode} on Stellar`,
+      url: explorerUrl,
+    });
+  }
+
   return (
     <View
       style={[
@@ -197,10 +242,18 @@ export function AssetDetailScreen({
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </PressScale>
         <View style={styles.headerRight}>
-          <PressScale style={styles.headerIconBtn}>
-            <Ionicons name="star-outline" size={22} color="#FFFFFF" />
+          <PressScale
+            disabled={wallet.isBusy}
+            onPress={toggleFavorite}
+            style={styles.headerIconBtn}
+          >
+            <Ionicons
+              name={isFavorite ? 'star' : 'star-outline'}
+              size={22}
+              color={isFavorite ? '#FFD60A' : '#FFFFFF'}
+            />
           </PressScale>
-          <PressScale style={styles.headerIconBtn}>
+          <PressScale onPress={shareAsset} style={styles.headerIconBtn}>
             <Ionicons name="share-social-outline" size={22} color="#FFFFFF" />
           </PressScale>
         </View>
@@ -234,6 +287,9 @@ export function AssetDetailScreen({
             <Ionicons name={isPositive ? 'arrow-up' : 'arrow-down'} size={12} />{' '}
             {priceChangeStr}
           </Text>
+          {favoriteNotice ? (
+            <Text style={styles.favoriteNotice}>{favoriteNotice}</Text>
+          ) : null}
         </View>
 
         {/* Chart Section */}
@@ -352,6 +408,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     marginTop: 4,
+  },
+  favoriteNotice: {
+    color: '#A7B0BE',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 8,
   },
   chartContainer: {
     marginTop: 30,

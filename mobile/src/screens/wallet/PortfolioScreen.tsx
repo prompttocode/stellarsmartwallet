@@ -82,7 +82,11 @@ export function PortfolioScreen({
   const { showPopup } = useAppPopup();
   const { selectedCurrency, convertFromUSD, loading } = useCurrencyConfig();
 
-  const assets = getWalletAssets(wallet.balances, wallet.visibleAssets);
+  const assets = getWalletAssets(
+    wallet.balances,
+    wallet.visibleAssets,
+    wallet.favoriteAssets,
+  );
   const visibleCryptoAssets = showAllCryptoAssets
     ? assets
     : assets.slice(0, CRYPTO_PREVIEW_LIMIT);
@@ -357,6 +361,7 @@ export function PortfolioScreen({
                         asset={asset}
                         disabled={wallet.isBusy}
                         index={index}
+                        isFavorite={wallet.isFavoriteAsset(asset)}
                         key={`${asset.assetCode}:${
                           asset.assetIssuer || 'native'
                         }`}

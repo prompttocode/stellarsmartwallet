@@ -59,6 +59,40 @@ type RampNavigationPreset = {
   direction?: RampDirection;
 };
 
+const GLOBAL_LOADING_BUSY_EXACT = new Set([
+  'Verifying Privy code',
+  'Sign in with Google',
+  'Submitting KYC',
+  'Funding test XLM',
+  'Getting Testnet USDC',
+  'Claiming demo NFT',
+  'Creating receiver',
+  'Confirming test payment',
+  'Confirming test crypto receipt',
+  'Opening secure export',
+]);
+
+const GLOBAL_LOADING_BUSY_PREFIXES = [
+  'Creating Mainnet wallet',
+  'Creating Testnet wallet',
+  'Creating buy order',
+  'Creating sell order',
+  'Enabling ',
+  'Sending ',
+  'Swap ',
+];
+
+function shouldUseGlobalLoadingOverlay(busy: string | null) {
+  if (!busy) {
+    return false;
+  }
+
+  return (
+    GLOBAL_LOADING_BUSY_EXACT.has(busy) ||
+    GLOBAL_LOADING_BUSY_PREFIXES.some(prefix => busy.startsWith(prefix))
+  );
+}
+
 function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const [barWidth, setBarWidth] = useState(0);
   const tabWidth = barWidth > 0 ? barWidth / state.routes.length : 0;
@@ -273,11 +307,8 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
 
 export function WalletApp({ wallet }: { wallet: WalletState }) {
   const statusText = wallet.busy || 'Loading...';
-  const shouldKeepBusyLocal =
-    wallet.busy === 'Importing wallet' || wallet.busy === 'Adding watch-only wallet';
   const shouldShowLoadingOverlay =
-    wallet.isBusy &&
-    !shouldKeepBusyLocal &&
+    shouldUseGlobalLoadingOverlay(wallet.busy) &&
     !wallet.errorDialog &&
     !isRampOrderTerminal(wallet.activeRampOrder);
 
@@ -287,7 +318,7 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
         <View style={modern.screenFill}>
           <NavigationContainer>
             <Stack.Navigator
-              screenOptions={{ headerShown: false, animation: 'fade' }}
+              screenOptions={{ headerShown: false, animation: 'default' }}
             >
               <Stack.Screen name="MainTabs">
                 {props => <MainTabs {...props} wallet={wallet} />}
