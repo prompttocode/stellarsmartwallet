@@ -54,6 +54,7 @@ import type {
   WalletConnectConfig,
 } from '@app-types';
 import { formatTokenAmount, getErrorMessage, isEmailLike } from '@utils/format';
+import { cacheGet, cacheSet } from '@utils/localCache';
 import { isRampOrderTerminal } from '@utils/ramp';
 import {
   getAvailableAmount,
@@ -85,6 +86,8 @@ const RAMP_ORDER_STORAGE_PREFIX = 'privy-ramp-order';
 const SESSION_CACHE_STORAGE_PREFIX = 'privy-wallet-session-cache-v1';
 const SESSION_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const MARKET_PRICE_REFRESH_MS = 60_000;
+const ASSETS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const TRANSACTIONS_CACHE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_NETWORK: StellarNetwork = 'mainnet';
 const DEFAULT_KYC: KycSummary = { status: 'not_started' };
 const TRUSTLINE_ENABLE_TIMEOUT_MS = 30_000;
@@ -467,6 +470,17 @@ async function clearCachedSessions(userKey?: string | null) {
   }
 }
 
+function getAssetsCacheKey(targetNetwork: StellarNetwork) {
+  return `assets:${targetNetwork}`;
+}
+
+function getTransactionsCacheKey(
+  walletAddress: string,
+  targetNetwork: StellarNetwork,
+) {
+  return `transactions:${targetNetwork}:${walletAddress}`;
+}
+
 export function getBalanceForAsset(balances: BalanceItem[], assetCode: string) {
   return balances.find(balance => balance.assetCode === assetCode) || null;
 }
@@ -654,11 +668,38 @@ export function useWallet() {
       setAssetPricesUpdatedAt(
         nextAssets.some(hasMarketPrice) ? Date.now() : null,
       );
+      cacheSet(getAssetsCacheKey(network), nextAssets).catch(() => null);
       setRampProviders(rampResult.providers || []);
       setWalletConnectConfig(walletConnectResult);
     } catch (error) {
       setMessage(getErrorMessage(error));
     }
+  }, [network]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    cacheGet<AssetItem[]>(getAssetsCacheKey(network), ASSETS_CACHE_TTL_MS)
+      .then(cachedAssets => {
+        if (cancelled || !cachedAssets || cachedAssets.length === 0) {
+          return;
+        }
+
+        setAssets(current =>
+          current.length > 0
+            ? mergeAssetMarketData(cachedAssets, current)
+            : cachedAssets,
+        );
+
+        if (cachedAssets.some(hasMarketPrice)) {
+          setAssetPricesUpdatedAt(prev => prev ?? Date.now());
+        }
+      })
+      .catch(() => null);
+
+    return () => {
+      cancelled = true;
+    };
   }, [network]);
 
   useEffect(() => {
@@ -788,8 +829,14 @@ export function useWallet() {
       const result = await api<TransactionHistoryResponse>(
         `/api/stellar/${targetNetwork}/${address}/history`,
       );
+      const transactionList = result.transactions || [];
 
-      return result.transactions || [];
+      cacheSet(
+        getTransactionsCacheKey(address, targetNetwork),
+        transactionList,
+      ).catch(() => null);
+
+      return transactionList;
     },
     [network],
   );
@@ -872,6 +919,8 @@ export function useWallet() {
       if (receivedMarketPrices) {
         setAssetPricesUpdatedAt(Date.now());
       }
+
+      cacheSet(getAssetsCacheKey(network), nextAssets).catch(() => null);
 
       return nextAssets;
     } catch {
@@ -1032,6 +1081,25 @@ export function useWallet() {
     }
 
     let cancelled = false;
+
+    cacheGet<TransactionItem[]>(
+      getTransactionsCacheKey(address, network),
+      TRANSACTIONS_CACHE_TTL_MS,
+    )
+      .then(cachedTransactions => {
+        if (
+          cancelled ||
+          !cachedTransactions ||
+          cachedTransactions.length === 0
+        ) {
+          return;
+        }
+
+        setTransactions(current =>
+          current.length > 0 ? current : cachedTransactions,
+        );
+      })
+      .catch(() => null);
 
     fetchTransactionHistory(address, network)
       .then(nextTransactions => {
@@ -2548,10 +2616,22 @@ export function useWallet() {
   function upsertRampOrderHistory(order: RampOrder) {
     const reference = order.code || order.id;
 
-    setRampOrderHistory(current => [
-      order,
-      ...current.filter(item => (item.code || item.id) !== reference),
-    ]);
+    setRampOrderHistory(current => {
+      const existingIndex = current.findIndex(
+        item => (item.code || item.id) === reference,
+      );
+
+      if (existingIndex < 0) {
+        return [order, ...current];
+      }
+
+      const next = [...current];
+      next[existingIndex] = mergeRampOrderDetails(
+        next[existingIndex],
+        order,
+      );
+      return next;
+    });
   }
 
   async function refreshRampOrderHistory(options: { silent?: boolean } = {}) {
@@ -2874,7 +2954,6 @@ export function useWallet() {
 
   async function openRampOrder(order: RampOrder) {
     await persistRampOrder(order);
-    upsertRampOrderHistory(order);
 
     return order;
   }
@@ -3200,99 +3279,102 @@ export function useWallet() {
       return null;
     }
 
-    return run(`Sending ${order.asset_code}`, async () => {
-      requireFreshServerSession();
-      if (order.order_type !== 'sell') {
-        throw new Error('Only withdrawals require an on-chain transfer.');
-      }
-
-      if (isRampOrderTerminal(order)) {
-        throw new Error('This order is already closed.');
-      }
-
-      const destination = String(order.pay_data?.address || '').trim();
-
-      if (!destination) {
-        throw new Error(
-          'The payment service did not provide a deposit address.',
-        );
-      }
-
-      if (isMainnet) {
-        await requireBiometric(
-          `Confirm sending ${order.amount} ${order.asset_code} on Mainnet`,
-        );
-      }
-
-      const asset = visibleAssets.find(
-        item => item.assetCode === order.asset_code,
-      );
-      const headers = await getAuthHeaders(isMainnet);
-      const sendBody = {
-        accountId: account.id,
-        amount: String(order.amount),
-        assetCode: order.asset_code,
-        assetIssuer: asset?.assetIssuer || null,
-        clientSigningSupported: true,
-        destination,
-        email: account.email,
-        memo: order.code,
-        sourceAddress: wallet.address,
-        sourceWalletId: wallet.id,
-      };
-      let result = await api<SendResult>(`/api/stellar/${network}/send`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(sendBody),
-      });
-
-      if (result.requiresClientSignature) {
-        if (!isPrivyHash(result.hash)) {
-          throw new Error('Withdrawal transfer is missing a valid signing hash.');
+    return run(
+      `Sending ${order.asset_code}`,
+      async () => {
+        requireFreshServerSession();
+        if (order.order_type !== 'sell') {
+          throw new Error('Only withdrawals require an on-chain transfer.');
         }
 
-        if (!result.transactionXdr) {
-          throw new Error('Withdrawal transfer is missing the transaction XDR.');
+        if (isRampOrderTerminal(order)) {
+          throw new Error('This order is already closed.');
         }
 
-        const signedTransfer = await withTimeout(
-          signRawHash({
-            address: wallet.address,
-            chainType: 'stellar',
-            hash: result.hash,
-          }),
-          TRUSTLINE_SIGN_TIMEOUT_MS,
-          'Wallet signing timed out. Please try again.',
-        );
+        const destination = String(order.pay_data?.address || '').trim();
 
-        result = await api<SendResult>(`/api/stellar/${network}/send`, {
+        if (!destination) {
+          throw new Error(
+            'The payment service did not provide a deposit address.',
+          );
+        }
+
+        if (isMainnet) {
+          await requireBiometric(
+            `Confirm sending ${order.amount} ${order.asset_code} on Mainnet`,
+          );
+        }
+
+        const asset = visibleAssets.find(
+          item => item.assetCode === order.asset_code,
+        );
+        const headers = await getAuthHeaders(isMainnet);
+        const sendBody = {
+          accountId: account.id,
+          amount: String(order.amount),
+          assetCode: order.asset_code,
+          assetIssuer: asset?.assetIssuer || null,
+          clientSigningSupported: true,
+          destination,
+          email: account.email,
+          memo: order.code,
+          sourceAddress: wallet.address,
+          sourceWalletId: wallet.id,
+        };
+        let result = await api<SendResult>(`/api/stellar/${network}/send`, {
           method: 'POST',
           headers,
-          body: JSON.stringify({
-            ...sendBody,
-            clientSignature: signedTransfer.signature,
-            signingHash: result.hash,
-            transactionXdr: result.transactionXdr,
-          }),
+          body: JSON.stringify(sendBody),
         });
-      }
-      const nextOrder = {
-        ...order,
-        sell_transaction_hash: result.hash,
-      };
 
-      setBalances(result.sourceBalances);
-      setTransactions(result.transactions);
-      await persistRampOrder(nextOrder);
-      upsertRampOrderHistory(nextOrder);
-      setMessage(
-        `Sent ${formatTokenAmount(String(order.amount))} ${
-          order.asset_code
-        } for order ${order.code}.`,
-      );
+        if (result.requiresClientSignature) {
+          if (!isPrivyHash(result.hash)) {
+            throw new Error(
+              'Withdrawal transfer is missing a valid signing hash.',
+            );
+          }
 
-      return result;
-    });
+          if (!result.transactionXdr) {
+            throw new Error(
+              'Withdrawal transfer is missing the transaction XDR.',
+            );
+          }
+
+          const signedTransfer = await withTimeout(
+            signRawHash({
+              address: wallet.address,
+              chainType: 'stellar',
+              hash: result.hash,
+            }),
+            TRUSTLINE_SIGN_TIMEOUT_MS,
+            'Wallet signing timed out. Please try again.',
+          );
+
+          result = await api<SendResult>(`/api/stellar/${network}/send`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              ...sendBody,
+              clientSignature: signedTransfer.signature,
+              signingHash: result.hash,
+              transactionXdr: result.transactionXdr,
+            }),
+          });
+        }
+        const nextOrder = {
+          ...order,
+          sell_transaction_hash: result.hash,
+        };
+
+        setBalances(result.sourceBalances);
+        setTransactions(result.transactions);
+        await persistRampOrder(nextOrder);
+        upsertRampOrderHistory(nextOrder);
+
+        return result;
+      },
+      { showBusy: false },
+    );
   }
 
   async function clearRampOrder() {

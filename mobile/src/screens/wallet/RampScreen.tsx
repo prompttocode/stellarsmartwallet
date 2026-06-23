@@ -4,9 +4,11 @@ import {
   Modal,
   Pressable,
   ScrollView,
+  StyleProp,
   StyleSheet,
   Text,
   TextInput,
+  TextStyle,
   View,
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -72,6 +74,75 @@ function formatCountdown(expiredAt?: number | null) {
     : 'Expired';
 }
 
+function CopyableTransferLine({
+  label,
+  onPress,
+  value,
+  valueNumberOfLines = 1,
+  valueStyle,
+}: {
+  label: string;
+  onPress: () => void;
+  value: string;
+  valueNumberOfLines?: number;
+  valueStyle?: StyleProp<TextStyle>;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={`Copy ${label}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.transferCopyRow,
+        pressed ? styles.transferCopyRowPressed : null,
+      ]}
+    >
+      <Text style={styles.transferCopyLabel}>{label}</Text>
+      <Text
+        numberOfLines={valueNumberOfLines}
+        style={[styles.transferCopyValue, valueStyle]}
+      >
+        {value}
+      </Text>
+      <View style={styles.transferCopyIcon}>
+        <Ionicons color="#B8FF45" name="copy-outline" size={13} />
+      </View>
+    </Pressable>
+  );
+}
+
+function TransferPriorityCopyCard({
+  label,
+  onPress,
+  value,
+}: {
+  label: string;
+  onPress: () => void;
+  value: string;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={`Copy ${label}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.transferPriorityCard,
+        pressed ? styles.transferPriorityCardPressed : null,
+      ]}
+    >
+      <View style={styles.transferPriorityCopy}>
+        <Text style={styles.transferPriorityLabel}>{label}</Text>
+        <Text numberOfLines={2} style={styles.transferPriorityValue}>
+          {value}
+        </Text>
+      </View>
+      <View style={styles.transferPriorityCopyIcon}>
+        <Ionicons color="#101400" name="copy-outline" size={17} />
+      </View>
+    </Pressable>
+  );
+}
+
 export function RampScreen({
   onBack,
   onOpenKyc,
@@ -101,6 +172,7 @@ export function RampScreen({
   );
   const [amount, setAmount] = useState(route?.params?.amount || '10');
   const [quote, setQuote] = useState<RampQuote | null>(null);
+  const [quoteSheetVisible, setQuoteSheetVisible] = useState(false);
   const [bankId, setBankId] = useState('970422');
   const [bankPickerVisible, setBankPickerVisible] = useState(false);
   const [savedPaymentPickerVisible, setSavedPaymentPickerVisible] =
@@ -113,6 +185,7 @@ export function RampScreen({
   );
   const [, setClock] = useState(Date.now());
   const autoCreateAttemptedRef = useRef<string | null>(null);
+  const appliedDefaultPaymentMethodRef = useRef<string | null>(null);
   const rawOrder = wallet.activeRampOrder;
   const openedFromHistory = route?.params?.source === 'history';
   const rawOrderReference = rawOrder?.code || rawOrder?.id || '';
@@ -179,6 +252,10 @@ export function RampScreen({
   const filteredBanks = BANK_OPTIONS.filter(bank =>
     `${bank.name} ${bank.bin}`.toLowerCase().includes(normalizedBankSearch),
   );
+  const defaultPaymentMethod = useMemo(
+    () => wallet.paymentMethods.find(method => method.isDefault) || null,
+    [wallet.paymentMethods],
+  );
 
   function closeBankPicker() {
     setBankPickerVisible(false);
@@ -189,13 +266,50 @@ export function RampScreen({
     setSavedPaymentPickerVisible(false);
   }
 
+  function clearQuote() {
+    setQuote(null);
+    setQuoteSheetVisible(false);
+  }
+
   function applyPaymentMethod(method: RampPaymentMethod) {
+    appliedDefaultPaymentMethodRef.current = method.id;
     setBankId(method.bankId);
     setFullName(method.fullName);
     setAccountNumber(method.accountNumber);
-    setQuote(null);
+    clearQuote();
     closeSavedPaymentPicker();
   }
+
+  useEffect(() => {
+    if (direction !== 'sell' || order || !defaultPaymentMethod) {
+      return;
+    }
+
+    if (appliedDefaultPaymentMethodRef.current === defaultPaymentMethod.id) {
+      return;
+    }
+
+    if (fullName.trim() || accountNumber.trim()) {
+      return;
+    }
+
+    if (bankId !== '970422' && bankId !== defaultPaymentMethod.bankId) {
+      return;
+    }
+
+    appliedDefaultPaymentMethodRef.current = defaultPaymentMethod.id;
+    setBankId(defaultPaymentMethod.bankId);
+    setFullName(defaultPaymentMethod.fullName);
+    setAccountNumber(defaultPaymentMethod.accountNumber);
+    clearQuote();
+  }, [
+    accountNumber,
+    bankId,
+    defaultPaymentMethod,
+    direction,
+    fullName,
+    order,
+  ]);
 
   useEffect(() => {
     refreshRampOrderRef.current = wallet.refreshRampOrder;
@@ -221,7 +335,7 @@ export function RampScreen({
         setAmount(route.params.amount);
       }
 
-      setQuote(null);
+      clearQuote();
     }
   }, [
     order,
@@ -271,7 +385,7 @@ export function RampScreen({
       setDirection(next.direction);
     }
 
-    setQuote(null);
+    clearQuote();
   }
 
   async function loadQuote() {
@@ -292,6 +406,9 @@ export function RampScreen({
 
     if (result) {
       setQuote(result);
+      if (direction === 'sell') {
+        setQuoteSheetVisible(true);
+      }
     }
   }
 
@@ -326,7 +443,17 @@ export function RampScreen({
     });
 
     if (result) {
-      setQuote(null);
+      clearQuote();
+
+      if (
+        orderDirection === 'sell' &&
+        result.pay_data?.address &&
+        !result.sell_transaction_hash &&
+        !result.transaction_hash &&
+        !isRampOrderTerminal(result)
+      ) {
+        await wallet.sendRampOrderPayment(result);
+      }
     }
   }
 
@@ -574,78 +701,74 @@ export function RampScreen({
 
           {!isSell ? (
             <View style={modern.sectionCard}>
-              <SectionHeader title="Transfer VND" />
-              <Text style={modern.emptyModernText}>
-                Transfer the exact amount with the exact content before the
-                countdown expires.
+              <SectionHeader
+                action={
+                  order.body?.qr_link ? (
+                    <PressScale
+                      onPress={() =>
+                        savePaymentQr(order.body?.qr_link, order.code)
+                      }
+                      style={styles.saveQrInlineButton}
+                    >
+                      <Ionicons
+                        color="#B8FF45"
+                        name="download-outline"
+                        size={14}
+                      />
+                      <Text style={styles.saveQrInlineText}>Save QR</Text>
+                    </PressScale>
+                  ) : null
+                }
+                title="Transfer VND"
+              />
+              <Text style={styles.transferExactHint}>
+                Transfer exact amount and content before the countdown expires.
               </Text>
               {order.body?.qr_link ? (
-                <>
-                  <View style={styles.remoteQrCard}>
-                    <Image
-                      resizeMode="contain"
-                      source={{ uri: order.body.qr_link }}
-                      style={styles.remoteQr}
-                    />
-                  </View>
-                  <PressScale
-                    onPress={() =>
-                      savePaymentQr(order.body?.qr_link, order.code)
-                    }
-                    style={[
-                      modern.secondaryModernButton,
-                      styles.qrActionButton,
-                    ]}
-                  >
-                    <Ionicons
-                      color="#FFFFFF"
-                      name="download-outline"
-                      size={18}
-                    />
-                    <Text
-                      style={[
-                        modern.modernButtonText,
-                        modern.secondaryModernButtonText,
-                      ]}
-                    >
-                      Save QR
-                    </Text>
-                  </PressScale>
-                </>
+                <View style={styles.remoteQrCard}>
+                  <Image
+                    resizeMode="contain"
+                    source={{ uri: order.body.qr_link }}
+                    style={styles.remoteQr}
+                  />
+                </View>
               ) : null}
-              <View style={modern.reviewModernBox}>
-                <ModernInfoLine
+              <View style={styles.transferPriorityStack}>
+                <TransferPriorityCopyCard
                   label="Amount"
                   onPress={() => copyTransferValue('Amount', transferAmount)}
                   value={transferAmount}
                 />
-                <ModernInfoLine
-                  label="Bank"
-                  onPress={() => copyTransferValue('Bank', transferBankName)}
-                  valueNumberOfLines={2}
-                  valueStyle={styles.bankTransferValue}
-                  value={transferBankName}
-                />
-                <ModernInfoLine
-                  label="Account name"
-                  onPress={() =>
-                    copyTransferValue('Account name', transferAccountName)
-                  }
-                  value={transferAccountName}
-                />
-                <ModernInfoLine
+                <TransferPriorityCopyCard
                   label="Account number"
                   onPress={() =>
                     copyTransferValue('Account number', transferAccountNumber)
                   }
                   value={transferAccountNumber}
                 />
-                <ModernInfoLine
+                <TransferPriorityCopyCard
                   label="Transfer content"
                   onPress={() =>
                     copyTransferValue('Transfer content', transferContent)
                   }
                   value={transferContent}
+                />
+              </View>
+              <View style={styles.transferDetailsBox}>
+                <Text style={styles.transferDetailsTitle}>Bank details</Text>
+                <CopyableTransferLine
+                  label="Bank"
+                  onPress={() => copyTransferValue('Bank', transferBankName)}
+                  valueNumberOfLines={2}
+                  value={transferBankName}
+                />
+                <CopyableTransferLine
+                  label="Account name"
+                  onPress={() =>
+                    copyTransferValue('Account name', transferAccountName)
+                  }
+                  valueNumberOfLines={2}
+                  value={transferAccountName}
                 />
               </View>
               {canBypassTestPayment ? (
@@ -680,8 +803,8 @@ export function RampScreen({
             <View style={modern.sectionCard}>
               <SectionHeader title="Complete withdrawal" />
               <Text style={modern.emptyModernText}>
-                Send the exact crypto amount below to receive VND in your bank
-                account. The Stellar memo must match the payment code.
+                The app opens the crypto signing step automatically after this
+                withdrawal order is created.
               </Text>
               <View style={modern.reviewModernBox}>
                 <ModernInfoLine
@@ -737,34 +860,11 @@ export function RampScreen({
                   </PressScale>
                 </View>
               ) : null}
-              <PressScale
-                disabled={
-                  wallet.isBusy ||
-                  terminal ||
-                  Boolean(order.sell_transaction_hash) ||
-                  !order.pay_data?.address
-                }
-                onPress={() => wallet.sendRampOrderPayment(order)}
-                style={modern.primaryModernButton}
-              >
-                <Text style={modern.modernButtonText}>
-                  {order.sell_transaction_hash
-                    ? 'Crypto transfer submitted'
-                    : wallet.isMainnet
-                    ? 'Send crypto now'
-                    : 'Send crypto now'}
-                </Text>
-              </PressScale>
             </View>
           )}
 
           <View style={modern.sectionCard}>
             <SectionHeader title="Order actions" />
-            <View style={modern.walletButtons}>
-              {explorerUrl ? (
-                <ExplorerLink onPress={() => wallet.openUrl(explorerUrl)} />
-              ) : null}
-            </View>
             {canCancelOrder ? (
               <PressScale
                 disabled={wallet.isBusy}
@@ -800,6 +900,11 @@ export function RampScreen({
                   Crypto transfer submitted. This order can no longer be
                   cancelled in the app.
                 </Text>
+              </View>
+            ) : null}
+            {explorerUrl ? (
+              <View style={styles.orderExplorerWrap}>
+                <ExplorerLink onPress={() => wallet.openUrl(explorerUrl)} />
               </View>
             ) : null}
           </View>
@@ -914,6 +1019,20 @@ export function RampScreen({
     Boolean(wallet.wallet) &&
     (direction === 'buy' || wallet.walletCanSign);
 
+  function handlePrimaryRampAction() {
+    if (!quote) {
+      loadQuote().catch(() => null);
+      return;
+    }
+
+    if (direction === 'sell') {
+      setQuoteSheetVisible(true);
+      return;
+    }
+
+    createOrder().catch(() => null);
+  }
+
   return (
     <>
       <ScrollView
@@ -994,7 +1113,7 @@ export function RampScreen({
             keyboardType="decimal-pad"
             onChangeText={value => {
               setAmount(value);
-              setQuote(null);
+              clearQuote();
             }}
             placeholder="Crypto amount"
             placeholderTextColor="#A7B3BA"
@@ -1077,7 +1196,7 @@ export function RampScreen({
                 autoCapitalize="characters"
                 onChangeText={value => {
                   setFullName(value);
-                  setQuote(null);
+                  clearQuote();
                 }}
                 placeholder="Account holder name without accents"
                 placeholderTextColor="#A7B3BA"
@@ -1088,7 +1207,7 @@ export function RampScreen({
                 keyboardType="number-pad"
                 onChangeText={value => {
                   setAccountNumber(value.replace(/\D/g, ''));
-                  setQuote(null);
+                  clearQuote();
                 }}
                 placeholder="Account number"
                 placeholderTextColor="#A7B3BA"
@@ -1102,7 +1221,7 @@ export function RampScreen({
             </>
           ) : null}
 
-          {quote ? (
+          {quote && direction === 'buy' ? (
             <View style={styles.quoteCard}>
               <Text style={styles.quoteEyebrow}>
                 {direction === 'buy' ? 'ESTIMATED PAYMENT' : 'ESTIMATED PAYOUT'}
@@ -1120,22 +1239,9 @@ export function RampScreen({
               />
               <ModernInfoLine label="Fee" value={formatVnd(quote.fee_vnd)} />
               <ModernInfoLine
-                label={
-                  direction === 'buy' ? 'You transfer' : 'Estimated payout'
-                }
+                label="You transfer"
                 value={formatVnd(quote.total_vnd)}
               />
-              {direction === 'sell' &&
-              quote.gross_vnd > 0 &&
-              quote.fee_vnd / quote.gross_vnd >= 0.5 ? (
-                <View style={styles.feeWarning}>
-                  <Ionicons color="#A25C00" name="warning-outline" size={18} />
-                  <Text style={styles.feeWarningText}>
-                    The fee uses a large part of this withdrawal. Increase the
-                    crypto amount for a better payout.
-                  </Text>
-                </View>
-              ) : null}
               <Text style={modern.reviewModernText}>
                 Final values come from the order response. This quote may
                 change.
@@ -1160,7 +1266,7 @@ export function RampScreen({
               !validSellForm ||
               (Boolean(quote) && !canCreate)
             }
-            onPress={quote ? createOrder : loadQuote}
+            onPress={handlePrimaryRampAction}
             style={modern.primaryModernButton}
           >
             <Text style={modern.modernButtonText}>
@@ -1170,7 +1276,7 @@ export function RampScreen({
                   : canCreate
                   ? direction === 'buy'
                     ? 'Create buy order'
-                    : 'Create withdrawal'
+                    : 'Review VND quote'
                   : exceedsWithdrawAvailable
                   ? 'Amount exceeds available balance'
                   : rampPayoutTooSmall ||
@@ -1184,6 +1290,148 @@ export function RampScreen({
           </PressScale>
         </View>
       </ScrollView>
+
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setQuoteSheetVisible(false)}
+        presentationStyle="overFullScreen"
+        statusBarTranslucent
+        transparent
+        visible={quoteSheetVisible && direction === 'sell' && Boolean(quote)}
+      >
+        <View style={modern.swapConfirmOverlay}>
+          <Pressable
+            onPress={() => setQuoteSheetVisible(false)}
+            style={modern.swapConfirmBackdrop}
+          />
+          <View style={[modern.swapConfirmSheet, styles.quoteSheet]}>
+            <View style={modern.swapConfirmHandle} />
+            <View style={modern.swapConfirmHeader}>
+              <Text style={modern.swapConfirmTitle}>Confirm withdrawal</Text>
+              <View style={modern.swapConfirmCloseSlot}>
+                <PressScale
+                  onPress={() => setQuoteSheetVisible(false)}
+                  style={modern.swapConfirmClose}
+                >
+                  <Ionicons color="#FFFFFF" name="close" size={18} />
+                </PressScale>
+              </View>
+            </View>
+
+            {quote ? (
+              <>
+                <View style={modern.swapConfirmAmounts}>
+                  <Text
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.72}
+                    numberOfLines={1}
+                    style={modern.swapConfirmAmount}
+                  >
+                    {formatTokenAmount(
+                      amountValidation.valid ? amountValidation.normalized : amount,
+                    )}
+                  </Text>
+                  <View style={modern.swapConfirmTokenBadge}>
+                    <TokenIcon
+                      assetCode={assetCode}
+                      imageUrl={selectedAsset?.image}
+                      size={14}
+                    />
+                    <Text style={modern.swapConfirmTokenText}>{assetCode}</Text>
+                  </View>
+
+                  <View style={modern.swapConfirmArrowCircle}>
+                    <Ionicons color="#B8FF45" name="arrow-down" size={22} />
+                  </View>
+
+                  <Text
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.72}
+                    numberOfLines={1}
+                    style={modern.swapConfirmReceiveAmount}
+                  >
+                    {formatVnd(quote.total_vnd)}
+                  </Text>
+                  <View style={modern.swapConfirmTokenBadge}>
+                    <Text style={modern.swapConfirmTokenText}>VND PAYOUT</Text>
+                  </View>
+                </View>
+
+                <View style={modern.swapConfirmDetails}>
+                  <View style={modern.swapConfirmDetailRow}>
+                    <Text style={modern.swapConfirmDetailLabel}>Rate</Text>
+                    <Text style={modern.swapConfirmDetailValue}>
+                      {formatVnd(quote.rate)} / {quote.asset_code}
+                    </Text>
+                  </View>
+                  <View style={modern.swapConfirmDetailRow}>
+                    <Text style={modern.swapConfirmDetailLabel}>Gross</Text>
+                    <Text style={modern.swapConfirmDetailValue}>
+                      {formatVnd(quote.gross_vnd)}
+                    </Text>
+                  </View>
+                  <View style={modern.swapConfirmDetailRow}>
+                    <Text style={modern.swapConfirmDetailLabel}>Fee</Text>
+                    <Text style={modern.swapConfirmDetailValue}>
+                      {formatVnd(quote.fee_vnd)}
+                    </Text>
+                  </View>
+                  <View style={modern.swapConfirmDetailRow}>
+                    <Text style={modern.swapConfirmDetailLabel}>Bank</Text>
+                    <Text style={modern.swapConfirmDetailValue}>
+                      {selectedBank.name}
+                    </Text>
+                  </View>
+                  <View style={modern.swapConfirmDetailRow}>
+                    <Text style={modern.swapConfirmDetailLabel}>Account</Text>
+                    <Text style={modern.swapConfirmDetailValue}>
+                      {paymentInfo.accountNumber}
+                    </Text>
+                  </View>
+                  <View style={modern.swapConfirmDetailRow}>
+                    <Text style={modern.swapConfirmDetailLabel}>Name</Text>
+                    <Text style={modern.swapConfirmDetailValue}>
+                      {paymentInfo.fullName}
+                    </Text>
+                  </View>
+                </View>
+
+                {quote.gross_vnd > 0 && quote.fee_vnd / quote.gross_vnd >= 0.5 ? (
+                  <View style={styles.feeWarning}>
+                    <Ionicons color="#A25C00" name="warning-outline" size={18} />
+                    <Text style={styles.feeWarningText}>
+                      The fee uses a large part of this withdrawal. Increase the
+                      crypto amount for a better payout.
+                    </Text>
+                  </View>
+                ) : null}
+
+                {rampAmountWarning ? (
+                  <View style={styles.feeWarning}>
+                    <Ionicons color="#A25C00" name="warning-outline" size={18} />
+                    <Text style={styles.feeWarningText}>{rampAmountWarning}</Text>
+                  </View>
+                ) : null}
+
+                <Text style={modern.swapConfirmNote}>
+                  Final values come from the order response. After you confirm,
+                  the app opens the crypto signing step automatically.
+                </Text>
+
+                <PressScale
+                  disabled={wallet.isBusy || !canCreate}
+                  onPress={createOrder}
+                  style={modern.swapConfirmButton}
+                >
+                  <Text style={modern.swapConfirmButtonText}>
+                    {wallet.isBusy ? 'CREATING...' : 'CREATE WITHDRAWAL'}
+                  </Text>
+                </PressScale>
+              </>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         animationType="slide"
@@ -1251,7 +1499,7 @@ export function RampScreen({
                     key={bank.bin}
                     onPress={() => {
                       setBankId(bank.bin);
-                      setQuote(null);
+                      clearQuote();
                       closeBankPicker();
                     }}
                     style={({ pressed }) => [
@@ -1532,12 +1780,133 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
     borderColor: '#0ABF73',
   },
-  bankTransferValue: {
+  transferDetailsBox: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 6,
+    padding: 9,
+  },
+  transferDetailsTitle: {
+    color: '#8A9099',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    paddingHorizontal: 6,
+    paddingTop: 2,
+    textTransform: 'uppercase',
+  },
+  transferExactHint: {
+    color: '#B8FF45',
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
+    textAlign: 'center',
+  },
+  transferPriorityStack: {
+    gap: 7,
+  },
+  transferPriorityCard: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(184,255,69,0.09)',
+    borderColor: 'rgba(184,255,69,0.22)',
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    minHeight: 58,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  transferPriorityCardPressed: {
+    opacity: 0.76,
+  },
+  transferPriorityCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  transferPriorityLabel: {
+    color: '#A1B0C8',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+    marginBottom: 3,
+    textTransform: 'uppercase',
+  },
+  transferPriorityValue: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '900',
+    letterSpacing: -0.2,
+    lineHeight: 21,
+  },
+  transferPriorityCopyIcon: {
+    alignItems: 'center',
+    backgroundColor: '#B8FF45',
+    borderRadius: 15,
+    height: 30,
+    justifyContent: 'center',
+    shadowColor: '#B8FF45',
+    shadowOpacity: 0.18,
+    shadowRadius: 7,
+    width: 30,
+  },
+  transferCopyRow: {
+    alignItems: 'center',
+    borderRadius: 13,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 38,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+  },
+  transferCopyRowPressed: {
+    backgroundColor: 'rgba(184,255,69,0.08)',
+  },
+  transferCopyLabel: {
+    color: '#A1B0C8',
+    flexShrink: 0,
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.25,
+    minWidth: 82,
+    textTransform: 'uppercase',
+  },
+  transferCopyValue: {
+    color: '#FFFFFF',
     flex: 1,
     fontSize: 11,
+    fontWeight: '900',
     lineHeight: 15,
-    marginLeft: 12,
+    minWidth: 0,
     textAlign: 'right',
+  },
+  transferCopyIcon: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(184,255,69,0.14)',
+    borderColor: 'rgba(184,255,69,0.22)',
+    borderRadius: 12,
+    borderWidth: 1,
+    height: 24,
+    justifyContent: 'center',
+    width: 24,
+  },
+  saveQrInlineButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(184,255,69,0.1)',
+    borderColor: 'rgba(184,255,69,0.2)',
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  saveQrInlineText: {
+    color: '#B8FF45',
+    fontSize: 11,
+    fontWeight: '900',
   },
   bankSearchBox: {
     alignItems: 'center',
@@ -1699,6 +2068,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 17,
   },
+  orderExplorerWrap: {
+    alignItems: 'center',
+    paddingTop: 4,
+  },
   quoteAmount: {
     color: '#FFFFFF',
     fontSize: 30,
@@ -1718,11 +2091,8 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: 0.8,
   },
-  qrActionButton: {
-    flex: 0,
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
+  quoteSheet: {
+    paddingBottom: 28,
   },
   resultActions: {
     gap: 10,
