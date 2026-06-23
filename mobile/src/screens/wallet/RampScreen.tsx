@@ -30,6 +30,7 @@ import {
 import type {
   RampAssetCode,
   RampDirection,
+  RampOrder,
   RampPaymentInfo,
   RampPaymentMethod,
   RampQuote,
@@ -46,6 +47,18 @@ import { formatTokenAmount, shortAddress } from '@utils/format';
 import { validateStellarAmount } from '@utils/walletValidation';
 
 const MIN_RAMP_PAYOUT_VND = 2000;
+const WITHDRAW_AUTO_SEND_DELAY_MS = 10000;
+
+function hasSubmittedWithdrawCrypto(order?: RampOrder | null) {
+  return Boolean(
+    order &&
+      order.order_type === 'sell' &&
+      (order.sell_transaction_hash ||
+        order.transaction_hash ||
+        Number(order.processing_state) === 14 ||
+        Number(order.processing_state) === 16),
+  );
+}
 
 function formatVnd(value: number | string | undefined) {
   const amount = Number(value || 0);
@@ -173,6 +186,14 @@ export function RampScreen({
   const [amount, setAmount] = useState(route?.params?.amount || '10');
   const [quote, setQuote] = useState<RampQuote | null>(null);
   const [quoteSheetVisible, setQuoteSheetVisible] = useState(false);
+  const [orderQueueVisible, setOrderQueueVisible] = useState(false);
+  const [orderOpenedFromQueue, setOrderOpenedFromQueue] = useState(false);
+  const [withdrawAutoSendDeadline, setWithdrawAutoSendDeadline] = useState<
+    number | null
+  >(null);
+  const [withdrawAutoSendReference, setWithdrawAutoSendReference] = useState<
+    string | null
+  >(null);
   const [bankId, setBankId] = useState('970422');
   const [bankPickerVisible, setBankPickerVisible] = useState(false);
   const [savedPaymentPickerVisible, setSavedPaymentPickerVisible] =
@@ -183,26 +204,31 @@ export function RampScreen({
   const [dismissedResultKey, setDismissedResultKey] = useState<string | null>(
     null,
   );
-  const [, setClock] = useState(Date.now());
+  const [clock, setClock] = useState(Date.now());
   const autoCreateAttemptedRef = useRef<string | null>(null);
   const appliedDefaultPaymentMethodRef = useRef<string | null>(null);
+  const withdrawAutoSendStartedRef = useRef<string | null>(null);
   const rawOrder = wallet.activeRampOrder;
   const openedFromHistory = route?.params?.source === 'history';
   const rawOrderReference = rawOrder?.code || rawOrder?.id || '';
-  const ignoredInitialClosedOrderRef = useRef<string | null>(
+  const routeWantsNewOrder =
     !openedFromHistory &&
-      Boolean(route?.params?.direction) &&
-      isRampOrderTerminal(rawOrder)
-      ? rawOrderReference
-      : null,
+    Boolean(
+      route?.params?.amount ||
+        route?.params?.assetCode ||
+        route?.params?.autoCreate ||
+        route?.params?.direction,
+    );
+  const ignoredInitialClosedOrderRef = useRef<string | null>(
+    routeWantsNewOrder ? rawOrderReference || null : null,
   );
   const ignoringInitialClosedOrder = Boolean(
     ignoredInitialClosedOrderRef.current &&
-      rawOrderReference === ignoredInitialClosedOrderRef.current &&
-      isRampOrderTerminal(rawOrder),
+      rawOrderReference === ignoredInitialClosedOrderRef.current,
   );
   const order = ignoringInitialClosedOrder ? null : rawOrder;
   const refreshRampOrderRef = useRef(wallet.refreshRampOrder);
+  const sendRampOrderPaymentRef = useRef(wallet.sendRampOrderPayment);
   const orderReference = order?.code || order?.id || '';
   const terminal = isRampOrderTerminal(order);
   const resultKey =
@@ -255,6 +281,18 @@ export function RampScreen({
   const defaultPaymentMethod = useMemo(
     () => wallet.paymentMethods.find(method => method.isDefault) || null,
     [wallet.paymentMethods],
+  );
+  const pendingRampOrders = useMemo(
+    () => wallet.rampOrderHistory.filter(item => !isRampOrderTerminal(item)),
+    [wallet.rampOrderHistory],
+  );
+  const pendingRampOrderReferences = useMemo(
+    () =>
+      pendingRampOrders
+        .map(item => item.code || item.id)
+        .filter(Boolean)
+        .join('|'),
+    [pendingRampOrders],
   );
 
   function closeBankPicker() {
@@ -316,6 +354,10 @@ export function RampScreen({
   }, [wallet.refreshRampOrder]);
 
   useEffect(() => {
+    sendRampOrderPaymentRef.current = wallet.sendRampOrderPayment;
+  }, [wallet.sendRampOrderPayment]);
+
+  useEffect(() => {
     if (ignoringInitialClosedOrder) {
       wallet.clearRampOrder().catch(() => null);
     }
@@ -351,6 +393,45 @@ export function RampScreen({
   }, []);
 
   useEffect(() => {
+    if (
+      !order ||
+      !withdrawAutoSendDeadline ||
+      !withdrawAutoSendReference ||
+      orderReference !== withdrawAutoSendReference
+    ) {
+      return;
+    }
+
+    if (terminal || hasSubmittedWithdrawCrypto(order)) {
+      setWithdrawAutoSendDeadline(null);
+      setWithdrawAutoSendReference(null);
+      withdrawAutoSendStartedRef.current = null;
+      return;
+    }
+
+    if (
+      clock < withdrawAutoSendDeadline ||
+      withdrawAutoSendStartedRef.current === withdrawAutoSendReference
+    ) {
+      return;
+    }
+
+    withdrawAutoSendStartedRef.current = withdrawAutoSendReference;
+    sendRampOrderPaymentRef.current(order).finally(() => {
+      setWithdrawAutoSendDeadline(null);
+      setWithdrawAutoSendReference(null);
+      withdrawAutoSendStartedRef.current = null;
+    });
+  }, [
+    clock,
+    order,
+    orderReference,
+    terminal,
+    withdrawAutoSendDeadline,
+    withdrawAutoSendReference,
+  ]);
+
+  useEffect(() => {
     if (!orderReference || terminal) {
       return;
     }
@@ -362,6 +443,33 @@ export function RampScreen({
 
     return () => clearInterval(timer);
   }, [orderReference, terminal]);
+
+  useEffect(() => {
+    if (order || pendingRampOrders.length === 0) {
+      return;
+    }
+
+    const refreshPendingOrders = () => {
+      pendingRampOrders.forEach(pendingOrder => {
+        const pendingReference = pendingOrder.code || pendingOrder.id;
+
+        if (!pendingReference) {
+          return;
+        }
+
+        refreshRampOrderRef.current(pendingReference, {
+          baseOrder: pendingOrder,
+          silent: true,
+          updateActive: false,
+        });
+      });
+    };
+
+    refreshPendingOrders();
+    const timer = setInterval(refreshPendingOrders, 5000);
+
+    return () => clearInterval(timer);
+  }, [order, pendingRampOrderReferences, pendingRampOrders]);
 
   const paymentInfo = useMemo<RampPaymentInfo>(
     () => ({
@@ -386,6 +494,101 @@ export function RampScreen({
     }
 
     clearQuote();
+  }
+
+  function clearWithdrawAutoSend() {
+    setWithdrawAutoSendDeadline(null);
+    setWithdrawAutoSendReference(null);
+    withdrawAutoSendStartedRef.current = null;
+  }
+
+  function scheduleWithdrawAutoSend(nextOrder: RampOrder) {
+    const nextReference = nextOrder.code || nextOrder.id;
+
+    if (!nextReference) {
+      return;
+    }
+
+    withdrawAutoSendStartedRef.current = null;
+    setWithdrawAutoSendReference(nextReference);
+    setWithdrawAutoSendDeadline(Date.now() + WITHDRAW_AUTO_SEND_DELAY_MS);
+  }
+
+  function createAnotherOrder() {
+    clearQuote();
+    setOrderOpenedFromQueue(false);
+    setOrderQueueVisible(false);
+    wallet.clearRampOrder().catch(() => null);
+  }
+
+  function openPendingOrder(pendingOrder: RampOrder) {
+    setOrderOpenedFromQueue(true);
+    setOrderQueueVisible(false);
+    wallet.openRampOrder(pendingOrder).catch(() => null);
+  }
+
+  function closeOrderDetail() {
+    if (orderOpenedFromQueue) {
+      setOrderOpenedFromQueue(false);
+      setOrderQueueVisible(true);
+      wallet.clearRampOrder().catch(() => null);
+      return;
+    }
+
+    onBack();
+  }
+
+  async function cancelCurrentOrder(currentReference: string) {
+    clearWithdrawAutoSend();
+    await wallet.cancelRampOrder(currentReference);
+  }
+
+  function renderPendingOrderRow(pendingOrder: RampOrder) {
+    const pendingReference = pendingOrder.code || pendingOrder.id || '';
+    const pendingExpiredAt = rampTimestampToMs(pendingOrder.expired_at);
+
+    return (
+      <Pressable
+        accessibilityRole="button"
+        key={`${pendingReference}:${pendingOrder.state}:${pendingOrder.processing_state}`}
+        onPress={() => openPendingOrder(pendingOrder)}
+        style={({ pressed }) => [
+          styles.pendingOrderRow,
+          pressed ? styles.pendingOrderRowPressed : null,
+        ]}
+      >
+        <View style={styles.pendingOrderIcon}>
+          <Ionicons
+            color="#B8FF45"
+            name={
+              pendingOrder.order_type === 'sell'
+                ? 'arrow-up-outline'
+                : 'arrow-down-outline'
+            }
+            size={18}
+          />
+        </View>
+        <View style={styles.pendingOrderBody}>
+          <Text style={styles.pendingOrderTitle}>
+            {pendingOrder.order_type === 'sell' ? 'Withdraw' : 'Buy'}{' '}
+            {formatTokenAmount(String(pendingOrder.amount))}{' '}
+            {pendingOrder.asset_code}
+          </Text>
+          <Text numberOfLines={1} style={styles.pendingOrderMeta}>
+            {pendingOrder.code || pendingOrder.id} ·{' '}
+            {pendingExpiredAt
+              ? formatCountdown(pendingExpiredAt)
+              : 'No expiry supplied'}
+          </Text>
+        </View>
+        <View style={styles.pendingOrderRight}>
+          <Text numberOfLines={1} style={styles.pendingOrderStatus}>
+            {getRampOrderStatus(pendingOrder)}
+          </Text>
+          <Ionicons color="#8A9099" name="chevron-forward" size={17} />
+        </View>
+      </Pressable>
+    );
   }
 
   async function loadQuote() {
@@ -452,7 +655,9 @@ export function RampScreen({
         !result.transaction_hash &&
         !isRampOrderTerminal(result)
       ) {
-        await wallet.sendRampOrderPayment(result);
+        scheduleWithdrawAutoSend(result);
+      } else {
+        clearWithdrawAutoSend();
       }
     }
   }
@@ -600,9 +805,7 @@ export function RampScreen({
     const canBypassTestSellPayment =
       !wallet.isMainnet &&
       isSell &&
-      Number(order.state) === 1 &&
-      Number(order.processing_state) === 10 &&
-      !order.sell_transaction_hash;
+      !terminal;
     const expiredAt = rampTimestampToMs(order.expired_at);
     const transactionHash =
       order.sell_transaction_hash || order.transaction_hash || '';
@@ -621,12 +824,23 @@ export function RampScreen({
       RAMP_PROCESSING_LABELS[Number(order.processing_state)] ||
       'Waiting for provider';
     const orderAction = isSell ? 'Withdraw' : 'Buy';
-    const cryptoTransferSubmitted =
-      isSell &&
-      (Boolean(order.sell_transaction_hash || order.transaction_hash) ||
-        Number(order.processing_state) === 14 ||
-        Number(order.processing_state) === 16);
+    const cryptoTransferSubmitted = hasSubmittedWithdrawCrypto(order);
     const canCancelOrder = !terminal && !cryptoTransferSubmitted;
+    const waitingForAutoSend =
+      canCancelOrder &&
+      isSell &&
+      withdrawAutoSendReference === orderReference &&
+      Boolean(withdrawAutoSendDeadline) &&
+      withdrawAutoSendStartedRef.current !== orderReference;
+    const autoSendSecondsRemaining =
+      waitingForAutoSend && withdrawAutoSendDeadline
+        ? Math.max(0, Math.ceil((withdrawAutoSendDeadline - clock) / 1000))
+        : 0;
+    const autoSendInProgress =
+      canCancelOrder &&
+      isSell &&
+      withdrawAutoSendReference === orderReference &&
+      withdrawAutoSendStartedRef.current === orderReference;
 
     return (
       <View style={styles.orderScreen}>
@@ -636,7 +850,7 @@ export function RampScreen({
           showsVerticalScrollIndicator={false}
         >
           <ModernScreenHeader
-            onBack={onBack}
+            onBack={waitingForAutoSend ? undefined : closeOrderDetail}
             subtitle={`${wallet.isMainnet ? 'Mainnet' : 'Testnet'} · ${
               isSell ? 'Withdraw to bank' : 'Buy with VND'
             } ${order.asset_code}`}
@@ -803,8 +1017,9 @@ export function RampScreen({
             <View style={modern.sectionCard}>
               <SectionHeader title="Complete withdrawal" />
               <Text style={modern.emptyModernText}>
-                The app opens the crypto signing step automatically after this
-                withdrawal order is created.
+                {waitingForAutoSend
+                  ? `Crypto will be sent automatically in ${autoSendSecondsRemaining}s unless you cancel this order.`
+                  : 'The app opens the crypto signing step automatically after this withdrawal order is created.'}
               </Text>
               <View style={modern.reviewModernBox}>
                 <ModernInfoLine
@@ -865,43 +1080,54 @@ export function RampScreen({
 
           <View style={modern.sectionCard}>
             <SectionHeader title="Order actions" />
-            {canCancelOrder ? (
-              <PressScale
-                disabled={wallet.isBusy}
-                onPress={() => wallet.cancelRampOrder(orderReference)}
-                style={modern.secondaryModernButton}
-              >
-                <Text
-                  style={[
-                    modern.modernButtonText,
-                    modern.secondaryModernButtonText,
-                  ]}
+            <View style={styles.orderActionsStack}>
+              {!waitingForAutoSend && !autoSendInProgress ? (
+                <PressScale
+                  onPress={createAnotherOrder}
+                  style={modern.primaryModernButton}
                 >
-                  Cancel order
-                </Text>
-              </PressScale>
-            ) : terminal ? (
-              <PressScale
-                onPress={wallet.clearRampOrder}
-                style={modern.primaryModernButton}
-              >
-                <Text style={modern.modernButtonText}>
-                  Create another order
-                </Text>
-              </PressScale>
-            ) : cryptoTransferSubmitted ? (
-              <View style={styles.orderLockedBox}>
-                <Ionicons
-                  color="#24495A"
-                  name="lock-closed-outline"
-                  size={18}
-                />
-                <Text style={styles.orderLockedText}>
-                  Crypto transfer submitted. This order can no longer be
-                  cancelled in the app.
-                </Text>
-              </View>
-            ) : null}
+                  <Text style={modern.modernButtonText}>
+                    Create another order
+                  </Text>
+                </PressScale>
+              ) : null}
+              {waitingForAutoSend ? (
+                <PressScale
+                  disabled={wallet.isBusy}
+                  onPress={() => cancelCurrentOrder(orderReference)}
+                  style={styles.autoSendCancelButton}
+                >
+                  <Ionicons
+                    color="#FFFFFF"
+                    name="warning-outline"
+                    size={19}
+                  />
+                  <Text style={styles.autoSendCancelButtonText}>
+                    Cancel order · sending in {autoSendSecondsRemaining}s
+                  </Text>
+                </PressScale>
+              ) : autoSendInProgress ? (
+                <View style={styles.orderLockedBox}>
+                  <Ionicons color="#B8FF45" name="sync-outline" size={18} />
+                  <Text style={styles.orderLockedText}>
+                    Sending crypto transfer. This order can no longer be
+                    cancelled in the app.
+                  </Text>
+                </View>
+              ) : !terminal && cryptoTransferSubmitted ? (
+                <View style={styles.orderLockedBox}>
+                  <Ionicons
+                    color="#24495A"
+                    name="lock-closed-outline"
+                    size={18}
+                  />
+                  <Text style={styles.orderLockedText}>
+                    Crypto transfer submitted. This order can no longer be
+                    cancelled in the app.
+                  </Text>
+                </View>
+              ) : null}
+            </View>
             {explorerUrl ? (
               <View style={styles.orderExplorerWrap}>
                 <ExplorerLink onPress={() => wallet.openUrl(explorerUrl)} />
@@ -1033,6 +1259,38 @@ export function RampScreen({
     createOrder().catch(() => null);
   }
 
+  if (orderQueueVisible && !order) {
+    return (
+      <ScrollView
+        contentContainerStyle={screenInsetStyle}
+        style={{ backgroundColor: '#000000' }}
+        showsVerticalScrollIndicator={false}
+      >
+        <ModernScreenHeader
+          onBack={() => setOrderQueueVisible(false)}
+          subtitle="Orders waiting for provider confirmation."
+          title="Pending cash orders"
+        />
+
+        <View style={modern.sectionCard}>
+          {pendingRampOrders.length > 0 ? (
+            <View style={styles.pendingOrderList}>
+              {pendingRampOrders.map(renderPendingOrderRow)}
+            </View>
+          ) : (
+            <View style={modern.emptyModern}>
+              <Ionicons color="#8A9099" name="time-outline" size={28} />
+              <Text style={modern.emptyModernTitle}>No pending orders</Text>
+              <Text style={modern.emptyModernText}>
+                Buy and withdraw orders waiting for completion will appear here.
+              </Text>
+            </View>
+          )}
+        </View>
+      </ScrollView>
+    );
+  }
+
   return (
     <>
       <ScrollView
@@ -1041,6 +1299,23 @@ export function RampScreen({
         showsVerticalScrollIndicator={false}
       >
         <ModernScreenHeader
+          action={
+            pendingRampOrders.length > 0 ? (
+              <PressScale
+                onPress={() => setOrderQueueVisible(true)}
+                style={styles.orderQueueButton}
+              >
+                <Ionicons color="#FFFFFF" name="time-outline" size={20} />
+                <View style={styles.orderQueueBadge}>
+                  <Text style={styles.orderQueueBadgeText}>
+                    {pendingRampOrders.length > 9
+                      ? '9+'
+                      : pendingRampOrders.length}
+                  </Text>
+                </View>
+              </PressScale>
+            ) : null
+          }
           onBack={onBack}
           subtitle={
             wallet.isMainnet
@@ -1687,6 +1962,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
   },
+  autoSendCancelButton: {
+    alignItems: 'center',
+    backgroundColor: '#D84C5F',
+    borderColor: 'rgba(255,255,255,0.14)',
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 9,
+    justifyContent: 'center',
+    minHeight: 54,
+    paddingHorizontal: 16,
+  },
+  autoSendCancelButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
   bankBin: {
     color: '#8A969D',
     fontSize: 11,
@@ -2051,6 +2343,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000000',
   },
+  orderActionsStack: {
+    gap: 10,
+  },
   orderLockedBox: {
     alignItems: 'flex-start',
     backgroundColor: 'rgba(184, 255, 69, 0.1)',
@@ -2071,6 +2366,88 @@ const styles = StyleSheet.create({
   orderExplorerWrap: {
     alignItems: 'center',
     paddingTop: 4,
+  },
+  orderQueueBadge: {
+    alignItems: 'center',
+    backgroundColor: '#B8FF45',
+    borderRadius: 9,
+    height: 18,
+    justifyContent: 'center',
+    minWidth: 18,
+    paddingHorizontal: 4,
+    position: 'absolute',
+    right: -4,
+    top: -5,
+  },
+  orderQueueBadgeText: {
+    color: '#101400',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  orderQueueButton: {
+    alignItems: 'center',
+    borderColor: 'rgba(255,255,255,0.16)',
+    borderRadius: 20,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: 'center',
+    position: 'relative',
+    width: 40,
+  },
+  pendingOrderBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  pendingOrderIcon: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(184,255,69,0.12)',
+    borderRadius: 15,
+    height: 30,
+    justifyContent: 'center',
+    width: 30,
+  },
+  pendingOrderList: {
+    gap: 9,
+  },
+  pendingOrderMeta: {
+    color: '#8A9099',
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  pendingOrderRight: {
+    alignItems: 'flex-end',
+    flexDirection: 'row',
+    gap: 4,
+    maxWidth: 130,
+  },
+  pendingOrderRow: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 11,
+    minHeight: 64,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  pendingOrderRowPressed: {
+    backgroundColor: 'rgba(184,255,69,0.08)',
+    borderColor: 'rgba(184,255,69,0.24)',
+  },
+  pendingOrderStatus: {
+    color: '#B8FF45',
+    flexShrink: 1,
+    fontSize: 10,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  pendingOrderTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
   },
   quoteAmount: {
     color: '#FFFFFF',

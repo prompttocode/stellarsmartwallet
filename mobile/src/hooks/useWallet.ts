@@ -3087,8 +3087,25 @@ export function useWallet() {
     });
   }
 
-  async function fetchRampOrder(orderReference: string) {
+  async function fetchRampOrder(
+    orderReference: string,
+    options: { baseOrder?: RampOrder | null; updateActive?: boolean } = {},
+  ) {
     const params = new URLSearchParams();
+    const baseOrder =
+      options.baseOrder ||
+      rampOrderHistory.find(item => (item.code || item.id) === orderReference) ||
+      (activeRampOrder?.code === orderReference ||
+      activeRampOrder?.id === orderReference
+        ? activeRampOrder
+        : null);
+    const updateActive =
+      options.updateActive ??
+      Boolean(
+        activeRampOrder &&
+          (activeRampOrder.code === orderReference ||
+            activeRampOrder.id === orderReference),
+      );
 
     if (account && wallet) {
       params.set('email', account.email);
@@ -3097,12 +3114,12 @@ export function useWallet() {
       params.set('sourceWalletId', wallet.id);
     }
 
-    if (activeRampOrder?.asset_code) {
-      params.set('assetCode', activeRampOrder.asset_code);
+    if (baseOrder?.asset_code) {
+      params.set('assetCode', baseOrder.asset_code);
     }
 
-    if (activeRampOrder?.order_type) {
-      params.set('direction', activeRampOrder.order_type);
+    if (baseOrder?.order_type) {
+      params.set('direction', baseOrder.order_type);
     }
 
     const query = params.toString();
@@ -3111,11 +3128,13 @@ export function useWallet() {
         query ? `?${query}` : ''
       }`,
     );
-    const nextOrder = mergeRampOrderDetails(activeRampOrder, result.data);
+    const nextOrder = mergeRampOrderDetails(baseOrder, result.data);
     const completedNow =
-      Number(activeRampOrder?.state) !== 3 && Number(nextOrder.state) === 3;
+      Number(baseOrder?.state) !== 3 && Number(nextOrder.state) === 3;
 
-    await persistRampOrder(nextOrder);
+    if (updateActive) {
+      await persistRampOrder(nextOrder);
+    }
     upsertRampOrderHistory(nextOrder);
 
     if (completedNow && account) {
@@ -3137,7 +3156,11 @@ export function useWallet() {
 
   async function refreshRampOrder(
     orderReference = activeRampOrder?.code || activeRampOrder?.id || '',
-    options: { silent?: boolean } = {},
+    options: {
+      baseOrder?: RampOrder | null;
+      silent?: boolean;
+      updateActive?: boolean;
+    } = {},
   ) {
     if (!orderReference) {
       return null;
@@ -3145,13 +3168,21 @@ export function useWallet() {
 
     if (options.silent) {
       try {
-        return await fetchRampOrder(orderReference);
+        return await fetchRampOrder(orderReference, {
+          baseOrder: options.baseOrder,
+          updateActive: options.updateActive,
+        });
       } catch {
         return null;
       }
     }
 
-    return run('Refreshing order', () => fetchRampOrder(orderReference));
+    return run('Refreshing order', () =>
+      fetchRampOrder(orderReference, {
+        baseOrder: options.baseOrder,
+        updateActive: options.updateActive,
+      }),
+    );
   }
 
   async function cancelRampOrder(

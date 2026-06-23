@@ -231,10 +231,12 @@ export function ModernInfoLine({
 }
 
 export function ModernScreenHeader({
+  action,
   onBack,
   subtitle,
   title,
 }: {
+  action?: ReactNode;
   onBack?: () => void;
   subtitle?: string;
   title: string;
@@ -252,6 +254,7 @@ export function ModernScreenHeader({
           <Text style={modern.modernHeaderSubtitle}>{subtitle}</Text>
         ) : null}
       </View>
+      {action}
     </View>
   );
 }
