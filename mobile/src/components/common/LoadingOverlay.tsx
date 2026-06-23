@@ -38,7 +38,7 @@ export function LoadingOverlay({
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    backgroundColor: 'rgba(12, 14, 18, 0.38)',
+    backgroundColor: '#00000000',
     flex: 1,
     justifyContent: 'center',
     padding: 24,
@@ -49,7 +49,7 @@ const styles = StyleSheet.create({
   },
   box: {
     alignItems: 'center',
-    backgroundColor: '#111827',
+    backgroundColor: '#000000',
     borderRadius: 28,
     minWidth: 190,
     paddingHorizontal: 26,
