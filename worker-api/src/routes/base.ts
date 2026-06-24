@@ -692,22 +692,56 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
 
     const keypair = assertSecretKey(body.secret, 'Stellar secret key');
     const importedAddress = keypair.publicKey();
+    const encryptedSecret = await encryptWalletSecret(c.env, keypair.secret());
     const duplicateWallet = (account.wallets || []).find(
       wallet =>
         wallet.network === network &&
         wallet.address.toUpperCase() === importedAddress.toUpperCase(),
     );
+    const displayName = sanitizeWalletName(body.displayName, `Imported ${network} wallet`);
 
     if (duplicateWallet) {
-      throw makeError(
-        `${importedAddress.slice(0, 6)}...${importedAddress.slice(
-          -6,
-        )} is already in this account on Stellar ${network}.`,
-        409,
+      if (duplicateWallet.kind === 'privy') {
+        throw makeError(
+          `${importedAddress.slice(0, 6)}...${importedAddress.slice(
+            -6,
+          )} is already a Privy-managed wallet in this account on Stellar ${network}.`,
+          409,
+        );
+      }
+
+      const wallet = {
+        ...duplicateWallet,
+        address: importedAddress,
+        archived: false,
+        canSign: true,
+        chainType: duplicateWallet.chainType || 'stellar',
+        displayName: String(body.displayName || '').trim()
+          ? displayName
+          : duplicateWallet.displayName || displayName,
+        encryptedSecret,
+        kind: 'imported_privy' as const,
+        network,
+        publicKey: importedAddress,
+      };
+      const nextAccount = await saveAccount(
+        c.env,
+        normalizeAccountWallets(
+          {
+            ...account,
+            activeWalletId: wallet.id,
+            wallet,
+            wallets: (account.wallets || []).map(item =>
+              item.id === duplicateWallet.id && item.network === network ? wallet : item,
+            ),
+          },
+          network,
+        ),
       );
+
+      return c.json(await buildAccountSession(c.env, nextAccount, network), 200);
     }
 
-    const displayName = sanitizeWalletName(body.displayName, `Imported ${network} wallet`);
     const wallet = normalizeWallet(
       {
         address: importedAddress,
@@ -718,7 +752,7 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
       },
       {
         canSign: true,
-        encryptedSecret: await encryptWalletSecret(c.env, keypair.secret()),
+        encryptedSecret,
         kind: 'imported_privy',
         network,
       },

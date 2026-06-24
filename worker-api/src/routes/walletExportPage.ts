@@ -288,6 +288,31 @@ function renderWalletExportPage(state: WalletExportPageState) {
         margin: 48px 0;
       }
 
+      .preload {
+        align-items: center;
+        color: #64748b;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 32px;
+        text-align: center;
+      }
+
+      .loader {
+        animation: spin 0.9s linear infinite;
+        border: 3px solid #e5e7eb;
+        border-radius: 50%;
+        border-top-color: #0ea5e9;
+        height: 36px;
+        width: 36px;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
       @media (max-width: 1024px) {
         .shell {
           grid-template-columns: 1fr;
@@ -325,34 +350,9 @@ function renderWalletExportPage(state: WalletExportPageState) {
   </head>
   <body>
     <div id="root">
-      <div class="shell">
-        <div class="card-container">
-          <div class="progress-bar">
-            <div class="progress-bar-fill"></div>
-          </div>
-          <div class="step-indicator">Step 1 of 3</div>
-          <h1>Preparing secure export</h1>
-          <p>
-            Loading Privy's secure recovery export flow. If this screen does not
-            finish loading, close it and try again from the app.
-          </p>
-        </div>
-        <div class="card-side">
-          <div class="side-badge">Secure & Encrypted</div>
-          <h1>Export your wallet safely</h1>
-          <p>Your recovery key is encrypted and never stored on our servers. Only you have access to your assets.</p>
-          <div class="divider"></div>
-          <div>
-            <div style="margin-bottom: 32px;">
-              <div style="font-weight: 700; color: #0ea5e9; margin-bottom: 8px; font-size: 14px;">Private & Secure</div>
-              <p>Your secret key remains completely private and is never transmitted to our servers.</p>
-            </div>
-            <div>
-              <div style="font-weight: 700; color: #0ea5e9; margin-bottom: 8px; font-size: 14px;">Offline Storage</div>
-              <p>We recommend storing your recovery key in offline storage for maximum security.</p>
-            </div>
-          </div>
-        </div>
+      <div class="preload">
+        <div class="loader"></div>
+        <p>Loading secure wallet export...</p>
       </div>
     </div>
     <script type="module">
@@ -543,6 +543,8 @@ function renderWalletExportPage(state: WalletExportPageState) {
             ? "Privy closed the secure export modal. Return to the app only after you have copied the Stellar secret key into offline storage."
             : status === "exporting"
             ? "Privy is opening the secure export modal. The secret key is displayed on Privy's secure domain, not inside this app."
+            : status === "loading"
+            ? "Loading Privy's secure export tools. This usually takes a few seconds."
             : status === "authorizing"
             ? "Privy accepted the login. Finishing the browser session setup before export can start..."
             : status === "signing_out"
@@ -607,7 +609,7 @@ function renderWalletExportPage(state: WalletExportPageState) {
                 </div>
 
                 <div className=\${statusClass}>
-                  \${error || (status === "exporting" ? "Waiting for Privy..." : !authenticated ? "Use email OTP or Google. If Google is blocked by this browser, use email OTP instead." : "")}
+                  \${error || (status === "loading" ? "Loading Privy..." : status === "exporting" ? "Waiting for Privy..." : !authenticated ? "Use email OTP or Google. If Google is blocked by this browser, use email OTP instead." : "")}
                 </div>
               </div>
             </div>

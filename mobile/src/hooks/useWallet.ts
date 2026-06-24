@@ -3194,6 +3194,12 @@ export function useWallet() {
 
     return run('Cancelling order', async () => {
       requireFreshServerSession();
+      const baseOrder =
+        rampOrderHistory.find(item => (item.code || item.id) === orderReference) ||
+        (activeRampOrder?.code === orderReference ||
+        activeRampOrder?.id === orderReference
+          ? activeRampOrder
+          : null);
       await api(
         `/api/ramp/orders/${encodeURIComponent(orderReference)}/cancel`,
         {
@@ -3203,11 +3209,18 @@ export function useWallet() {
       );
 
       const nextOrder = {
-        ...activeRampOrder,
+        ...baseOrder,
         state: 5,
+        code: baseOrder?.code || orderReference,
+        id: baseOrder?.id || orderReference,
       } as RampOrder;
 
-      await persistRampOrder(nextOrder);
+      if (
+        activeRampOrder?.code === orderReference ||
+        activeRampOrder?.id === orderReference
+      ) {
+        await persistRampOrder(nextOrder);
+      }
       upsertRampOrderHistory(nextOrder);
       setMessage(`Order ${nextOrder.code || orderReference} cancelled.`);
 
@@ -3553,9 +3566,9 @@ export function useWallet() {
         item.address.toUpperCase() === importedAddress.toUpperCase(),
     );
 
-    if (duplicateWallet) {
+    if (duplicateWallet?.kind === 'privy') {
       setErrorDialog({
-        message: `${importedAddress} is already in this account on Stellar ${network}.`,
+        message: `${importedAddress} is already a Privy-managed wallet in this account on Stellar ${network}.`,
         title: 'Wallet already exists',
       });
       return null;
@@ -3579,7 +3592,12 @@ export function useWallet() {
           timeoutMs: IMPORT_WALLET_TIMEOUT_MS,
         });
 
-        applySession(session, 'Wallet imported into Privy.');
+        applySession(
+          session,
+          duplicateWallet
+            ? 'Imported wallet signing key updated.'
+            : 'Wallet imported into Privy.',
+        );
 
         return session;
       },

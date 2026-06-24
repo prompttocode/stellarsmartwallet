@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AppState,
+  BackHandler,
   Image,
   Modal,
   Pressable,
@@ -11,6 +13,7 @@ import {
   TextStyle,
   View,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Clipboard from '@react-native-clipboard/clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
@@ -48,6 +51,7 @@ import { validateStellarAmount } from '@utils/walletValidation';
 
 const MIN_RAMP_PAYOUT_VND = 2000;
 const WITHDRAW_AUTO_SEND_DELAY_MS = 10000;
+const WITHDRAW_AUTO_SEND_STORAGE_PREFIX = 'privy-ramp-withdraw-auto-send';
 
 function hasSubmittedWithdrawCrypto(order?: RampOrder | null) {
   return Boolean(
@@ -228,6 +232,7 @@ export function RampScreen({
   );
   const order = ignoringInitialClosedOrder ? null : rawOrder;
   const refreshRampOrderRef = useRef(wallet.refreshRampOrder);
+  const cancelRampOrderRef = useRef(wallet.cancelRampOrder);
   const sendRampOrderPaymentRef = useRef(wallet.sendRampOrderPayment);
   const orderReference = order?.code || order?.id || '';
   const terminal = isRampOrderTerminal(order);
@@ -294,6 +299,20 @@ export function RampScreen({
         .join('|'),
     [pendingRampOrders],
   );
+  const withdrawAutoSendStorageKey = useMemo(() => {
+    if (!wallet.account || !wallet.activeWalletId) {
+      return null;
+    }
+
+    return `${WITHDRAW_AUTO_SEND_STORAGE_PREFIX}:${
+      wallet.account.id || wallet.account.email
+    }:${wallet.activeWalletId}:${wallet.network}`;
+  }, [
+    wallet.account?.email,
+    wallet.account?.id,
+    wallet.activeWalletId,
+    wallet.network,
+  ]);
 
   function closeBankPicker() {
     setBankPickerVisible(false);
@@ -307,6 +326,28 @@ export function RampScreen({
   function clearQuote() {
     setQuote(null);
     setQuoteSheetVisible(false);
+  }
+
+  function persistWithdrawAutoSend(
+    nextReference: string | null,
+    nextDeadline: number | null,
+  ) {
+    if (!withdrawAutoSendStorageKey) {
+      return;
+    }
+
+    if (!nextReference || !nextDeadline) {
+      AsyncStorage.removeItem(withdrawAutoSendStorageKey).catch(() => null);
+      return;
+    }
+
+    AsyncStorage.setItem(
+      withdrawAutoSendStorageKey,
+      JSON.stringify({
+        deadline: nextDeadline,
+        reference: nextReference,
+      }),
+    ).catch(() => null);
   }
 
   function applyPaymentMethod(method: RampPaymentMethod) {
@@ -354,8 +395,64 @@ export function RampScreen({
   }, [wallet.refreshRampOrder]);
 
   useEffect(() => {
+    cancelRampOrderRef.current = wallet.cancelRampOrder;
+  }, [wallet.cancelRampOrder]);
+
+  useEffect(() => {
     sendRampOrderPaymentRef.current = wallet.sendRampOrderPayment;
   }, [wallet.sendRampOrderPayment]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setWithdrawAutoSendDeadline(null);
+    setWithdrawAutoSendReference(null);
+    withdrawAutoSendStartedRef.current = null;
+
+    if (!withdrawAutoSendStorageKey) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    AsyncStorage.getItem(withdrawAutoSendStorageKey)
+      .then(value => {
+        if (cancelled || !value) {
+          return;
+        }
+
+        const parsed = JSON.parse(value) as {
+          deadline?: number;
+          reference?: string;
+        };
+
+        if (
+          !parsed.reference ||
+          !Number.isFinite(Number(parsed.deadline))
+        ) {
+          AsyncStorage.removeItem(withdrawAutoSendStorageKey).catch(() => null);
+          return;
+        }
+
+        if (rawOrderReference === parsed.reference) {
+          ignoredInitialClosedOrderRef.current = null;
+        }
+        cancelRampOrderRef.current(parsed.reference)
+          .then(result => {
+            if (result) {
+              AsyncStorage.removeItem(withdrawAutoSendStorageKey).catch(
+                () => null,
+              );
+            }
+          })
+          .catch(() => null);
+      })
+      .catch(() => null);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rawOrderReference, withdrawAutoSendStorageKey]);
 
   useEffect(() => {
     if (ignoringInitialClosedOrder) {
@@ -417,17 +514,96 @@ export function RampScreen({
     }
 
     withdrawAutoSendStartedRef.current = withdrawAutoSendReference;
-    sendRampOrderPaymentRef.current(order).finally(() => {
-      setWithdrawAutoSendDeadline(null);
-      setWithdrawAutoSendReference(null);
-      withdrawAutoSendStartedRef.current = null;
-    });
+    sendRampOrderPaymentRef.current(order)
+      .then(result => {
+        if (result) {
+          clearWithdrawAutoSend();
+        } else {
+          withdrawAutoSendStartedRef.current = null;
+        }
+      })
+      .catch(() => {
+        withdrawAutoSendStartedRef.current = null;
+      });
   }, [
     clock,
     order,
     orderReference,
     terminal,
     withdrawAutoSendDeadline,
+    withdrawAutoSendReference,
+  ]);
+
+  useEffect(() => {
+    if (
+      !order ||
+      !withdrawAutoSendDeadline ||
+      !withdrawAutoSendReference ||
+      orderReference !== withdrawAutoSendReference ||
+      terminal ||
+      hasSubmittedWithdrawCrypto(order) ||
+      withdrawAutoSendStartedRef.current === withdrawAutoSendReference
+    ) {
+      return;
+    }
+
+    const cancelAutoSendOrder = () => {
+      const reference = withdrawAutoSendReference;
+
+      setWithdrawAutoSendDeadline(null);
+      setWithdrawAutoSendReference(null);
+      withdrawAutoSendStartedRef.current = null;
+      cancelRampOrderRef.current(reference)
+        .then(result => {
+          if (result) {
+            persistWithdrawAutoSend(null, null);
+          }
+        })
+        .catch(() => null);
+    };
+
+    const appStateSubscription = AppState.addEventListener(
+      'change',
+      nextState => {
+        if (nextState === 'inactive' || nextState === 'background') {
+          cancelAutoSendOrder();
+        }
+      },
+    );
+    const backSubscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        cancelAutoSendOrder();
+        return false;
+      },
+    );
+
+    return () => {
+      appStateSubscription.remove();
+      backSubscription.remove();
+    };
+  }, [
+    order,
+    orderReference,
+    terminal,
+    withdrawAutoSendDeadline,
+    withdrawAutoSendReference,
+  ]);
+
+  useEffect(() => {
+    if (
+      order &&
+      withdrawAutoSendReference === orderReference &&
+      (terminal || hasSubmittedWithdrawCrypto(order))
+    ) {
+      clearWithdrawAutoSend();
+      return;
+    }
+
+  }, [
+    order,
+    orderReference,
+    terminal,
     withdrawAutoSendReference,
   ]);
 
@@ -500,6 +676,7 @@ export function RampScreen({
     setWithdrawAutoSendDeadline(null);
     setWithdrawAutoSendReference(null);
     withdrawAutoSendStartedRef.current = null;
+    persistWithdrawAutoSend(null, null);
   }
 
   function scheduleWithdrawAutoSend(nextOrder: RampOrder) {
@@ -511,7 +688,9 @@ export function RampScreen({
 
     withdrawAutoSendStartedRef.current = null;
     setWithdrawAutoSendReference(nextReference);
-    setWithdrawAutoSendDeadline(Date.now() + WITHDRAW_AUTO_SEND_DELAY_MS);
+    const nextDeadline = Date.now() + WITHDRAW_AUTO_SEND_DELAY_MS;
+    setWithdrawAutoSendDeadline(nextDeadline);
+    persistWithdrawAutoSend(nextReference, nextDeadline);
   }
 
   function createAnotherOrder() {
@@ -522,6 +701,7 @@ export function RampScreen({
   }
 
   function openPendingOrder(pendingOrder: RampOrder) {
+    ignoredInitialClosedOrderRef.current = null;
     setOrderOpenedFromQueue(true);
     setOrderQueueVisible(false);
     wallet.openRampOrder(pendingOrder).catch(() => null);

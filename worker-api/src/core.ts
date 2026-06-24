@@ -714,7 +714,10 @@ export async function decryptWalletSecret(
   encryptedSecret: WalletRecord['encryptedSecret'],
 ) {
   if (!encryptedSecret?.ciphertext || !encryptedSecret.iv) {
-    throw makeError('Imported wallet secret is not available for signing', 500);
+    throw makeError(
+      'This imported wallet is missing its saved signing key. Import the original Stellar S... key or Privy 64-hex key again to update it.',
+      409,
+    );
   }
 
   const subtle = getSubtleCrypto();
@@ -883,11 +886,14 @@ export function normalizeWallet(
     address?: string;
     chain_type?: string;
     display_name?: string;
+    encryptedSecret?: WalletRecord['encryptedSecret'];
     id?: string;
     public_key?: string;
   },
   overrides: Partial<WalletRecord> = {},
 ): WalletRecord {
+  const encryptedSecret = overrides.encryptedSecret || wallet.encryptedSecret;
+
   return {
     id: wallet.id || overrides.id || '',
     address: wallet.address || overrides.address || '',
@@ -898,6 +904,7 @@ export function normalizeWallet(
     network: overrides.network || 'testnet',
     publicKey: wallet.public_key || wallet.address || overrides.publicKey || '',
     ...(overrides.archived !== undefined ? { archived: overrides.archived } : null),
+    ...(encryptedSecret?.ciphertext && encryptedSecret.iv ? { encryptedSecret } : null),
   };
 }
 
