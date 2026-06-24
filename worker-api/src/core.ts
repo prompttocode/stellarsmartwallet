@@ -20,6 +20,7 @@ export type Env = {
   FRIENDBOT_URL: string;
   HORIZON_MAINNET_URL: string;
   HORIZON_TESTNET_URL: string;
+  PARTNER_API_KEY?: string;
   PAYMENT_API_BASE_URL: string;
   PAYMENT_CALLBACK_URL?: string;
   PAYMENT_PARTNER_APP_KEY?: string;

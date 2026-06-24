@@ -76,6 +76,25 @@ type FavoriteAssetInput = {
   network: StellarNetwork;
 };
 
+function getPartnerApiKey(c: Context<WorkerBindings>) {
+  const authorization = String(c.req.header('authorization') || '');
+  const bearer = authorization.match(/^Bearer\s+(.+)$/i)?.[1] || '';
+
+  return String(c.req.header('x-partner-api-key') || bearer).trim();
+}
+
+function requirePartnerAccess(c: Context<WorkerBindings>) {
+  const expectedKey = String(c.env.PARTNER_API_KEY || '').trim();
+
+  if (!expectedKey) {
+    throw makeError('Partner API key is not configured', 503);
+  }
+
+  if (getPartnerApiKey(c) !== expectedKey) {
+    throw makeError('Invalid partner API key', 401);
+  }
+}
+
 function getClientStellarWalletInput(value: unknown) {
   const wallet = value as ClientStellarWalletInput | undefined;
 
@@ -532,6 +551,31 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     return c.json(session);
   });
 
+  app.post('/api/partner/session', async c => {
+    requirePartnerAccess(c);
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const email = normalizeEmail(body.email);
+    const requestedActiveWalletId = String(
+      body.activeWalletId || body.sourceWalletId || '',
+    ).trim();
+
+    if (!isEmailLike(email)) {
+      throw makeError('Invalid email', 400);
+    }
+
+    const account = await getOrCreateSessionAccountByEmail(c.env, email, network);
+    const sessionAccount = requestedActiveWalletId
+      ? { ...account, activeWalletId: requestedActiveWalletId }
+      : account;
+
+    return c.json(
+      await buildAccountSession(c.env, sessionAccount, network, undefined, {
+        includeHistory: false,
+      }),
+    );
+  });
+
   app.post('/api/session/status', async c => {
     const body = await readJsonBody(c);
     const network = normalizeNetwork(body.network);
@@ -680,6 +724,70 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     );
 
     return c.json(await buildAccountSession(c.env, nextAccount, network), 201);
+  });
+
+  app.post('/api/partner/wallets', async c => {
+    requirePartnerAccess(c);
+    const body = await readJsonBody(c);
+    const network = normalizeNetwork(body.network);
+    const email = normalizeEmail(body.email);
+
+    if (!isEmailLike(email)) {
+      throw makeError('Invalid email', 400);
+    }
+
+    const account = await getOrCreateSessionAccountByEmail(c.env, email, network);
+    const nextWalletNumber = (account.wallets || []).length + 1;
+    const displayName =
+      String(body.displayName || '').trim().slice(0, 42) ||
+      `Stellar ${network} ${nextWalletNumber}`;
+    const clientWallet = getClientStellarWalletInput(body.wallet);
+    const verifiedClientWallet = clientWallet
+      ? await getVerifiedClientStellarWallet(c, clientWallet)
+      : undefined;
+    const walletSource =
+      verifiedClientWallet ||
+      (await createSignableStellarWallet(c.env, email, displayName));
+    const wallet = normalizeWallet(walletSource, {
+      archived: false,
+      canSign: true,
+      displayName,
+      kind: 'privy',
+      network,
+    });
+    const existingWallet = (account.wallets || []).find(
+      item =>
+        item.network === network &&
+        (item.id === wallet.id ||
+          item.address.toUpperCase() === wallet.address.toUpperCase()),
+    );
+    const activeWallet = existingWallet || wallet;
+
+    if (!existingWallet && network === 'testnet' && body.fund !== false) {
+      await friendbotFund(c.env, wallet.address, network);
+    }
+
+    const nextAccount = await saveAccount(
+      c.env,
+      normalizeAccountWallets(
+        {
+          ...account,
+          activeWalletId: activeWallet.id,
+          wallet: activeWallet,
+          wallets: existingWallet
+            ? account.wallets || []
+            : [...(account.wallets || []), wallet],
+        },
+        network,
+      ),
+    );
+
+    return c.json(
+      await buildAccountSession(c.env, nextAccount, network, undefined, {
+        includeHistory: false,
+      }),
+      existingWallet ? 200 : 201,
+    );
   });
 
   app.post('/api/wallets/import', async c => {
