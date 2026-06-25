@@ -50,6 +50,25 @@ export const loginStyles = StyleSheet.create({
     height: 250,
     opacity: 0.8,
   },
+  loginHero: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 300,
+    paddingBottom: 18,
+    paddingTop: 8,
+  },
+  loginAnimation: {
+    height: 270,
+    width: 270,
+  },
+  loginBottom: {
+    width: '100%',
+  },
+  loginWelcomeCopy: {
+    alignItems: 'center',
+    marginBottom: 26,
+  },
 
   // Welcome Text
   welcomeTextContainer: {

@@ -16,6 +16,7 @@ import {
   getModernAssets,
   InfoLine,
   PressScale,
+  SuccessLottie,
   modern,
 } from '@components/wallet';
 import type { WalletState } from '@hooks/useWallet';
@@ -353,9 +354,7 @@ export function SendScreen({
           ]}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.txStatusIcon}>
-            <Ionicons color="#B8FF45" name="arrow-up" size={24} />
-          </View>
+          <SuccessLottie size={96} style={styles.txStatusAnimation} />
           <Text style={styles.txStatusText}>Transfer sent</Text>
 
           <Text
@@ -911,16 +910,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
   },
-  txStatusIcon: {
-    alignItems: 'center',
+  txStatusAnimation: {
     alignSelf: 'center',
-    backgroundColor: 'rgba(184,255,69,0.08)',
-    borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 20,
-    borderWidth: 1,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
+    marginBottom: -2,
   },
   txStatusText: {
     color: '#AEB7AD',

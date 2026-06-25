@@ -2,7 +2,7 @@ import React from 'react';
 import { Modal, StyleSheet, Text, View } from 'react-native';
 import LottieView from 'lottie-react-native';
 
-const loadingAnimation = require('@assets/lottie/loading.json');
+const loadingAnimation = require('@assets/lottie/loading3.json');
 
 interface LoadingOverlayProps {
   visible: boolean;

@@ -12,6 +12,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import LottieView from 'lottie-react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
 export type AppPopupVariant = 'danger' | 'info' | 'success' | 'warning';
@@ -39,6 +40,8 @@ type AppPopupProps = AppPopupOptions & {
   onDismiss: () => void;
   visible: boolean;
 };
+
+const successAnimation = require('@assets/lottie/Success.json');
 
 const AppPopupContext = createContext<AppPopupContextValue | null>(null);
 
@@ -123,9 +126,18 @@ export function AppPopup({
         style={styles.backdrop}
       >
         <Pressable accessibilityViewIsModal style={styles.card}>
-          <View style={[styles.iconWrap, { backgroundColor: meta.iconBg }]}>
-            <Ionicons color={meta.color} name={meta.icon} size={34} />
-          </View>
+          {variant === 'success' ? (
+            <LottieView
+              autoPlay
+              loop={false}
+              source={successAnimation}
+              style={styles.successAnimation}
+            />
+          ) : (
+            <View style={[styles.iconWrap, { backgroundColor: meta.iconBg }]}>
+              <Ionicons color={meta.color} name={meta.icon} size={34} />
+            </View>
+          )}
           <Text style={styles.title}>{title}</Text>
           {message ? <Text style={styles.message}>{message}</Text> : null}
           <View
@@ -230,7 +242,7 @@ const styles = StyleSheet.create({
   actions: {
     alignSelf: 'stretch',
     gap: 10,
-    marginTop: 22,
+    marginTop: 26,
   },
   actionsRow: {
     flexDirection: 'row',
@@ -253,7 +265,9 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     borderWidth: 1,
     maxWidth: 360,
-    padding: 22,
+    paddingHorizontal: 22,
+    paddingBottom: 28,
+    paddingTop: 24,
     shadowColor: '#000000',
     shadowOffset: { height: 18, width: 0 },
     shadowOpacity: 0.32,
@@ -283,6 +297,12 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: 10,
     textAlign: 'center',
+  },
+  successAnimation: {
+    height: 82,
+    marginBottom: 8,
+    marginTop: -4,
+    width: 82,
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,

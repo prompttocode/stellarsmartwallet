@@ -26,6 +26,7 @@ import {
   ModernScreenHeader,
   PressScale,
   SectionHeader,
+  SuccessLottie,
   TokenIcon,
   modern,
   useSafeScreenInsetStyle,
@@ -381,14 +382,7 @@ export function RampScreen({
     setFullName(defaultPaymentMethod.fullName);
     setAccountNumber(defaultPaymentMethod.accountNumber);
     clearQuote();
-  }, [
-    accountNumber,
-    bankId,
-    defaultPaymentMethod,
-    direction,
-    fullName,
-    order,
-  ]);
+  }, [accountNumber, bankId, defaultPaymentMethod, direction, fullName, order]);
 
   useEffect(() => {
     refreshRampOrderRef.current = wallet.refreshRampOrder;
@@ -426,10 +420,7 @@ export function RampScreen({
           reference?: string;
         };
 
-        if (
-          !parsed.reference ||
-          !Number.isFinite(Number(parsed.deadline))
-        ) {
+        if (!parsed.reference || !Number.isFinite(Number(parsed.deadline))) {
           AsyncStorage.removeItem(withdrawAutoSendStorageKey).catch(() => null);
           return;
         }
@@ -437,7 +428,8 @@ export function RampScreen({
         if (rawOrderReference === parsed.reference) {
           ignoredInitialClosedOrderRef.current = null;
         }
-        cancelRampOrderRef.current(parsed.reference)
+        cancelRampOrderRef
+          .current(parsed.reference)
           .then(result => {
             if (result) {
               AsyncStorage.removeItem(withdrawAutoSendStorageKey).catch(
@@ -514,7 +506,8 @@ export function RampScreen({
     }
 
     withdrawAutoSendStartedRef.current = withdrawAutoSendReference;
-    sendRampOrderPaymentRef.current(order)
+    sendRampOrderPaymentRef
+      .current(order)
       .then(result => {
         if (result) {
           clearWithdrawAutoSend();
@@ -553,7 +546,8 @@ export function RampScreen({
       setWithdrawAutoSendDeadline(null);
       setWithdrawAutoSendReference(null);
       withdrawAutoSendStartedRef.current = null;
-      cancelRampOrderRef.current(reference)
+      cancelRampOrderRef
+        .current(reference)
         .then(result => {
           if (result) {
             persistWithdrawAutoSend(null, null);
@@ -599,13 +593,7 @@ export function RampScreen({
       clearWithdrawAutoSend();
       return;
     }
-
-  }, [
-    order,
-    orderReference,
-    terminal,
-    withdrawAutoSendReference,
-  ]);
+  }, [order, orderReference, terminal, withdrawAutoSendReference]);
 
   useEffect(() => {
     if (!orderReference || terminal) {
@@ -857,7 +845,9 @@ export function RampScreen({
     }
 
     await createOrderWithValues({
-      orderAmount: amountValidation.valid ? amountValidation.normalized : amount,
+      orderAmount: amountValidation.valid
+        ? amountValidation.normalized
+        : amount,
       orderAssetCode: assetCode,
       orderDirection: direction,
     });
@@ -982,10 +972,7 @@ export function RampScreen({
       !isSell &&
       Number(order.state) === 1 &&
       Number(order.processing_state) === 10;
-    const canBypassTestSellPayment =
-      !wallet.isMainnet &&
-      isSell &&
-      !terminal;
+    const canBypassTestSellPayment = !wallet.isMainnet && isSell && !terminal;
     const expiredAt = rampTimestampToMs(order.expired_at);
     const transactionHash =
       order.sell_transaction_hash || order.transaction_hash || '';
@@ -1039,25 +1026,17 @@ export function RampScreen({
 
           <View style={modern.sectionCard}>
             <View style={styles.statusHeader}>
-              <View style={styles.statusIcon}>
-                <Ionicons
-                  color={
-                    isCompleted
-                      ? '#B8FF45'
-                      : isFailedOrCancelled
-                      ? '#D84C5F'
-                      : '#F59E0B'
-                  }
-                  name={
-                    isCompleted
-                      ? 'checkmark-circle'
-                      : isFailedOrCancelled
-                      ? 'close-circle'
-                      : 'time'
-                  }
-                  size={30}
-                />
-              </View>
+              {isCompleted ? (
+                <SuccessLottie size={52} style={styles.statusSuccessAnimation} />
+              ) : (
+                <View style={styles.statusIcon}>
+                  <Ionicons
+                    color={isFailedOrCancelled ? '#D84C5F' : '#F59E0B'}
+                    name={isFailedOrCancelled ? 'close-circle' : 'time'}
+                    size={30}
+                  />
+                </View>
+              )}
               <View style={modern.assetModernBody}>
                 <Text style={modern.assetModernName}>
                   {getRampOrderStatus(order)}
@@ -1277,11 +1256,7 @@ export function RampScreen({
                   onPress={() => cancelCurrentOrder(orderReference)}
                   style={styles.autoSendCancelButton}
                 >
-                  <Ionicons
-                    color="#FFFFFF"
-                    name="warning-outline"
-                    size={19}
-                  />
+                  <Ionicons color="#FFFFFF" name="warning-outline" size={19} />
                   <Text style={styles.autoSendCancelButtonText}>
                     Cancel order · sending in {autoSendSecondsRemaining}s
                   </Text>
@@ -1320,28 +1295,27 @@ export function RampScreen({
           <View style={styles.resultOverlay}>
             <View accessibilityViewIsModal style={styles.resultModal}>
               <View style={styles.resultContent}>
-                <View
-                  style={[
-                    styles.resultIcon,
-                    isCompleted
-                      ? styles.resultIconSuccess
-                      : Number(order.state) === 5
-                      ? styles.resultIconCancelled
-                      : styles.resultIconFailure,
-                  ]}
-                >
-                  <Ionicons
-                    color={isCompleted ? '#B8FF45' : Number(order.state) === 5 ? '#A1B0C8' : '#FF5252'}
-                    name={
-                      isCompleted
-                        ? 'checkmark'
-                        : Number(order.state) === 5
-                        ? 'remove'
-                        : 'close'
-                    }
-                    size={25}
+                {isCompleted ? (
+                  <SuccessLottie
+                    size={86}
+                    style={styles.resultSuccessAnimation}
                   />
-                </View>
+                ) : (
+                  <View
+                    style={[
+                      styles.resultIcon,
+                      Number(order.state) === 5
+                        ? styles.resultIconCancelled
+                        : styles.resultIconFailure,
+                    ]}
+                  >
+                    <Ionicons
+                      color={Number(order.state) === 5 ? '#A1B0C8' : '#FF5252'}
+                      name={Number(order.state) === 5 ? 'remove' : 'close'}
+                      size={25}
+                    />
+                  </View>
+                )}
                 <Text style={styles.resultTitle}>
                   {isCompleted
                     ? 'Order completed'
@@ -1394,11 +1368,6 @@ export function RampScreen({
                     <Text style={styles.resultSecondaryActionText}>
                       View transaction
                     </Text>
-                    <Ionicons
-                      color="#30343B"
-                      name="arrow-up-outline"
-                      size={17}
-                    />
                   </Pressable>
                 ) : null}
               </View>
@@ -1611,7 +1580,9 @@ export function RampScreen({
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => {
-                    wallet.loadPaymentMethods({ silent: true }).catch(() => null);
+                    wallet
+                      .loadPaymentMethods({ silent: true })
+                      .catch(() => null);
                     setSavedPaymentPickerVisible(true);
                   }}
                   style={({ pressed }) => [
@@ -1783,7 +1754,9 @@ export function RampScreen({
                     style={modern.swapConfirmAmount}
                   >
                     {formatTokenAmount(
-                      amountValidation.valid ? amountValidation.normalized : amount,
+                      amountValidation.valid
+                        ? amountValidation.normalized
+                        : amount,
                     )}
                   </Text>
                   <View style={modern.swapConfirmTokenBadge}>
@@ -1851,9 +1824,14 @@ export function RampScreen({
                   </View>
                 </View>
 
-                {quote.gross_vnd > 0 && quote.fee_vnd / quote.gross_vnd >= 0.5 ? (
+                {quote.gross_vnd > 0 &&
+                quote.fee_vnd / quote.gross_vnd >= 0.5 ? (
                   <View style={styles.feeWarning}>
-                    <Ionicons color="#A25C00" name="warning-outline" size={18} />
+                    <Ionicons
+                      color="#A25C00"
+                      name="warning-outline"
+                      size={18}
+                    />
                     <Text style={styles.feeWarningText}>
                       The fee uses a large part of this withdrawal. Increase the
                       crypto amount for a better payout.
@@ -1863,8 +1841,14 @@ export function RampScreen({
 
                 {rampAmountWarning ? (
                   <View style={styles.feeWarning}>
-                    <Ionicons color="#A25C00" name="warning-outline" size={18} />
-                    <Text style={styles.feeWarningText}>{rampAmountWarning}</Text>
+                    <Ionicons
+                      color="#A25C00"
+                      name="warning-outline"
+                      size={18}
+                    />
+                    <Text style={styles.feeWarningText}>
+                      {rampAmountWarning}
+                    </Text>
                   </View>
                 ) : null}
 
@@ -2677,9 +2661,6 @@ const styles = StyleSheet.create({
   resultIconFailure: {
     backgroundColor: 'rgba(255,82,82,0.15)',
   },
-  resultIconSuccess: {
-    backgroundColor: 'rgba(184, 255, 69, 0.15)',
-  },
   resultModal: {
     backgroundColor: '#111318',
     borderRadius: 28,
@@ -2690,6 +2671,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.22,
     shadowRadius: 36,
     width: '100%',
+  },
+  resultSuccessAnimation: {
+    marginBottom: 2,
+    marginTop: -8,
   },
   resultOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -2790,6 +2775,9 @@ const styles = StyleSheet.create({
     height: 48,
     justifyContent: 'center',
     width: 48,
+  },
+  statusSuccessAnimation: {
+    marginHorizontal: -2,
   },
   testPaymentBox: {
     backgroundColor: 'rgba(255, 255, 255, 0.05)',

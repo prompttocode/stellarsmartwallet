@@ -8,4 +8,5 @@ export * from './ui/token';
 export * from './WalletPrimitives';
 export * from './WalletManagerModal';
 export * from './WalletRows';
+export * from './SuccessLottie';
 export * from './ui/primitives';

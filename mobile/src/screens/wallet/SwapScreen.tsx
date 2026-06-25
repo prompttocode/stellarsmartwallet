@@ -18,6 +18,7 @@ import {
   getModernAssets,
   ModernScreenHeader,
   PressScale,
+  SuccessLottie,
   TokenIcon,
   modern,
   useSafeScreenInsetStyle,
@@ -55,7 +56,10 @@ function SwapSuccessDetailRow({
 }) {
   return (
     <View
-      style={[successStyles.detailRow, isLast ? successStyles.detailRowLast : null]}
+      style={[
+        successStyles.detailRow,
+        isLast ? successStyles.detailRowLast : null,
+      ]}
     >
       <Text style={successStyles.detailLabel}>{label}</Text>
       <Pressable
@@ -202,7 +206,9 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
 
     try {
       const result = await wallet.quoteSwap({
-        amount: amountValidation.valid ? amountValidation.normalized : sellAmount,
+        amount: amountValidation.valid
+          ? amountValidation.normalized
+          : sellAmount,
         fromAssetCode: sellCode,
         toAssetCode: buyCode,
       });
@@ -250,7 +256,9 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
       }
 
       const result = await wallet.swapAsset({
-        amount: amountValidation.valid ? amountValidation.normalized : sellAmount,
+        amount: amountValidation.valid
+          ? amountValidation.normalized
+          : sellAmount,
         fromAssetCode: sellCode,
         toAssetCode: buyCode,
       });
@@ -267,7 +275,9 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
   }
 
   if (lastSwap) {
-    const networkName = wallet.isMainnet ? 'Stellar Mainnet' : 'Stellar Testnet';
+    const networkName = wallet.isMainnet
+      ? 'Stellar Mainnet'
+      : 'Stellar Testnet';
     const swapSummary = `${formatTokenAmount(lastSwap.fromAmount)} ${
       lastSwap.fromAssetCode
     } → ${formatTokenAmount(lastSwap.toAmount)} ${lastSwap.toAssetCode}`;
@@ -277,7 +287,9 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
       { maxFractionDigits: 7 },
     )} ${lastSwap.toAssetCode}`;
     const walletAddress =
-      lastSwap.transaction.to || lastSwap.transaction.from || wallet.wallet?.address;
+      lastSwap.transaction.to ||
+      lastSwap.transaction.from ||
+      wallet.wallet?.address;
 
     return (
       <View style={[successStyles.root, { paddingTop: insets.top + 8 }]}>
@@ -294,9 +306,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
           ]}
           showsVerticalScrollIndicator={false}
         >
-          <View style={successStyles.statusIcon}>
-            <Ionicons color="#B8FF45" name="checkmark" size={22} />
-          </View>
+          <SuccessLottie size={96} style={successStyles.statusAnimation} />
           <Text style={successStyles.statusText}>Swap completed</Text>
           <Text
             adjustsFontSizeToFit
@@ -794,16 +804,9 @@ const successStyles = StyleSheet.create({
     backgroundColor: '#101311',
     flex: 1,
   },
-  statusIcon: {
-    alignItems: 'center',
+  statusAnimation: {
     alignSelf: 'center',
-    backgroundColor: 'rgba(184,255,69,0.08)',
-    borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 20,
-    borderWidth: 1,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
+    marginBottom: -2,
   },
   statusText: {
     color: '#AEB7AD',
