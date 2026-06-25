@@ -20,6 +20,7 @@ export type Env = {
   FRIENDBOT_URL: string;
   HORIZON_MAINNET_URL: string;
   HORIZON_TESTNET_URL: string;
+  PARTNER_API_KEY?: string;
   PAYMENT_API_BASE_URL: string;
   PAYMENT_CALLBACK_URL?: string;
   PAYMENT_PARTNER_APP_KEY?: string;
@@ -126,6 +127,7 @@ export const TESTNET_USDC_ISSUER =
 export const MAINNET_USDC_ISSUER =
   'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
 const STELLAR_BASE_RESERVE_XLM = 0.5;
+const STROOPS_PER_XLM = 10_000_000n;
 const TRUSTLINE_FEE_BUFFER_XLM = 0.0001;
 const PAYMENT_FEE_BUFFER_XLM = 0.0001;
 export const KNOWN_ASSET_CASES = new Map(
@@ -364,6 +366,76 @@ export function formatStellarAmount(amount: number) {
   }
 
   return floored.toFixed(7).replace(/\.?0+$/, '');
+}
+
+function normalizeStroops(value: unknown) {
+  const raw = String(value ?? '').trim();
+
+  if (!/^\d+$/.test(raw)) {
+    return null;
+  }
+
+  return raw;
+}
+
+export function stroopsToXlm(value: unknown) {
+  const stroops = normalizeStroops(value);
+
+  if (!stroops) {
+    return null;
+  }
+
+  const amount = BigInt(stroops);
+  const whole = amount / STROOPS_PER_XLM;
+  const fraction = amount % STROOPS_PER_XLM;
+  const fractionText = fraction
+    .toString()
+    .padStart(7, '0')
+    .replace(/0+$/, '');
+
+  return fractionText ? `${whole}.${fractionText}` : whole.toString();
+}
+
+function normalizeOperationCount(value: unknown) {
+  const count = Number(value);
+
+  return Number.isFinite(count) ? count : null;
+}
+
+export function getTransactionFeeFields(record?: Record<string, any> | null) {
+  const feeChargedStroops = normalizeStroops(
+    record?.feeChargedStroops ?? record?.fee_charged,
+  );
+  const maxFeeStroops = normalizeStroops(record?.maxFeeStroops ?? record?.max_fee);
+
+  return {
+    feeChargedStroops,
+    feeChargedXlm:
+      record?.feeChargedXlm && feeChargedStroops === record.feeChargedStroops
+        ? String(record.feeChargedXlm)
+        : stroopsToXlm(feeChargedStroops),
+    maxFeeStroops,
+    maxFeeXlm:
+      record?.maxFeeXlm && maxFeeStroops === record.maxFeeStroops
+        ? String(record.maxFeeXlm)
+        : stroopsToXlm(maxFeeStroops),
+    operationCount: normalizeOperationCount(
+      record?.operationCount ?? record?.operation_count,
+    ),
+  };
+}
+
+export function getDefaultFeeEstimateFields(operationCount = 1) {
+  const count =
+    Number.isFinite(operationCount) && operationCount > 0
+      ? Math.floor(operationCount)
+      : 1;
+  const feeEstimateStroops = String(BigInt(BASE_FEE) * BigInt(count));
+
+  return {
+    feeEstimateStroops,
+    feeEstimateXlm: stroopsToXlm(feeEstimateStroops),
+  };
 }
 
 export function assertSecretKey(secret: unknown, field = 'Secret key') {
@@ -714,7 +786,10 @@ export async function decryptWalletSecret(
   encryptedSecret: WalletRecord['encryptedSecret'],
 ) {
   if (!encryptedSecret?.ciphertext || !encryptedSecret.iv) {
-    throw makeError('Imported wallet secret is not available for signing', 500);
+    throw makeError(
+      'This imported wallet is missing its saved signing key. Import the original Stellar S... key or Privy 64-hex key again to update it.',
+      409,
+    );
   }
 
   const subtle = getSubtleCrypto();
@@ -883,11 +958,14 @@ export function normalizeWallet(
     address?: string;
     chain_type?: string;
     display_name?: string;
+    encryptedSecret?: WalletRecord['encryptedSecret'];
     id?: string;
     public_key?: string;
   },
   overrides: Partial<WalletRecord> = {},
 ): WalletRecord {
+  const encryptedSecret = overrides.encryptedSecret || wallet.encryptedSecret;
+
   return {
     id: wallet.id || overrides.id || '',
     address: wallet.address || overrides.address || '',
@@ -898,6 +976,7 @@ export function normalizeWallet(
     network: overrides.network || 'testnet',
     publicKey: wallet.public_key || wallet.address || overrides.publicKey || '',
     ...(overrides.archived !== undefined ? { archived: overrides.archived } : null),
+    ...(encryptedSecret?.ciphertext && encryptedSecret.iv ? { encryptedSecret } : null),
   };
 }
 
@@ -1666,6 +1745,16 @@ type StellarExpertAssetRecord = {
   volume7d?: number;
 };
 
+const STELLAR_EXPERT_ASSET_CACHE_TTL_MS = 60_000;
+const STELLAR_EXPERT_ASSET_CACHE_MAX_ENTRIES = 100;
+const stellarExpertAssetCache = new Map<
+  string,
+  {
+    expiresAt: number;
+    value: AssetDefinition[];
+  }
+>();
+
 function parseStellarExpertAssetId(assetId: string) {
   if (assetId === NATIVE_ASSET_CODE) {
     return {
@@ -1728,6 +1817,13 @@ async function fetchStellarExpertAssets(options: { limit: number; search?: unkno
     params.set('search', search);
   }
 
+  const cacheKey = params.toString();
+  const cached = stellarExpertAssetCache.get(cacheKey);
+
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+
   const response = await fetch(
     `https://api.stellar.expert/explorer/public/asset?${params.toString()}`,
     {
@@ -1747,9 +1843,23 @@ async function fetchStellarExpertAssets(options: { limit: number; search?: unkno
     };
   };
 
-  return (body._embedded?.records || [])
+  const assets = (body._embedded?.records || [])
     .map(mapStellarExpertAsset)
     .filter((asset): asset is AssetDefinition => Boolean(asset));
+
+  stellarExpertAssetCache.set(cacheKey, {
+    expiresAt: Date.now() + STELLAR_EXPERT_ASSET_CACHE_TTL_MS,
+    value: assets,
+  });
+  if (stellarExpertAssetCache.size > STELLAR_EXPERT_ASSET_CACHE_MAX_ENTRIES) {
+    const oldestKey = stellarExpertAssetCache.keys().next().value;
+
+    if (oldestKey) {
+      stellarExpertAssetCache.delete(oldestKey);
+    }
+  }
+
+  return assets;
 }
 
 export async function getSupportedAssets(env: Env, networkValue: unknown, options: { limit?: unknown; search?: unknown } = {}) {
@@ -1940,6 +2050,10 @@ export function getStellarSubmissionErrorMessage(
     return 'Not enough XLM reserve to complete this Stellar transaction. Deposit more XLM first.';
   }
 
+  if (allCodes.includes('tx_insufficient_fee')) {
+    return 'Stellar requires a higher network fee right now. Please try again in a moment.';
+  }
+
   if (allCodes.includes('op_no_issuer')) {
     return 'The token issuer does not exist on this Stellar network.';
   }
@@ -2067,9 +2181,12 @@ export function getBalanceItems(
 
 export async function getAccountBalances(env: Env, address: string, networkValue: unknown) {
   const network = normalizeNetwork(networkValue);
-  const account = await loadAccount(env, address, network);
+  const [account, supportedAssets] = await Promise.all([
+    loadAccount(env, address, network),
+    getSupportedAssets(env, network),
+  ]);
   const assets = mergeKnownAndDiscoveredAssets(
-    await getSupportedAssets(env, network),
+    supportedAssets,
     account,
     network,
   );
@@ -2176,6 +2293,43 @@ export function getIssuedAsset(assetDefinition: AssetDefinition) {
 
 export function getAssetForOperation(assetDefinition: AssetDefinition) {
   return assetDefinition.isNative ? Asset.native() : getIssuedAsset(assetDefinition);
+}
+
+function stellarAmountsEqual(left: unknown, right: unknown) {
+  const leftAmount = Number(left);
+  const rightAmount = Number(right);
+
+  return (
+    Number.isFinite(leftAmount) &&
+    Number.isFinite(rightAmount) &&
+    leftAmount.toFixed(7) === rightAmount.toFixed(7)
+  );
+}
+
+function isNativeOperationAsset(asset: Record<string, any> | undefined) {
+  if (!asset) {
+    return false;
+  }
+
+  if (typeof asset.isNative === 'function') {
+    return asset.isNative();
+  }
+
+  return String(asset.code || '').toUpperCase() === NATIVE_ASSET_CODE && !asset.issuer;
+}
+
+function operationAssetMatches(
+  asset: Record<string, any> | undefined,
+  assetDefinition: AssetDefinition,
+) {
+  if (assetDefinition.isNative) {
+    return isNativeOperationAsset(asset);
+  }
+
+  return (
+    normalizeAssetCode(asset?.code) === assetDefinition.assetCode &&
+    String(asset?.issuer || '') === String(assetDefinition.assetIssuer || '')
+  );
 }
 
 export function buildPaymentTransaction({
@@ -2296,6 +2450,7 @@ export function addPrivySignature(
 }
 
 export async function submitPrivySignedTransaction({
+  clientSignatureHex,
   env,
   network,
   sourceAddress,
@@ -2303,6 +2458,7 @@ export async function submitPrivySignedTransaction({
   wallet,
   walletId,
 }: {
+  clientSignatureHex?: string;
   env: Env;
   network: StellarNetwork;
   sourceAddress: string;
@@ -2310,7 +2466,9 @@ export async function submitPrivySignedTransaction({
   wallet?: WalletRecord;
   walletId: string;
 }) {
-  if (wallet?.kind === 'imported_privy') {
+  if (clientSignatureHex) {
+    addPrivySignature(transaction, sourceAddress, clientSignatureHex);
+  } else if (wallet?.kind === 'imported_privy') {
     const secret = await decryptWalletSecret(env, wallet.encryptedSecret);
     transaction.sign(assertSecretKey(secret, 'Imported Stellar secret key'));
   } else {
@@ -2410,6 +2568,7 @@ export async function quoteStellarSwap(
 
   return {
     destMin,
+    ...getDefaultFeeEstimateFields(1),
     fromAmount: sendAmount,
     fromAssetCode: fromDefinition.assetCode,
     fromAssetIssuer: fromDefinition.assetIssuer,
@@ -2425,22 +2584,28 @@ export async function executeStellarSwap(
   env: Env,
   {
     amount,
+    clientSigningSupported = false,
+    clientSignatureHex,
     fromAssetCode,
     fromAssetIssuer,
     network,
     sourceAddress,
     sourceWallet,
     sourceWalletId,
+    transactionXdr,
     toAssetCode,
     toAssetIssuer,
   }: {
     amount: unknown;
+    clientSigningSupported?: boolean;
+    clientSignatureHex?: string | null;
     fromAssetCode: unknown;
     fromAssetIssuer?: unknown;
     network: StellarNetwork;
     sourceAddress: string;
     sourceWallet?: WalletRecord;
     sourceWalletId: string;
+    transactionXdr?: unknown;
     toAssetCode: unknown;
     toAssetIssuer?: unknown;
   },
@@ -2479,7 +2644,7 @@ export async function executeStellarSwap(
   });
   ensureTrustline(sourceAccount, toDefinition, 'Recipient wallet');
   const config = getNetworkConfig(env, network);
-  const transaction = new TransactionBuilder(sourceAccount, {
+  const preparedTransaction = new TransactionBuilder(sourceAccount, {
     fee: BASE_FEE,
     networkPassphrase: config.passphrase,
   })
@@ -2495,7 +2660,52 @@ export async function executeStellarSwap(
     )
     .setTimeout(60)
     .build();
+  const transaction =
+    clientSignatureHex && transactionXdr
+      ? requireClassicTransaction(parseStellarXdr(env, transactionXdr, network))
+      : preparedTransaction;
+  const signingHash = `0x${bytesToHex(transaction.hash() as Uint8Array)}`;
+
+  if (clientSignatureHex && transactionXdr) {
+    const operation = (transaction.operations || [])[0] as Record<string, any> | undefined;
+    const operationSource = operation?.source
+      ? String(operation.source)
+      : sourceAddress;
+    const destMinAmount = Number(operation?.destMin || 0);
+
+    if (
+      transaction.source !== sourceAddress ||
+      transaction.operations.length !== 1 ||
+      operation?.type !== 'pathPaymentStrictSend' ||
+      operationSource !== sourceAddress ||
+      String(operation.destination || '') !== sourceAddress ||
+      !stellarAmountsEqual(operation.sendAmount, quote.fromAmount) ||
+      !Number.isFinite(destMinAmount) ||
+      destMinAmount <= 0 ||
+      !operationAssetMatches(operation.sendAsset, fromDefinition) ||
+      !operationAssetMatches(operation.destAsset, toDefinition)
+    ) {
+      throw makeError('Signed transaction does not match the swap request', 400);
+    }
+  }
+
+  if (
+    sourceWallet?.kind !== 'imported_privy' &&
+    !clientSignatureHex &&
+    clientSigningSupported
+  ) {
+    return {
+      ...quote,
+      hash: signingHash,
+      payoutAddress: sourceAddress,
+      requiresClientSignature: true,
+      submitted: null,
+      transactionXdr: transaction.toEnvelope().toXDR('base64'),
+    };
+  }
+
   const submitted = await submitPrivySignedTransaction({
+    clientSignatureHex: clientSignatureHex || undefined,
     env,
     network,
     sourceAddress,
@@ -2506,8 +2716,11 @@ export async function executeStellarSwap(
 
   return {
     ...quote,
+    hash: null,
     payoutAddress: sourceAddress,
+    requiresClientSignature: false,
     submitted,
+    transactionXdr: null,
   };
 }
 
@@ -2540,6 +2753,23 @@ export async function fetchAccountOperations(
   >;
 }
 
+export async function tryFetchTransactionFeeFields(
+  env: Env,
+  network: StellarNetwork,
+  hash: string,
+) {
+  try {
+    const transaction = (await getStellarServer(env, network)
+      .transactions()
+      .transaction(hash)
+      .call()) as Record<string, any>;
+
+    return getTransactionFeeFields(transaction);
+  } catch {
+    return null;
+  }
+}
+
 export function normalizeOperationRecord(
   env: Env,
   address: string,
@@ -2561,22 +2791,6 @@ export function normalizeOperationRecord(
     return null;
   }
 
-  const assetCode = isCreateAccount
-    ? NATIVE_ASSET_CODE
-    : operation.asset_type === 'native' || operation.source_asset_type === 'native'
-      ? NATIVE_ASSET_CODE
-      : operation.asset_code ||
-        operation.source_asset_code ||
-        operation.destination_asset_code ||
-        NATIVE_ASSET_CODE;
-  const amount = isCreateAccount
-    ? operation.starting_balance || '0'
-    : isChangeTrust
-      ? '0'
-      : operation.amount ||
-        operation.source_amount ||
-        operation.destination_amount ||
-        '0';
   const from =
     operation.from ||
     operation.funder ||
@@ -2596,6 +2810,49 @@ export function normalizeOperationRecord(
       : from === address || operation.funder === address
         ? 'sent'
         : 'other';
+  const pathShowsReceivedAsset = isPathPayment && direction !== 'sent';
+  const pathAssetType = pathShowsReceivedAsset
+    ? operation.destination_asset_type || operation.asset_type
+    : operation.source_asset_type;
+  const assetCode = isPathPayment
+    ? pathAssetType === 'native'
+      ? NATIVE_ASSET_CODE
+      : pathShowsReceivedAsset
+        ? operation.destination_asset_code ||
+          operation.asset_code ||
+          operation.source_asset_code ||
+          NATIVE_ASSET_CODE
+        : operation.source_asset_code ||
+          operation.asset_code ||
+          operation.destination_asset_code ||
+          NATIVE_ASSET_CODE
+    : isCreateAccount
+    ? NATIVE_ASSET_CODE
+    : operation.asset_type === 'native' || operation.source_asset_type === 'native'
+      ? NATIVE_ASSET_CODE
+      : operation.asset_code ||
+        operation.source_asset_code ||
+        operation.destination_asset_code ||
+        NATIVE_ASSET_CODE;
+  const amount = isPathPayment
+    ? pathShowsReceivedAsset
+      ? operation.destination_amount ||
+        operation.amount ||
+        operation.source_amount ||
+        '0'
+      : operation.source_amount ||
+        operation.amount ||
+        operation.destination_amount ||
+        '0'
+    : isCreateAccount
+    ? operation.starting_balance || '0'
+    : isChangeTrust
+      ? '0'
+      : operation.amount ||
+        operation.source_amount ||
+        operation.destination_amount ||
+        '0';
+  const feeFields = getTransactionFeeFields(operation.transaction_attr);
 
   return {
     id: operation.id,
@@ -2604,10 +2861,20 @@ export function normalizeOperationRecord(
     assetIssuer:
       assetCode === NATIVE_ASSET_CODE
         ? null
-        : operation.asset_issuer ||
-          operation.source_asset_issuer ||
-          operation.destination_asset_issuer ||
-          null,
+        : isPathPayment
+          ? pathShowsReceivedAsset
+            ? operation.destination_asset_issuer ||
+              operation.asset_issuer ||
+              operation.source_asset_issuer ||
+              null
+            : operation.source_asset_issuer ||
+              operation.asset_issuer ||
+              operation.destination_asset_issuer ||
+              null
+          : operation.asset_issuer ||
+            operation.source_asset_issuer ||
+            operation.destination_asset_issuer ||
+            null,
     createdAt: operation.created_at,
     direction,
     explorerUrl: getExplorerUrl(env, network, 'tx', hash),
@@ -2616,6 +2883,7 @@ export function normalizeOperationRecord(
     ledger: Number(operation.transaction_attr?.ledger || operation.ledger || 0),
     network,
     operation: isPathPayment ? 'path_payment_strict_send' : operation.type,
+    ...feeFields,
     to,
   };
 }
@@ -2804,6 +3072,8 @@ export function reviewStellarXdr({
 }
 
 export async function signStellarXdr({
+  clientSigningSupported = false,
+  clientSignatureHex,
   env,
   network,
   sourceAddress,
@@ -2812,6 +3082,8 @@ export async function signStellarXdr({
   walletId,
   xdr,
 }: {
+  clientSigningSupported?: boolean;
+  clientSignatureHex?: string | null;
   env: Env;
   network: StellarNetwork;
   sourceAddress: string;
@@ -2827,9 +3099,28 @@ export async function signStellarXdr({
     sourceAddress,
     xdr,
   });
+  const signingHash = `0x${bytesToHex(transaction.hash() as Uint8Array)}`;
+
+  if (
+    wallet?.kind !== 'imported_privy' &&
+    !clientSignatureHex &&
+    clientSigningSupported
+  ) {
+    return {
+      requiresClientSignature: true,
+      review,
+      signedXdr: '',
+      signingHash,
+      submitted: null,
+      transactionXdr: transaction.toEnvelope().toXDR('base64'),
+    };
+  }
+
   if (wallet?.kind === 'imported_privy') {
     const secret = await decryptWalletSecret(env, wallet.encryptedSecret);
     transaction.sign(assertSecretKey(secret, 'Imported Stellar secret key'));
+  } else if (clientSignatureHex) {
+    addPrivySignature(transaction, sourceAddress, clientSignatureHex);
   } else {
     const signatureHex = await signStellarTransaction(env, walletId, transaction);
     addPrivySignature(transaction, sourceAddress, signatureHex);
@@ -2837,9 +3128,12 @@ export async function signStellarXdr({
 
   if (!submit) {
     return {
+      requiresClientSignature: false,
       review,
       signedXdr: transaction.toEnvelope().toXDR('base64'),
+      signingHash,
       submitted: null,
+      transactionXdr: null,
     };
   }
 
@@ -2863,9 +3157,12 @@ export async function signStellarXdr({
   }
 
   return {
+    requiresClientSignature: false,
     review,
     signedXdr: transaction.toEnvelope().toXDR('base64'),
+    signingHash,
     submitted,
+    transactionXdr: null,
   };
 }
 
@@ -2933,6 +3230,7 @@ export function buildSubmittedTransactionItem({
   assetIssuer,
   direction = 'sent',
   env,
+  feeInfo,
   from,
   network,
   operation,
@@ -2944,12 +3242,15 @@ export function buildSubmittedTransactionItem({
   assetIssuer?: string | null;
   direction?: string;
   env: Env;
+  feeInfo?: Record<string, any> | null;
   from: string;
   network: StellarNetwork;
   operation: string;
-  submitted: { hash: string; ledger?: number };
+  submitted: { hash: string; ledger?: number } & Record<string, any>;
   to: string;
 }) {
+  const feeFields = getTransactionFeeFields(feeInfo || submitted);
+
   return {
     id: submitted.hash,
     amount,
@@ -2963,6 +3264,7 @@ export function buildSubmittedTransactionItem({
     ledger: submitted.ledger,
     network,
     operation,
+    ...feeFields,
     to,
   };
 }

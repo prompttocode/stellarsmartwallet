@@ -9,13 +9,13 @@ import React, {
   useState,
 } from 'react';
 import {
-  Alert,
   AppState,
   Linking,
   type AppStateStatus,
 } from 'react-native';
 import ReactNativeBiometrics from 'react-native-biometrics';
 import { useIdentityToken } from '@privy-io/expo';
+import { useSignRawHash } from '@privy-io/expo/extended-chains';
 import type WalletKitClient from '@reown/walletkit';
 import type {
   PendingRequestTypes,
@@ -33,6 +33,7 @@ import {
 } from '@walletconnect/utils';
 
 import { api } from '@api/client';
+import { useAppPopup } from '@components/common/AppPopup';
 import type { StellarNetwork } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
 import { getWalletKit } from '../walletconnect/client';
@@ -84,8 +85,11 @@ export type WalletConnectXdrReview = {
 
 type WalletConnectSignResponse = {
   hash: string | null;
+  requiresClientSignature?: boolean;
   signedXdr: string;
+  signingHash?: `0x${string}`;
   submitted: { hash?: string } | null;
+  transactionXdr?: string | null;
 };
 
 export type WalletConnectSessionView = {
@@ -302,6 +306,31 @@ function isSupportedMethod(value: string): value is StellarMethod {
   return STELLAR_METHODS.includes(value as StellarMethod);
 }
 
+function isPrivyHash(value: unknown): value is `0x${string}` {
+  return typeof value === 'string' && /^0x[0-9a-fA-F]+$/.test(value);
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+) {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 export function WalletConnectProvider({
   children,
   wallet,
@@ -310,6 +339,8 @@ export function WalletConnectProvider({
   wallet: WalletState;
 }) {
   const { getIdentityToken } = useIdentityToken();
+  const { signRawHash } = useSignRawHash();
+  const { showPopup } = useAppPopup();
   const walletRef = useRef(wallet);
   const clientRef = useRef<WalletKitClient | null>(null);
   const pendingPairUriRef = useRef<string | null>(null);
@@ -410,7 +441,7 @@ export function WalletConnectProvider({
         await respondWithError(
           nextClient,
           event,
-          'WalletConnect request does not contain Stellar XDR.',
+          'This WalletConnect request is missing transaction details.',
         );
         return false;
       }
@@ -467,7 +498,11 @@ export function WalletConnectProvider({
               ? error.message
               : 'WalletConnect could not initialize.';
           setLastError(message);
-          Alert.alert('WalletConnect', message);
+          showPopup({
+            message,
+            title: 'WalletConnect',
+            variant: 'danger',
+          });
         }
       } finally {
         if (!cancelled) {
@@ -543,6 +578,7 @@ export function WalletConnectProvider({
     };
   }, [
     refreshSessions,
+    showPopup,
     validateRequest,
     wallet.walletConnectConfig?.projectId,
   ]);
@@ -553,15 +589,20 @@ export function WalletConnectProvider({
       const normalizedUri = uri.trim();
 
       if (!normalizedUri.startsWith('wc:')) {
-        Alert.alert('WalletConnect', 'This is not a WalletConnect URI.');
+        showPopup({
+          message: 'This is not a WalletConnect URI.',
+          title: 'WalletConnect',
+          variant: 'warning',
+        });
         return false;
       }
 
       if (!currentWallet.walletConnectConfig?.projectId) {
-        Alert.alert(
-          'WalletConnect unavailable',
-          'Add a Reown project ID to the Worker configuration first.',
-        );
+        showPopup({
+          message: 'WalletConnect is not available yet. Please try again later.',
+          title: 'WalletConnect unavailable',
+          variant: 'warning',
+        });
         return false;
       }
 
@@ -570,10 +611,11 @@ export function WalletConnectProvider({
         !currentWallet.walletActive ||
         !currentWallet.account
       ) {
-        Alert.alert(
-          'Signing wallet required',
-          'Select an active Privy wallet before connecting a dApp.',
-        );
+        showPopup({
+          message: 'Select an active Privy wallet before connecting a dApp.',
+          title: 'Signing wallet required',
+          variant: 'warning',
+        });
         return false;
       }
 
@@ -591,7 +633,11 @@ export function WalletConnectProvider({
         const message =
           error instanceof Error ? error.message : 'Could not pair this dApp.';
         setLastError(message);
-        Alert.alert('WalletConnect', message);
+        showPopup({
+          message,
+          title: 'WalletConnect',
+          variant: 'danger',
+        });
         return false;
       } finally {
         setPairing(false);
@@ -599,7 +645,7 @@ export function WalletConnectProvider({
 
       return true;
     },
-    [],
+    [showPopup],
   );
 
   useEffect(() => {
@@ -812,10 +858,11 @@ export function WalletConnectProvider({
       !currentWallet.wallet.canSign ||
       !currentWallet.walletActive
     ) {
-      Alert.alert(
-        'Cannot connect',
-        'The selected wallet is not active or cannot sign transactions.',
-      );
+      showPopup({
+        message: 'The selected wallet is not active or cannot sign transactions.',
+        title: 'Cannot connect',
+        variant: 'warning',
+      });
       return;
     }
 
@@ -827,12 +874,13 @@ export function WalletConnectProvider({
           : getSdkError('UNSUPPORTED_METHODS'),
       });
       setProposalData(null);
-      Alert.alert(
-        'Unsupported request',
-        unsupportedChain
+      showPopup({
+        message: unsupportedChain
           ? 'This dApp requested a different Stellar network.'
           : `This dApp requested an unsupported method: ${unsupportedMethod}`,
-      );
+        title: 'Unsupported request',
+        variant: 'warning',
+      });
       return;
     }
 
@@ -861,14 +909,16 @@ export function WalletConnectProvider({
       setProposalData(null);
       refreshSessions(nextClient);
     } catch (error) {
-      Alert.alert(
-        'WalletConnect',
-        error instanceof Error
-          ? error.message
-          : 'Could not approve this connection.',
-      );
+      showPopup({
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Could not approve this connection.',
+        title: 'WalletConnect',
+        variant: 'danger',
+      });
     }
-  }, [proposalData, refreshSessions]);
+  }, [proposalData, refreshSessions, showPopup]);
 
   const rejectProposal = useCallback(async () => {
     const nextClient = clientRef.current;
@@ -967,26 +1017,69 @@ export function WalletConnectProvider({
       }
 
       const session = nextClient.getActiveSessions()[event.topic];
-      const response = await api<WalletConnectSignResponse>(
+      const signBody = {
+        clientSigningSupported: true,
+        email: currentWallet.account.email,
+        method,
+        network: currentWallet.network,
+        peerName: session?.peer.metadata.name || '',
+        sourceAddress: currentWallet.wallet.address,
+        sourceWalletId: currentWallet.wallet.id,
+        submit: method === 'stellar_signAndSubmitXDR',
+        topic: event.topic,
+        xdr: extractXdr(event.params.request.params),
+      };
+      let response = await api<WalletConnectSignResponse>(
         '/api/walletconnect/stellar/sign-xdr',
         {
-          body: JSON.stringify({
-            email: currentWallet.account.email,
-            method,
-            network: currentWallet.network,
-            peerName: session?.peer.metadata.name || '',
-            sourceAddress: currentWallet.wallet.address,
-            sourceWalletId: currentWallet.wallet.id,
-            submit: method === 'stellar_signAndSubmitXDR',
-            topic: event.topic,
-            xdr: extractXdr(event.params.request.params),
-          }),
+          body: JSON.stringify(signBody),
           headers: {
             Authorization: `Bearer ${identityToken}`,
           },
           method: 'POST',
         },
       );
+
+      if (response.requiresClientSignature) {
+        if (!isPrivyHash(response.signingHash)) {
+          throw new Error(
+            'Could not prepare this WalletConnect request. Please try again.',
+          );
+        }
+
+        if (!response.transactionXdr) {
+          throw new Error(
+            'Could not prepare this WalletConnect request. Please try again.',
+          );
+        }
+
+        const signedRequest = await withTimeout(
+          signRawHash({
+            address: currentWallet.wallet.address,
+            chainType: 'stellar',
+            hash: response.signingHash,
+          }),
+          15_000,
+          'Wallet signing timed out. Please try again.',
+        );
+
+        response = await api<WalletConnectSignResponse>(
+          '/api/walletconnect/stellar/sign-xdr',
+          {
+            body: JSON.stringify({
+              ...signBody,
+              clientSignature: signedRequest.signature,
+              signingHash: response.signingHash,
+              transactionXdr: response.transactionXdr,
+              xdr: response.transactionXdr,
+            }),
+            headers: {
+              Authorization: `Bearer ${identityToken}`,
+            },
+            method: 'POST',
+          },
+        );
+      }
 
       await nextClient.respondSessionRequest({
         response:
@@ -1008,7 +1101,11 @@ export function WalletConnectProvider({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Could not sign this request.';
-      Alert.alert('WalletConnect', message);
+      showPopup({
+        message,
+        title: 'WalletConnect',
+        variant: 'danger',
+      });
     }
   }, [
     activeRequestEvent,
@@ -1016,6 +1113,8 @@ export function WalletConnectProvider({
     removeActiveRequest,
     requestReview,
     respondWithError,
+    showPopup,
+    signRawHash,
   ]);
 
   const disconnectSession = useCallback(

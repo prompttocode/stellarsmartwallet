@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Linking } from 'react-native';
+import { AppState, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReactNativeBiometrics from 'react-native-biometrics';
 import {
@@ -8,7 +8,10 @@ import {
   useLoginWithOAuth,
   usePrivy,
 } from '@privy-io/expo';
-import { useCreateWallet as useCreateExtendedWallet } from '@privy-io/expo/extended-chains';
+import {
+  useCreateWallet as useCreateExtendedWallet,
+  useSignRawHash,
+} from '@privy-io/expo/extended-chains';
 import { api } from '@api/client';
 import { API_BASE_URL, PRIVY_WEB_EXPORT_CLIENT_ID } from '@config';
 import type {
@@ -19,6 +22,8 @@ import type {
   CollectibleItem,
   CollectiblesResponse,
   Contact,
+  FavoriteAsset,
+  FavoriteAssetsResponse,
   WalletAccount,
   FundNftResult,
   Health,
@@ -30,6 +35,8 @@ import type {
   RampOrder,
   RampOrderHistoryResponse,
   RampPaymentInfo,
+  RampPaymentMethod,
+  RampPaymentMethodsResponse,
   RampProvider,
   RampProvidersResponse,
   RampQuote,
@@ -47,35 +54,60 @@ import type {
   WalletConnectConfig,
 } from '@app-types';
 import { formatTokenAmount, getErrorMessage, isEmailLike } from '@utils/format';
+import { cacheGet, cacheSet } from '@utils/localCache';
 import { isRampOrderTerminal } from '@utils/ramp';
-
-type RunOptions = {
-  showAlert?: boolean;
-};
-
-type ErrorDialogState = {
-  message: string;
-  title: string;
-};
-
-const LEGACY_LOCAL_SESSION_STORAGE_KEYS = [
-  'lobstr-demo-session-email',
-  'lobstr-demo-session-network',
-];
-const PREFERRED_NETWORK_STORAGE_KEY = 'privy-wallet-preferred-network';
-const RAMP_ORDER_STORAGE_PREFIX = 'privy-ramp-order';
-const SESSION_CACHE_STORAGE_PREFIX = 'privy-wallet-session-cache-v1';
-const SESSION_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-const MARKET_PRICE_REFRESH_MS = 60_000;
-const DEFAULT_NETWORK: StellarNetwork = 'mainnet';
-const DEFAULT_KYC: KycSummary = { status: 'not_started' };
-
-type CachedWalletSession = {
-  network: StellarNetwork;
-  savedAt: number;
-  session: SessionResponse;
-  userKey: string;
-};
+import {
+  getAvailableAmount,
+  getImportSecretPublicAddress,
+  getXlmTrustlineReserveWarning,
+  isLikelyStellarPublicKey,
+  validateImportSecret,
+  validateStellarAmount,
+  validateWatchOnlyAddress,
+} from '@utils/walletValidation';
+import {
+  AssetIdentityInput,
+  applyReferenceMarketPrices,
+  getAssetIdentity,
+  hasMarketPrice,
+  mergeAssetMarketData,
+} from './wallet/assets';
+import {
+  ASSETS_CACHE_TTL_MS,
+  DEFAULT_KYC,
+  DEFAULT_NETWORK,
+  IMPORT_WALLET_TIMEOUT_MS,
+  LEGACY_LOCAL_SESSION_STORAGE_KEYS,
+  MARKET_PRICE_REFRESH_MS,
+  PREFERRED_NETWORK_STORAGE_KEY,
+  PRIVY_SECURITY_SESSION_TIMEOUT_MS,
+  RAMP_ORDER_STORAGE_PREFIX,
+  TRANSACTIONS_CACHE_TTL_MS,
+  TRUSTLINE_ENABLE_TIMEOUT_MS,
+  TRUSTLINE_SIGN_TIMEOUT_MS,
+} from './wallet/constants';
+import {
+  ClientStellarWalletPayload,
+  getEmailFromPrivyUser,
+  getPrivyUserKey,
+  getTokenWithRetry,
+  hasLinkedStellarEmbeddedWallet,
+  isPrivyHash,
+  walletRecordToClientPayload,
+  withTimeout,
+} from './wallet/privy';
+import {
+  clearCachedSessions,
+  getActiveWalletStorageKey,
+  getAssetsCacheKey,
+  getTransactionsCacheKey,
+  readCachedSession,
+  readStoredActiveWalletId,
+  rememberActiveWalletId,
+  writeCachedSession,
+} from './wallet/storage';
+import { isStellarNetwork, mergePopulatedFields } from './wallet/utils';
+import { useWalletErrors, type RunOptions } from './wallet/walletErrors';
 
 type ApplySessionOptions = {
   cache?: boolean;
@@ -86,13 +118,6 @@ type FinishPrivySessionOptions = {
   cache?: boolean;
   message?: string;
   privyUser?: unknown;
-};
-
-type ClientStellarWalletPayload = {
-  address: string;
-  chain_type: string;
-  id: string;
-  public_key: string;
 };
 
 type SessionStatusResponse = {
@@ -108,289 +133,12 @@ type SessionBootstrapWalletRequest = {
   promise: Promise<ClientStellarWalletPayload | undefined>;
 };
 
-function getAssetIdentity(asset: AssetItem) {
-  return asset.isNative
-    ? `${asset.network}:native`
-    : `${asset.network}:${asset.assetCode}:${asset.assetIssuer || ''}`;
-}
-
-function hasMarketPrice(asset: AssetItem) {
-  return (
-    typeof asset.priceUsd === 'number' &&
-    Number.isFinite(asset.priceUsd) &&
-    asset.priceUsd > 0
-  );
-}
-
-function mergeAssetMarketData(
-  nextAssets: AssetItem[],
-  previousAssets: AssetItem[],
-) {
-  const previousByIdentity = new Map(
-    previousAssets.map(asset => [getAssetIdentity(asset), asset]),
-  );
-
-  return nextAssets.map(asset => {
-    const previous = previousByIdentity.get(getAssetIdentity(asset));
-
-    return {
-      ...asset,
-      image: asset.image || previous?.image || null,
-      priceUsd: hasMarketPrice(asset)
-        ? asset.priceUsd
-        : previous?.priceUsd ?? null,
-      rating: asset.rating ?? previous?.rating ?? null,
-      volume7d: asset.volume7d ?? previous?.volume7d ?? null,
-    };
-  });
-}
-
-function applyReferenceMarketPrices(
-  testnetAssets: AssetItem[],
-  mainnetAssets: AssetItem[],
-) {
-  const nativeReference = mainnetAssets.find(
-    asset => asset.isNative && hasMarketPrice(asset),
-  );
-  const referencesByCode = new Map<string, AssetItem>();
-
-  for (const asset of mainnetAssets) {
-    if (!hasMarketPrice(asset) || referencesByCode.has(asset.assetCode)) {
-      continue;
-    }
-
-    referencesByCode.set(asset.assetCode, asset);
-  }
-
-  return testnetAssets.map(asset => {
-    const reference = asset.isNative
-      ? nativeReference
-      : referencesByCode.get(asset.assetCode);
-
-    if (!reference) {
-      return asset;
-    }
-
-    return {
-      ...asset,
-      image: asset.image || reference.image || null,
-      priceUsd: reference.priceUsd ?? asset.priceUsd ?? null,
-      rating: asset.rating ?? reference.rating ?? null,
-      volume7d: reference.volume7d ?? asset.volume7d ?? null,
-    };
-  });
-}
-
-function mergePopulatedFields<T extends object>(
-  previous?: T,
-  next?: T,
-): T | undefined {
-  if (!previous && !next) {
-    return undefined;
-  }
-
-  const result = { ...(previous || {}) } as T;
-
-  for (const [key, value] of Object.entries(next || {})) {
-    if (value !== undefined && value !== null && value !== '') {
-      (result as Record<string, unknown>)[key] = value;
-    }
-  }
-
-  return result;
-}
-
-type PrivyLinkedEmailAccount = {
-  type?: string;
-  address?: string;
-  chain_type?: string;
-  chainType?: string;
-  email?: string;
-  wallet_client_type?: string;
-  walletClientType?: string;
-};
-
-type PrivyUserLike = {
-  id?: string;
-  email?: string;
-  linked_accounts?: PrivyLinkedEmailAccount[];
-  linkedAccounts?: PrivyLinkedEmailAccount[];
-};
-
-function getPrivyUserKey(userValue: unknown) {
-  const currentUser = userValue as PrivyUserLike | null;
-
-  return currentUser?.id || null;
-}
-
-function getEmailFromPrivyUser(userValue: unknown) {
-  const currentUser = userValue as PrivyUserLike | null;
-
-  if (!currentUser) {
-    return '';
-  }
-
-  if (currentUser.email) {
-    return currentUser.email.trim().toLowerCase();
-  }
-
-  const linkedAccounts =
-    currentUser.linked_accounts || currentUser.linkedAccounts || [];
-  const emailAccount =
-    linkedAccounts.find(
-      account => account.type === 'email' && (account.address || account.email),
-    ) || linkedAccounts.find(account => account.address || account.email);
-
-  return (emailAccount?.address || emailAccount?.email || '')
-    .trim()
-    .toLowerCase();
-}
-
-function hasLinkedStellarEmbeddedWallet(userValue: unknown) {
-  const currentUser = userValue as PrivyUserLike | null;
-  const linkedAccounts =
-    currentUser?.linked_accounts || currentUser?.linkedAccounts || [];
-
-  return linkedAccounts.some(account => {
-    const type = String(account.type || '').toLowerCase();
-    const chainType = String(
-      account.chain_type || account.chainType || '',
-    ).toLowerCase();
-    const walletClientType = String(
-      account.wallet_client_type || account.walletClientType || '',
-    ).toLowerCase();
-    const address = String(account.address || '').trim();
-
-    return (
-      type === 'wallet' &&
-      (chainType === 'stellar' || address.startsWith('G')) &&
-      (!walletClientType || walletClientType === 'privy')
-    );
-  });
-}
-
-function walletRecordToClientPayload(
-  walletValue: Wallet | null | undefined,
-): ClientStellarWalletPayload | undefined {
-  if (
-    !walletValue ||
-    walletValue.kind !== 'privy' ||
-    !walletValue.id ||
-    !walletValue.address
-  ) {
-    return undefined;
-  }
-
-  return {
-    address: walletValue.address,
-    chain_type: walletValue.chainType || 'stellar',
-    id: walletValue.id,
-    public_key: walletValue.publicKey || walletValue.address,
-  };
-}
-
-function wait(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function getTokenWithRetry(getToken: () => Promise<string | null>) {
-  for (const delay of [0, 300, 700, 1200, 2000]) {
-    if (delay > 0) {
-      await wait(delay);
-    }
-
-    const token = await getToken().catch(() => null);
-
-    if (token) {
-      return token;
-    }
-  }
-
-  return null;
-}
-
-function getSessionCacheKey(userKey: string, network: StellarNetwork) {
-  return `${SESSION_CACHE_STORAGE_PREFIX}:${encodeURIComponent(
-    userKey,
-  )}:${network}`;
-}
-
-async function readCachedSession(
-  userKey: string,
-  network: StellarNetwork,
-): Promise<CachedWalletSession | null> {
-  const raw = await AsyncStorage.getItem(getSessionCacheKey(userKey, network));
-
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    const cached = JSON.parse(raw) as CachedWalletSession;
-
-    if (
-      cached.userKey !== userKey ||
-      cached.network !== network ||
-      !cached.session?.account ||
-      Date.now() - Number(cached.savedAt || 0) > SESSION_CACHE_MAX_AGE_MS
-    ) {
-      await AsyncStorage.removeItem(getSessionCacheKey(userKey, network));
-      return null;
-    }
-
-    return cached;
-  } catch {
-    await AsyncStorage.removeItem(getSessionCacheKey(userKey, network));
-    return null;
-  }
-}
-
-async function writeCachedSession(
-  session: SessionResponse,
-  userKeyHint: string | null,
-  network: StellarNetwork,
-) {
-  const cacheUserKey = userKeyHint || session.account.id;
-
-  if (!cacheUserKey) {
-    return;
-  }
-
-  const cached: CachedWalletSession = {
-    network,
-    savedAt: Date.now(),
-    session,
-    userKey: cacheUserKey,
-  };
-
-  await AsyncStorage.setItem(
-    getSessionCacheKey(cacheUserKey, network),
-    JSON.stringify(cached),
-  );
-}
-
-async function clearCachedSessions(userKey?: string | null) {
-  const keys = await AsyncStorage.getAllKeys();
-  const prefix = userKey
-    ? `${SESSION_CACHE_STORAGE_PREFIX}:${encodeURIComponent(userKey)}:`
-    : `${SESSION_CACHE_STORAGE_PREFIX}:`;
-  const sessionKeys = keys.filter(key => key.startsWith(prefix));
-
-  if (sessionKeys.length > 0) {
-    await AsyncStorage.multiRemove(sessionKeys);
-  }
-}
-
 export function getBalanceForAsset(balances: BalanceItem[], assetCode: string) {
   return balances.find(balance => balance.assetCode === assetCode) || null;
 }
 
 export function getBalanceAmount(balances: BalanceItem[], assetCode: string) {
   return getBalanceForAsset(balances, assetCode)?.balance || '0';
-}
-
-function isStellarNetwork(value: unknown): value is StellarNetwork {
-  return value === 'mainnet' || value === 'testnet';
 }
 
 export function getTransactionTitle(transaction: TransactionItem) {
@@ -436,18 +184,23 @@ export function useWallet() {
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [errorDialog, setErrorDialog] = useState<ErrorDialogState | null>(
-    null,
-  );
-  const [message, setMessage] = useState(
-    'Enter your email to receive a Privy login code.',
-  );
+  const {
+    busy,
+    dismissErrorDialog,
+    errorDialog,
+    message,
+    run,
+    setErrorDialog,
+    setMessage,
+    showErrorDialog,
+  } = useWalletErrors('Enter your email to receive a Privy login code.');
   const [rampProviders, setRampProviders] = useState<RampProvider[]>([]);
   const [activeRampOrder, setActiveRampOrder] = useState<RampOrder | null>(
     null,
   );
   const [rampOrderHistory, setRampOrderHistory] = useState<RampOrder[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<RampPaymentMethod[]>([]);
+  const [favoriteAssets, setFavoriteAssets] = useState<FavoriteAsset[]>([]);
   const [walletConnectConfig, setWalletConnectConfig] =
     useState<WalletConnectConfig | null>(null);
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
@@ -480,6 +233,7 @@ export function useWallet() {
   const { login: loginWithOAuth, state: oauthState } = useLoginWithOAuth();
   const { createWallet: createPrivyExtendedWallet } =
     useCreateExtendedWallet();
+  const { signRawHash } = useSignRawHash();
 
   const setPreferredNetwork = useCallback((nextNetwork: StellarNetwork) => {
     setNetwork(nextNetwork);
@@ -487,50 +241,6 @@ export function useWallet() {
       () => null,
     );
   }, []);
-
-  const dismissErrorDialog = useCallback(() => {
-    setErrorDialog(null);
-  }, []);
-
-  const showErrorDialog = useCallback((messageText: string, title = 'Error') => {
-    setErrorDialog({
-      message: messageText,
-      title,
-    });
-  }, []);
-
-  const run = useCallback(
-    async <T>(
-      label: string,
-      action: () => Promise<T>,
-      options: RunOptions = {},
-    ) => {
-      try {
-        setBusy(label);
-        if (options.showAlert !== false) {
-          setErrorDialog(null);
-        }
-
-        return await action();
-      } catch (error) {
-        const errorMessage = getErrorMessage(error);
-        setMessage(errorMessage);
-
-        if (options.showAlert !== false) {
-          setBusy(null);
-          setErrorDialog({
-            message: errorMessage,
-            title: 'Error',
-          });
-        }
-
-        return null;
-      } finally {
-        setBusy(null);
-      }
-    },
-    [],
-  );
 
   const checkServer = useCallback(async () => {
     try {
@@ -555,11 +265,38 @@ export function useWallet() {
       setAssetPricesUpdatedAt(
         nextAssets.some(hasMarketPrice) ? Date.now() : null,
       );
+      cacheSet(getAssetsCacheKey(network), nextAssets).catch(() => null);
       setRampProviders(rampResult.providers || []);
       setWalletConnectConfig(walletConnectResult);
     } catch (error) {
       setMessage(getErrorMessage(error));
     }
+  }, [network]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    cacheGet<AssetItem[]>(getAssetsCacheKey(network), ASSETS_CACHE_TTL_MS)
+      .then(cachedAssets => {
+        if (cancelled || !cachedAssets || cachedAssets.length === 0) {
+          return;
+        }
+
+        setAssets(current =>
+          current.length > 0
+            ? mergeAssetMarketData(cachedAssets, current)
+            : cachedAssets,
+        );
+
+        if (cachedAssets.some(hasMarketPrice)) {
+          setAssetPricesUpdatedAt(prev => prev ?? Date.now());
+        }
+      })
+      .catch(() => null);
+
+    return () => {
+      cancelled = true;
+    };
   }, [network]);
 
   useEffect(() => {
@@ -606,6 +343,7 @@ export function useWallet() {
       ? [account.wallet]
       : [];
   const networkWallets = allWallets.filter(item => item.network === network);
+  const networkWalletIds = networkWallets.map(item => item.id).join('|');
   const wallet =
     networkWallets.find(item => item.id === activeWalletId) ||
     networkWallets[0] ||
@@ -616,6 +354,42 @@ export function useWallet() {
   useEffect(() => {
     getIdentityTokenRef.current = getIdentityToken;
   }, [getIdentityToken]);
+
+  useEffect(() => {
+    if (!account?.email || networkWallets.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    readStoredActiveWalletId(account.email, network)
+      .then(storedWalletId => {
+        if (cancelled || !storedWalletId) {
+          return;
+        }
+
+        const storedWalletExists = networkWallets.some(
+          item => item.id === storedWalletId,
+        );
+
+        if (!storedWalletExists) {
+          AsyncStorage.removeItem(
+            getActiveWalletStorageKey(account.email, network),
+          ).catch(() => null);
+          return;
+        }
+
+        if (storedWalletId !== activeWalletId) {
+          setActiveWalletId(storedWalletId);
+        }
+      })
+      .catch(() => null);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [account?.email, activeWalletId, network, networkWalletIds]);
+
   const visibleAssets = assets.length > 0 ? assets : balances;
   const selectedBalance = getBalanceForAsset(balances, selectedAssetCode);
   const selectedAsset =
@@ -652,8 +426,14 @@ export function useWallet() {
       const result = await api<TransactionHistoryResponse>(
         `/api/stellar/${targetNetwork}/${address}/history`,
       );
+      const transactionList = result.transactions || [];
 
-      return result.transactions || [];
+      cacheSet(
+        getTransactionsCacheKey(address, targetNetwork),
+        transactionList,
+      ).catch(() => null);
+
+      return transactionList;
     },
     [network],
   );
@@ -737,6 +517,8 @@ export function useWallet() {
         setAssetPricesUpdatedAt(Date.now());
       }
 
+      cacheSet(getAssetsCacheKey(network), nextAssets).catch(() => null);
+
       return nextAssets;
     } catch {
       return null;
@@ -809,6 +591,8 @@ export function useWallet() {
     setTransactions([]);
     setActiveRampOrder(null);
     setRampOrderHistory([]);
+    setPaymentMethods([]);
+    setFavoriteAssets([]);
     setCode('');
     setCodeSent(false);
     setServerSessionReady(false);
@@ -895,6 +679,25 @@ export function useWallet() {
 
     let cancelled = false;
 
+    cacheGet<TransactionItem[]>(
+      getTransactionsCacheKey(address, network),
+      TRANSACTIONS_CACHE_TTL_MS,
+    )
+      .then(cachedTransactions => {
+        if (
+          cancelled ||
+          !cachedTransactions ||
+          cachedTransactions.length === 0
+        ) {
+          return;
+        }
+
+        setTransactions(current =>
+          current.length > 0 ? current : cachedTransactions,
+        );
+      })
+      .catch(() => null);
+
     fetchTransactionHistory(address, network)
       .then(nextTransactions => {
         if (!cancelled) {
@@ -906,7 +709,54 @@ export function useWallet() {
     return () => {
       cancelled = true;
     };
+  }, [fetchTransactionHistory, network, serverSessionReady, wallet?.address]);
+
+  useEffect(() => {
+    const address = wallet?.address;
+
+    if (!address) {
+      return;
+    }
+
+    let currentAppState = AppState.currentState;
+    let cancelled = false;
+
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      const returningToForeground =
+        currentAppState.match(/inactive|background/) &&
+        nextAppState === 'active';
+
+      currentAppState = nextAppState;
+
+      if (!returningToForeground || cancelled) {
+        return;
+      }
+
+      fetchTransactionHistory(address, network)
+        .then(nextTransactions => {
+          if (!cancelled) {
+            setTransactions(nextTransactions);
+          }
+        })
+        .catch(() => null);
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
   }, [fetchTransactionHistory, network, wallet?.address]);
+
+  useEffect(() => {
+    if (!account || !serverSessionReady) {
+      setPaymentMethods([]);
+      setFavoriteAssets([]);
+      return;
+    }
+
+    loadPaymentMethods({ silent: true }).catch(() => null);
+    loadFavoriteAssets({ silent: true }).catch(() => null);
+  }, [account?.email, network, serverSessionReady]);
 
   const refreshPrivySecuritySession = useCallback(async () => {
     if (!isReady || !userKey) {
@@ -914,7 +764,11 @@ export function useWallet() {
       return false;
     }
 
-    const identityToken = await getTokenWithRetry(getIdentityTokenRef.current);
+    const identityToken = await withTimeout(
+      getTokenWithRetry(getIdentityTokenRef.current),
+      PRIVY_SECURITY_SESSION_TIMEOUT_MS,
+      'Privy session check timed out.',
+    ).catch(() => null);
     const hasToken = Boolean(identityToken);
 
     setPrivySessionReady(hasToken);
@@ -1416,7 +1270,7 @@ export function useWallet() {
     clearWalletSession(nextMessage);
   }
 
-  async function refreshSession() {
+  async function refreshSession(options: RunOptions = {}) {
     if (!account) {
       return;
     }
@@ -1427,7 +1281,13 @@ export function useWallet() {
       try {
         const session = await api<SessionResponse>('/api/session', {
           method: 'POST',
-          body: JSON.stringify({ email: account.email, network }),
+          body: JSON.stringify({
+            activeWalletId: activeNetworkWalletId,
+            email: account.email,
+            network,
+            sourceAddress: wallet?.address,
+            sourceWalletId: wallet?.id,
+          }),
         });
         applySession(session);
         const sessionWalletAddress = session.account.wallet?.address;
@@ -1444,7 +1304,7 @@ export function useWallet() {
       } finally {
         setSessionSyncing(false);
       }
-    });
+    }, options);
   }
 
   async function createWallet() {
@@ -1502,6 +1362,7 @@ export function useWallet() {
 
       resetRecipientState();
       applySession(session, 'Active wallet switched.');
+      await rememberActiveWalletId(account.email, network, walletId);
 
       return session;
     });
@@ -1630,6 +1491,15 @@ export function useWallet() {
       );
     }
 
+    const reserveWarning = getTrustlineReserveWarningForAsset(
+      assetDefinition.assetCode,
+      assetDefinition.assetIssuer,
+    );
+
+    if (reserveWarning) {
+      throw new Error(reserveWarning);
+    }
+
     if (isMainnet && options.confirmMainnet) {
       await requireBiometric(
         `Confirm to enable receiving ${assetDefinition.assetCode} on Mainnet`,
@@ -1637,21 +1507,57 @@ export function useWallet() {
     }
 
     const headers = await getAuthHeaders(isMainnet);
-    const result = await api<TrustlineResult>(
+    const trustlineBody = {
+      accountId: account.id,
+      assetCode: assetDefinition.assetCode,
+      assetIssuer: assetIssuer || assetDefinition.assetIssuer || null,
+      clientSigningSupported: true,
+      email: account.email,
+      sourceAddress: wallet.address,
+      sourceWalletId: wallet.id,
+    };
+    let result = await api<TrustlineResult>(
       `/api/stellar/${network}/trustline`,
       {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          accountId: account.id,
-          assetCode: assetDefinition.assetCode,
-          assetIssuer: assetIssuer || assetDefinition.assetIssuer || null,
-          email: account.email,
-          sourceAddress: wallet.address,
-          sourceWalletId: wallet.id,
-        }),
+        body: JSON.stringify(trustlineBody),
       },
     );
+
+    if (result.requiresClientSignature) {
+      if (!isPrivyHash(result.hash)) {
+        throw new Error('Could not prepare this asset update. Please try again.');
+      }
+
+      if (!result.transactionXdr) {
+        throw new Error('Could not prepare this asset update. Please try again.');
+      }
+
+      const signedTrustline = await withTimeout(
+        signRawHash({
+          address: wallet.address,
+          chainType: 'stellar',
+          hash: result.hash,
+        }),
+        TRUSTLINE_SIGN_TIMEOUT_MS,
+        'Wallet signing timed out. Please try again.',
+      );
+
+      result = await api<TrustlineResult>(
+        `/api/stellar/${network}/trustline`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            ...trustlineBody,
+            clientSignature: signedTrustline.signature,
+            signingHash: result.hash,
+            transactionXdr: result.transactionXdr,
+          }),
+        },
+      );
+    }
 
     setBalances(result.balances);
     setTransactions(result.transactions);
@@ -1660,15 +1566,69 @@ export function useWallet() {
     return result;
   }
 
+  function getTrustlineReserveWarningForAsset(
+    assetCode: string,
+    assetIssuer?: string | null,
+  ) {
+    const assetDefinition =
+      visibleAssets.find(
+        asset =>
+          asset.assetCode === assetCode &&
+          (!assetIssuer || asset.assetIssuer === assetIssuer),
+      ) || visibleAssets.find(asset => asset.assetCode === assetCode);
+
+    if (!assetDefinition || assetDefinition.isNative) {
+      return null;
+    }
+
+    const existingBalance = balances.find(
+      balance =>
+        balance.assetCode === assetDefinition.assetCode &&
+        (balance.assetIssuer || null) ===
+          (assetDefinition.assetIssuer || null),
+    );
+
+    if (existingBalance?.trusted) {
+      return null;
+    }
+
+    const xlmBalance = balances.find(balance => balance.assetCode === 'XLM');
+
+    return getXlmTrustlineReserveWarning(
+      xlmBalance,
+      balances,
+      assetDefinition.assetCode,
+    );
+  }
+
   async function addTrustline(assetCode: string, assetIssuer?: string | null) {
     if (!wallet) {
       return;
     }
 
+    const reserveWarning = getTrustlineReserveWarningForAsset(
+      assetCode,
+      assetIssuer,
+    );
+
+    if (reserveWarning) {
+      setMessage(reserveWarning);
+      showErrorDialog(reserveWarning, 'Not enough XLM');
+      return;
+    }
+
     await run(`Enabling ${assetCode}`, async () => {
-      const result = await ensureWalletTrustline(assetCode, assetIssuer, {
-        confirmMainnet: true,
-      });
+      const result = await withTimeout(
+        ensureWalletTrustline(assetCode, assetIssuer, {
+          confirmMainnet: true,
+        }),
+        TRUSTLINE_ENABLE_TIMEOUT_MS,
+        `Enabling ${assetCode} timed out. Please try again.`,
+      );
+
+      if (!result) {
+        throw new Error(`Could not enable ${assetCode}. Please try again.`);
+      }
 
       setMessage(
         result.alreadyTrusted
@@ -1757,18 +1717,53 @@ export function useWallet() {
         );
       }
 
-      const result = await api<FundNftResult>(
+      const fundNftBody = {
+        accountId: account.id,
+        clientSigningSupported: true,
+        email: account.email,
+        sourceAddress: wallet.address,
+        sourceWalletId: wallet.id,
+      };
+      let result = await api<FundNftResult>(
         `/api/stellar/${network}/fund-nft`,
         {
           method: 'POST',
-          body: JSON.stringify({
-            accountId: account.id,
-            email: account.email,
-            sourceAddress: wallet.address,
-            sourceWalletId: wallet.id,
-          }),
+          body: JSON.stringify(fundNftBody),
         },
       );
+
+      if (result.requiresClientSignature) {
+        if (!isPrivyHash(result.hash)) {
+          throw new Error('Could not prepare this NFT claim. Please try again.');
+        }
+
+        if (!result.transactionXdr) {
+          throw new Error('Could not prepare this NFT claim. Please try again.');
+        }
+
+        const signedClaim = await withTimeout(
+          signRawHash({
+            address: wallet.address,
+            chainType: 'stellar',
+            hash: result.hash,
+          }),
+          TRUSTLINE_SIGN_TIMEOUT_MS,
+          'Wallet signing timed out. Please try again.',
+        );
+
+        result = await api<FundNftResult>(
+          `/api/stellar/${network}/fund-nft`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              ...fundNftBody,
+              clientSignature: signedClaim.signature,
+              signingHash: result.hash,
+              transactionXdr: result.transactionXdr,
+            }),
+          },
+        );
+      }
 
       setBalances(result.balances);
       setCollectibles(result.collectibles);
@@ -1810,13 +1805,52 @@ export function useWallet() {
       return null;
     }
 
-    const destination = recipient.trim();
+    const destination = recipient.trim().toUpperCase();
+    const amountCheck = validateStellarAmount(amount);
 
     if (!destination) {
-      Alert.alert(
-        'Missing recipient',
-        'Enter a recipient wallet address or create a test receiver.',
-      );
+      setErrorDialog({
+        message: 'Enter a recipient wallet address or create a test receiver.',
+        title: 'Missing recipient',
+      });
+      return null;
+    }
+
+    if (!isLikelyStellarPublicKey(destination)) {
+      setErrorDialog({
+        message: 'Enter a valid Stellar recipient address that starts with G.',
+        title: 'Invalid recipient',
+      });
+      return null;
+    }
+
+    if (!amountCheck.valid) {
+      setErrorDialog({
+        message: amountCheck.message || 'Enter a valid amount.',
+        title: 'Invalid amount',
+      });
+      return null;
+    }
+
+    const availableBalance = getAvailableAmount(selectedBalance);
+
+    if (amountCheck.amount > availableBalance) {
+      setErrorDialog({
+        message: selectedAsset?.isNative
+          ? `You can send up to ${formatTokenAmount(
+              String(availableBalance),
+            )} XLM. Stellar keeps ${
+              formatTokenAmount(
+                selectedBalance?.reservedBalance ||
+                  selectedBalance?.minimumBalance ||
+                  '0',
+              )
+            } XLM reserved for the account minimum balance and network fees.`
+          : `You can send up to ${formatTokenAmount(
+              String(availableBalance),
+            )} ${selectedAssetCode}.`,
+        title: 'Insufficient balance',
+      });
       return null;
     }
 
@@ -1830,20 +1864,53 @@ export function useWallet() {
       }
 
       const headers = await getAuthHeaders(isMainnet);
-      const result = await api<SendResult>(`/api/stellar/${network}/send`, {
+      const sendBody = {
+        accountId: account.id,
+        amount: amountCheck.normalized,
+        assetCode: selectedAssetCode,
+        assetIssuer: selectedAsset?.assetIssuer || null,
+        clientSigningSupported: true,
+        destination,
+        email: account.email,
+        sourceAddress: wallet.address,
+        sourceWalletId: wallet.id,
+      };
+      let result = await api<SendResult>(`/api/stellar/${network}/send`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          accountId: account.id,
-          assetCode: selectedAssetCode,
-          assetIssuer: selectedAsset?.assetIssuer || null,
-          email: account.email,
-          sourceWalletId: wallet.id,
-          sourceAddress: wallet.address,
-          destination,
-          amount,
-        }),
+        body: JSON.stringify(sendBody),
       });
+
+      if (result.requiresClientSignature) {
+        if (!isPrivyHash(result.hash)) {
+          throw new Error('Could not prepare this transfer. Please try again.');
+        }
+
+        if (!result.transactionXdr) {
+          throw new Error('Could not prepare this transfer. Please try again.');
+        }
+
+        const signedTransfer = await withTimeout(
+          signRawHash({
+            address: wallet.address,
+            chainType: 'stellar',
+            hash: result.hash,
+          }),
+          TRUSTLINE_SIGN_TIMEOUT_MS,
+          'Wallet signing timed out. Please try again.',
+        );
+
+        result = await api<SendResult>(`/api/stellar/${network}/send`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            ...sendBody,
+            clientSignature: signedTransfer.signature,
+            signingHash: result.hash,
+            transactionXdr: result.transactionXdr,
+          }),
+        });
+      }
 
       setBalances(result.sourceBalances);
       setTransactions(result.transactions);
@@ -1854,7 +1921,7 @@ export function useWallet() {
 
       setMessage(
         `Sent ${formatTokenAmount(
-          amount,
+          amountCheck.normalized,
         )} ${selectedAssetCode} on Stellar ${network}.`,
       );
 
@@ -1882,11 +1949,53 @@ export function useWallet() {
       const toAsset = visibleAssets.find(
         asset => asset.assetCode === toAssetCode,
       );
+      const amountCheck = validateStellarAmount(swapAmount, 'Swap amount');
+      const requestedAmount = amountCheck.amount;
+
+      if (!amountCheck.valid) {
+        throw new Error(amountCheck.message || 'Enter a valid swap amount.');
+      }
+
+      if (!fromAsset || !toAsset) {
+        throw new Error('Selected swap asset is not available.');
+      }
+
+      const fromBalance = balances.find(
+        balance =>
+          balance.assetCode === fromAssetCode &&
+          (balance.assetIssuer || null) ===
+            (fromAsset.assetIssuer || null),
+      );
+      const availableBalance = Number(
+        fromBalance?.availableBalance || fromBalance?.balance || 0,
+      );
+
+      if (requestedAmount > availableBalance) {
+        if (fromAsset.isNative) {
+          throw new Error(
+            `You can swap up to ${formatTokenAmount(
+              String(availableBalance),
+            )} XLM. Stellar keeps ${
+              formatTokenAmount(
+                fromBalance?.reservedBalance ||
+                  fromBalance?.minimumBalance ||
+                  '0',
+              )
+            } XLM reserved for the account minimum balance and network fees.`,
+          );
+        }
+
+        throw new Error(
+          `You can swap up to ${formatTokenAmount(
+            String(availableBalance),
+          )} ${fromAssetCode}.`,
+        );
+      }
 
       return api<SwapQuoteResult>(`/api/stellar/${network}/swap/quote`, {
         method: 'POST',
         body: JSON.stringify({
-          amount: swapAmount,
+          amount: amountCheck.normalized,
           fromAssetCode,
           fromAssetIssuer: fromAsset?.assetIssuer || null,
           sourceAddress: wallet.address,
@@ -1941,10 +2050,11 @@ export function useWallet() {
       const toAsset = visibleAssets.find(
         asset => asset.assetCode === toAssetCode,
       );
-      const requestedAmount = Number(String(swapAmount).replace(',', '.'));
+      const amountCheck = validateStellarAmount(swapAmount, 'Swap amount');
+      const requestedAmount = amountCheck.amount;
 
-      if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
-        throw new Error('Enter a valid swap amount.');
+      if (!amountCheck.valid) {
+        throw new Error(amountCheck.message || 'Enter a valid swap amount.');
       }
 
       if (!fromAsset || !toAsset) {
@@ -1985,24 +2095,60 @@ export function useWallet() {
 
       await ensureWalletTrustline(toAssetCode, toAsset?.assetIssuer || null);
 
-      const result = await api<SwapResult>(
+      const swapBody = {
+        accountId: account.id,
+        amount: amountCheck.normalized,
+        clientSigningSupported: true,
+        email: account.email,
+        fromAssetCode,
+        fromAssetIssuer: fromAsset?.assetIssuer || null,
+        sourceAddress: wallet.address,
+        sourceWalletId: wallet.id,
+        toAssetCode,
+        toAssetIssuer: toAsset?.assetIssuer || null,
+      };
+      let result = await api<SwapResult>(
         `/api/stellar/${network}/swap/execute`,
         {
           method: 'POST',
           headers,
-          body: JSON.stringify({
-            accountId: account.id,
-            amount: swapAmount,
-            email: account.email,
-            fromAssetCode,
-            fromAssetIssuer: fromAsset?.assetIssuer || null,
-            sourceAddress: wallet.address,
-            sourceWalletId: wallet.id,
-            toAssetCode,
-            toAssetIssuer: toAsset?.assetIssuer || null,
-          }),
+          body: JSON.stringify(swapBody),
         },
       );
+
+      if (result.requiresClientSignature) {
+        if (!isPrivyHash(result.hash)) {
+          throw new Error('Could not prepare this swap. Please try again.');
+        }
+
+        if (!result.transactionXdr) {
+          throw new Error('Could not prepare this swap. Please try again.');
+        }
+
+        const signedSwap = await withTimeout(
+          signRawHash({
+            address: wallet.address,
+            chainType: 'stellar',
+            hash: result.hash,
+          }),
+          TRUSTLINE_SIGN_TIMEOUT_MS,
+          'Wallet signing timed out. Please try again.',
+        );
+
+        result = await api<SwapResult>(
+          `/api/stellar/${network}/swap/execute`,
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              ...swapBody,
+              clientSignature: signedSwap.signature,
+              signingHash: result.hash,
+              transactionXdr: result.transactionXdr,
+            }),
+          },
+        );
+      }
 
       setBalances(result.balances);
       setTransactions(result.transactions);
@@ -2067,10 +2213,22 @@ export function useWallet() {
   function upsertRampOrderHistory(order: RampOrder) {
     const reference = order.code || order.id;
 
-    setRampOrderHistory(current => [
-      order,
-      ...current.filter(item => (item.code || item.id) !== reference),
-    ]);
+    setRampOrderHistory(current => {
+      const existingIndex = current.findIndex(
+        item => (item.code || item.id) === reference,
+      );
+
+      if (existingIndex < 0) {
+        return [order, ...current];
+      }
+
+      const next = [...current];
+      next[existingIndex] = mergeRampOrderDetails(
+        next[existingIndex],
+        order,
+      );
+      return next;
+    });
   }
 
   async function refreshRampOrderHistory(options: { silent?: boolean } = {}) {
@@ -2110,9 +2268,289 @@ export function useWallet() {
     return run('Refreshing order history', load);
   }
 
+  async function loadFavoriteAssets(options: { silent?: boolean } = {}) {
+    if (!account) {
+      setFavoriteAssets([]);
+      return [];
+    }
+
+    const load = async () => {
+      const headers = await getAuthHeaders(true);
+      const params = new URLSearchParams({
+        email: account.email,
+        network,
+      });
+      const result = await api<FavoriteAssetsResponse>(
+        `/api/assets/favorites?${params.toString()}`,
+        { headers },
+      );
+      const assets = result.data.assets || [];
+
+      setFavoriteAssets(assets);
+
+      return assets;
+    };
+
+    if (options.silent) {
+      try {
+        return await load();
+      } catch {
+        return [];
+      }
+    }
+
+    return run('Loading favorite assets', load);
+  }
+
+  function findFavoriteAsset(asset: AssetIdentityInput) {
+    const identity = getAssetIdentity(asset);
+
+    return (
+      favoriteAssets.find(item => getAssetIdentity(item) === identity) || null
+    );
+  }
+
+  function isFavoriteAsset(asset: AssetIdentityInput) {
+    return Boolean(findFavoriteAsset(asset));
+  }
+
+  async function toggleFavoriteAsset(asset: AssetItem) {
+    if (!account) {
+      setMessage('Sign in before saving favorite assets.');
+      return null;
+    }
+
+    const existing = findFavoriteAsset(asset);
+
+    if (existing) {
+      return run(
+        'Updating favorites',
+        async () => {
+          requireFreshServerSession();
+          const headers = await getAuthHeaders(true);
+          const params = new URLSearchParams({
+            email: account.email,
+            network,
+          });
+
+          await api<FavoriteAssetsResponse>(
+            `/api/assets/favorites/${encodeURIComponent(
+              existing.id,
+            )}?${params.toString()}`,
+            {
+              method: 'DELETE',
+              headers,
+            },
+          );
+
+          setFavoriteAssets(current =>
+            current.filter(item => item.id !== existing.id),
+          );
+          setMessage(`${asset.assetCode} removed from favorites.`);
+
+          return false;
+        },
+        { showAlert: false },
+      );
+    }
+
+    return run(
+      'Updating favorites',
+      async () => {
+        requireFreshServerSession();
+        const headers = await getAuthHeaders(true);
+        const result = await api<FavoriteAssetsResponse>(
+          '/api/assets/favorites',
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              assetCode: asset.assetCode,
+              assetIssuer: asset.isNative ? null : asset.assetIssuer,
+              displayName: asset.displayName || asset.assetCode,
+              email: account.email,
+              homeDomain: asset.homeDomain || null,
+              image: asset.image || null,
+              network,
+            }),
+          },
+        );
+        const savedAsset = result.data.asset;
+
+        if (!savedAsset) {
+          throw new Error('Could not save favorite asset. Please try again.');
+        }
+
+        setFavoriteAssets(current => [
+          savedAsset,
+          ...current.filter(
+            item => getAssetIdentity(item) !== getAssetIdentity(savedAsset),
+          ),
+        ]);
+        setMessage(`${asset.assetCode} added to favorites.`);
+
+        return true;
+      },
+      { showAlert: false },
+    );
+  }
+
+  async function loadPaymentMethods(options: { silent?: boolean } = {}) {
+    if (!account) {
+      setPaymentMethods([]);
+      return [];
+    }
+
+    const load = async () => {
+      const headers = await getAuthHeaders(true);
+      const params = new URLSearchParams({
+        email: account.email,
+        network,
+      });
+      const result = await api<RampPaymentMethodsResponse>(
+        `/api/ramp/payment-methods?${params.toString()}`,
+        { headers },
+      );
+      const methods = result.data.methods || [];
+
+      setPaymentMethods(methods);
+
+      return methods;
+    };
+
+    if (options.silent) {
+      try {
+        return await load();
+      } catch {
+        return [];
+      }
+    }
+
+    return run('Loading payment methods', load);
+  }
+
+  async function savePaymentMethod(
+    method: Pick<
+      RampPaymentMethod,
+      'accountNumber' | 'accountType' | 'bankId' | 'bankName' | 'fullName'
+    > & { isDefault?: boolean },
+  ) {
+    if (!account) {
+      return null;
+    }
+
+    return run('Saving payment method', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const result = await api<RampPaymentMethodsResponse>(
+        '/api/ramp/payment-methods',
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            ...method,
+            email: account.email,
+            network,
+          }),
+        },
+      );
+
+      await loadPaymentMethods({ silent: true });
+
+      return result.data.method || null;
+    });
+  }
+
+  async function updatePaymentMethod(
+    id: string,
+    method: Pick<
+      RampPaymentMethod,
+      'accountNumber' | 'accountType' | 'bankId' | 'bankName' | 'fullName'
+    > & { isDefault?: boolean },
+  ) {
+    if (!account || !id) {
+      return null;
+    }
+
+    return run('Updating payment method', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const result = await api<RampPaymentMethodsResponse>(
+        `/api/ramp/payment-methods/${encodeURIComponent(id)}`,
+        {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({
+            ...method,
+            email: account.email,
+            network,
+          }),
+        },
+      );
+
+      await loadPaymentMethods({ silent: true });
+
+      return result.data.method || null;
+    });
+  }
+
+  async function deletePaymentMethod(id: string) {
+    if (!account || !id) {
+      return false;
+    }
+
+    return run('Deleting payment method', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const params = new URLSearchParams({
+        email: account.email,
+        network,
+      });
+
+      await api<RampPaymentMethodsResponse>(
+        `/api/ramp/payment-methods/${encodeURIComponent(
+          id,
+        )}?${params.toString()}`,
+        {
+          method: 'DELETE',
+          headers,
+        },
+      );
+
+      await loadPaymentMethods({ silent: true });
+
+      return true;
+    });
+  }
+
+  async function setDefaultPaymentMethod(id: string) {
+    if (!account || !id) {
+      return null;
+    }
+
+    return run('Setting default payment method', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const result = await api<RampPaymentMethodsResponse>(
+        `/api/ramp/payment-methods/${encodeURIComponent(id)}/default`,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            email: account.email,
+            network,
+          }),
+        },
+      );
+
+      await loadPaymentMethods({ silent: true });
+
+      return result.data.method || null;
+    });
+  }
+
   async function openRampOrder(order: RampOrder) {
     await persistRampOrder(order);
-    upsertRampOrderHistory(order);
 
     return order;
   }
@@ -2129,12 +2567,18 @@ export function useWallet() {
     return run(
       `Quote ${direction}`,
       async () => {
+        const amountCheck = validateStellarAmount(rampAmount, 'Ramp amount');
+
+        if (!amountCheck.valid) {
+          throw new Error(amountCheck.message || 'Enter a valid ramp amount.');
+        }
+
         const result = await api<RampApiResponse<RampQuote>>(
           '/api/ramp/quote',
           {
             method: 'POST',
             body: JSON.stringify({
-              amount: rampAmount,
+              amount: amountCheck.normalized,
               assetCode,
               direction,
             }),
@@ -2162,6 +2606,16 @@ export function useWallet() {
       return null;
     }
 
+    const amountCheck = validateStellarAmount(rampAmount, 'Ramp amount');
+
+    if (!amountCheck.valid) {
+      setErrorDialog({
+        message: amountCheck.message || 'Enter a valid ramp amount.',
+        title: 'Invalid amount',
+      });
+      return null;
+    }
+
     return run(`Creating ${direction} order`, async () => {
       requireFreshServerSession();
       if (kyc.status !== 'verified') {
@@ -2184,7 +2638,7 @@ export function useWallet() {
           balance?.availableBalance || balance?.balance || 0,
         );
 
-        if (Number(rampAmount) > availableBalance) {
+        if (amountCheck.amount > availableBalance) {
           throw new Error(
             `You can withdraw up to ${formatTokenAmount(
               String(availableBalance),
@@ -2208,7 +2662,7 @@ export function useWallet() {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          amount: rampAmount,
+          amount: amountCheck.normalized,
           assetCode,
           email: account.email,
           network,
@@ -2230,8 +2684,25 @@ export function useWallet() {
     });
   }
 
-  async function fetchRampOrder(orderReference: string) {
+  async function fetchRampOrder(
+    orderReference: string,
+    options: { baseOrder?: RampOrder | null; updateActive?: boolean } = {},
+  ) {
     const params = new URLSearchParams();
+    const baseOrder =
+      options.baseOrder ||
+      rampOrderHistory.find(item => (item.code || item.id) === orderReference) ||
+      (activeRampOrder?.code === orderReference ||
+      activeRampOrder?.id === orderReference
+        ? activeRampOrder
+        : null);
+    const updateActive =
+      options.updateActive ??
+      Boolean(
+        activeRampOrder &&
+          (activeRampOrder.code === orderReference ||
+            activeRampOrder.id === orderReference),
+      );
 
     if (account && wallet) {
       params.set('email', account.email);
@@ -2240,12 +2711,12 @@ export function useWallet() {
       params.set('sourceWalletId', wallet.id);
     }
 
-    if (activeRampOrder?.asset_code) {
-      params.set('assetCode', activeRampOrder.asset_code);
+    if (baseOrder?.asset_code) {
+      params.set('assetCode', baseOrder.asset_code);
     }
 
-    if (activeRampOrder?.order_type) {
-      params.set('direction', activeRampOrder.order_type);
+    if (baseOrder?.order_type) {
+      params.set('direction', baseOrder.order_type);
     }
 
     const query = params.toString();
@@ -2254,17 +2725,25 @@ export function useWallet() {
         query ? `?${query}` : ''
       }`,
     );
-    const nextOrder = mergeRampOrderDetails(activeRampOrder, result.data);
+    const nextOrder = mergeRampOrderDetails(baseOrder, result.data);
     const completedNow =
-      Number(activeRampOrder?.state) !== 3 && Number(nextOrder.state) === 3;
+      Number(baseOrder?.state) !== 3 && Number(nextOrder.state) === 3;
 
-    await persistRampOrder(nextOrder);
+    if (updateActive) {
+      await persistRampOrder(nextOrder);
+    }
     upsertRampOrderHistory(nextOrder);
 
     if (completedNow && account) {
       const session = await api<SessionResponse>('/api/session', {
         method: 'POST',
-        body: JSON.stringify({ email: account.email, network }),
+        body: JSON.stringify({
+          activeWalletId: activeNetworkWalletId,
+          email: account.email,
+          network,
+          sourceAddress: wallet?.address,
+          sourceWalletId: wallet?.id,
+        }),
       });
       applySession(session, `Order ${nextOrder.code} completed.`);
     }
@@ -2274,7 +2753,11 @@ export function useWallet() {
 
   async function refreshRampOrder(
     orderReference = activeRampOrder?.code || activeRampOrder?.id || '',
-    options: { silent?: boolean } = {},
+    options: {
+      baseOrder?: RampOrder | null;
+      silent?: boolean;
+      updateActive?: boolean;
+    } = {},
   ) {
     if (!orderReference) {
       return null;
@@ -2282,13 +2765,21 @@ export function useWallet() {
 
     if (options.silent) {
       try {
-        return await fetchRampOrder(orderReference);
+        return await fetchRampOrder(orderReference, {
+          baseOrder: options.baseOrder,
+          updateActive: options.updateActive,
+        });
       } catch {
         return null;
       }
     }
 
-    return run('Refreshing order', () => fetchRampOrder(orderReference));
+    return run('Refreshing order', () =>
+      fetchRampOrder(orderReference, {
+        baseOrder: options.baseOrder,
+        updateActive: options.updateActive,
+      }),
+    );
   }
 
   async function cancelRampOrder(
@@ -2300,6 +2791,12 @@ export function useWallet() {
 
     return run('Cancelling order', async () => {
       requireFreshServerSession();
+      const baseOrder =
+        rampOrderHistory.find(item => (item.code || item.id) === orderReference) ||
+        (activeRampOrder?.code === orderReference ||
+        activeRampOrder?.id === orderReference
+          ? activeRampOrder
+          : null);
       await api(
         `/api/ramp/orders/${encodeURIComponent(orderReference)}/cancel`,
         {
@@ -2309,11 +2806,18 @@ export function useWallet() {
       );
 
       const nextOrder = {
-        ...activeRampOrder,
+        ...baseOrder,
         state: 5,
+        code: baseOrder?.code || orderReference,
+        id: baseOrder?.id || orderReference,
       } as RampOrder;
 
-      await persistRampOrder(nextOrder);
+      if (
+        activeRampOrder?.code === orderReference ||
+        activeRampOrder?.id === orderReference
+      ) {
+        await persistRampOrder(nextOrder);
+      }
       upsertRampOrderHistory(nextOrder);
       setMessage(`Order ${nextOrder.code || orderReference} cancelled.`);
 
@@ -2329,10 +2833,10 @@ export function useWallet() {
     }
 
     if (isMainnet) {
-      Alert.alert(
-        'Testnet only',
-        'Payment bypass cannot be used for Mainnet orders.',
-      );
+      setErrorDialog({
+        message: 'Payment bypass cannot be used for Mainnet orders.',
+        title: 'Testnet only',
+      });
       return null;
     }
 
@@ -2372,10 +2876,10 @@ export function useWallet() {
     }
 
     if (isMainnet) {
-      Alert.alert(
-        'Testnet only',
-        'Withdrawal bypass cannot be used for Mainnet orders.',
-      );
+      setErrorDialog({
+        message: 'Withdrawal bypass cannot be used for Mainnet orders.',
+        title: 'Testnet only',
+      });
       return null;
     }
 
@@ -2416,66 +2920,102 @@ export function useWallet() {
       return null;
     }
 
-    return run(`Sending ${order.asset_code}`, async () => {
-      requireFreshServerSession();
-      if (order.order_type !== 'sell') {
-        throw new Error('Only withdrawals require an on-chain transfer.');
-      }
+    return run(
+      `Sending ${order.asset_code}`,
+      async () => {
+        requireFreshServerSession();
+        if (order.order_type !== 'sell') {
+          throw new Error('Only withdrawals require an on-chain transfer.');
+        }
 
-      if (isRampOrderTerminal(order)) {
-        throw new Error('This order is already closed.');
-      }
+        if (isRampOrderTerminal(order)) {
+          throw new Error('This order is already closed.');
+        }
 
-      const destination = String(order.pay_data?.address || '').trim();
+        const destination = String(order.pay_data?.address || '').trim();
 
-      if (!destination) {
-        throw new Error(
-          'The payment service did not provide a deposit address.',
+        if (!destination) {
+          throw new Error(
+            'The payment service did not provide a deposit address.',
+          );
+        }
+
+        if (isMainnet) {
+          await requireBiometric(
+            `Confirm sending ${order.amount} ${order.asset_code} on Mainnet`,
+          );
+        }
+
+        const asset = visibleAssets.find(
+          item => item.assetCode === order.asset_code,
         );
-      }
-
-      if (isMainnet) {
-        await requireBiometric(
-          `Confirm sending ${order.amount} ${order.asset_code} on Mainnet`,
-        );
-      }
-
-      const asset = visibleAssets.find(
-        item => item.assetCode === order.asset_code,
-      );
-      const headers = await getAuthHeaders(isMainnet);
-      const result = await api<SendResult>(`/api/stellar/${network}/send`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
+        const headers = await getAuthHeaders(isMainnet);
+        const sendBody = {
           accountId: account.id,
           amount: String(order.amount),
           assetCode: order.asset_code,
           assetIssuer: asset?.assetIssuer || null,
+          clientSigningSupported: true,
           destination,
           email: account.email,
           memo: order.code,
           sourceAddress: wallet.address,
           sourceWalletId: wallet.id,
-        }),
-      });
-      const nextOrder = {
-        ...order,
-        sell_transaction_hash: result.hash,
-      };
+        };
+        let result = await api<SendResult>(`/api/stellar/${network}/send`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(sendBody),
+        });
 
-      setBalances(result.sourceBalances);
-      setTransactions(result.transactions);
-      await persistRampOrder(nextOrder);
-      upsertRampOrderHistory(nextOrder);
-      setMessage(
-        `Sent ${formatTokenAmount(String(order.amount))} ${
-          order.asset_code
-        } for order ${order.code}.`,
-      );
+        if (result.requiresClientSignature) {
+          if (!isPrivyHash(result.hash)) {
+            throw new Error(
+              'Could not prepare this withdrawal transfer. Please try again.',
+            );
+          }
 
-      return result;
-    });
+          if (!result.transactionXdr) {
+            throw new Error(
+              'Could not prepare this withdrawal transfer. Please try again.',
+            );
+          }
+
+          const signedTransfer = await withTimeout(
+            signRawHash({
+              address: wallet.address,
+              chainType: 'stellar',
+              hash: result.hash,
+            }),
+            TRUSTLINE_SIGN_TIMEOUT_MS,
+            'Wallet signing timed out. Please try again.',
+          );
+
+          result = await api<SendResult>(`/api/stellar/${network}/send`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              ...sendBody,
+              clientSignature: signedTransfer.signature,
+              signingHash: result.hash,
+              transactionXdr: result.transactionXdr,
+            }),
+          });
+        }
+        const nextOrder = {
+          ...order,
+          sell_transaction_hash: result.hash,
+        };
+
+        setBalances(result.sourceBalances);
+        setTransactions(result.transactions);
+        await persistRampOrder(nextOrder);
+        upsertRampOrderHistory(nextOrder);
+
+        return result;
+      },
+      { showBusy: false },
+    );
   }
 
   async function clearRampOrder() {
@@ -2526,6 +3066,20 @@ export function useWallet() {
         item =>
           item.network === nextNetwork && !item.archived && item.canSign,
       );
+      const storedTargetWalletId = await readStoredActiveWalletId(
+        account.email,
+        nextNetwork,
+      );
+      const requestedActiveWalletId =
+        storedTargetWalletId &&
+        (account.wallets || []).some(
+          item =>
+            item.id === storedTargetWalletId &&
+            item.network === nextNetwork &&
+            !item.archived,
+        )
+          ? storedTargetWalletId
+          : undefined;
       const bootstrapWallet = hasTargetNetworkWallet
         ? undefined
         : hasLinkedStellarEmbeddedWallet(user)
@@ -2546,11 +3100,13 @@ export function useWallet() {
         body: JSON.stringify(
           identityToken
             ? {
+                activeWalletId: requestedActiveWalletId,
                 identityToken,
                 network: nextNetwork,
                 wallet: bootstrapWallet,
               }
             : {
+                activeWalletId: requestedActiveWalletId,
                 email: account.email,
                 network: nextNetwork,
               },
@@ -2562,40 +3118,103 @@ export function useWallet() {
           ? 'Switched to Mainnet. Deposit real XLM to activate this wallet.'
           : 'Switched to Testnet.',
       );
+      if (requestedActiveWalletId) {
+        setActiveWalletId(requestedActiveWalletId);
+      }
       await loadCollectibles(session.account.wallet?.address, nextNetwork);
 
       return session;
     });
   }
 
-  async function importWallet(secret: string, displayName?: string) {
+  async function importWallet(
+    secret: string,
+    displayName?: string,
+    options: RunOptions = {},
+  ) {
     if (!account) {
       return null;
     }
 
-    return run('Importing wallet', async () => {
-      requireFreshServerSession();
-      const headers = await getAuthHeaders(true);
-      await requireBiometric('Confirm to import this Stellar wallet');
-      const session = await api<SessionResponse>('/api/wallets/import', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          displayName,
-          email: account.email,
-          network,
-          secret,
-        }),
+    const normalizedSecret = secret.trim();
+    const secretError = validateImportSecret(normalizedSecret);
+    const importedAddress = getImportSecretPublicAddress(normalizedSecret);
+
+    if (secretError) {
+      setErrorDialog({
+        message: secretError,
+        title: 'Invalid import key',
       });
+      return null;
+    }
 
-      applySession(session, 'Wallet imported into Privy.');
+    if (!importedAddress) {
+      setErrorDialog({
+        message:
+          'This import key could not be decoded. Check that you pasted the full Privy 64-hex key or Stellar S... key.',
+        title: 'Invalid import key',
+      });
+      return null;
+    }
 
-      return session;
-    });
+    const duplicateWallet = (account.wallets || []).find(
+      item =>
+        item.network === network &&
+        item.address.toUpperCase() === importedAddress.toUpperCase(),
+    );
+
+    if (duplicateWallet?.kind === 'privy') {
+      setErrorDialog({
+        message: `${importedAddress} is already a Privy-managed wallet in this account on Stellar ${network}.`,
+        title: 'Wallet already exists',
+      });
+      return null;
+    }
+
+    return run(
+      'Importing wallet',
+      async () => {
+        requireFreshServerSession();
+        const headers = await getAuthHeaders(true);
+        await requireBiometric('Confirm to import this Stellar wallet');
+        const session = await api<SessionResponse>('/api/wallets/import', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            displayName,
+            email: account.email,
+            network,
+            secret: normalizedSecret,
+          }),
+          timeoutMs: IMPORT_WALLET_TIMEOUT_MS,
+        });
+
+        applySession(
+          session,
+          duplicateWallet
+            ? 'Imported wallet signing key updated.'
+            : 'Wallet imported into Privy.',
+        );
+
+        return session;
+      },
+      options,
+    );
   }
 
   async function addWatchOnlyWallet(address: string, displayName?: string) {
     if (!account) {
+      return null;
+    }
+
+    const normalizedAddress = address.trim().toUpperCase();
+    const addressError = validateWatchOnlyAddress(normalizedAddress);
+
+    if (addressError) {
+      setErrorDialog({
+        message: addressError,
+        title: 'Invalid address',
+      });
       return null;
     }
 
@@ -2606,7 +3225,7 @@ export function useWallet() {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          address,
+          address: normalizedAddress,
           displayName,
           email: account.email,
           network,
@@ -2689,13 +3308,18 @@ export function useWallet() {
     createRampOrder,
     createTestReceiver,
     createWallet,
+    deletePaymentMethod,
     email,
+    isRestoringSession:
+      Boolean(user) && (!account || sessionSyncing),
     errorDialog,
     explorerAddressUrl,
     createWalletExportUrl,
+    favoriteAssets,
     fundTestUsdc,
     fundWallet,
     health,
+    isFavoriteAsset,
     isBusy: busy !== null,
     isMainnet,
     isReady,
@@ -2703,6 +3327,8 @@ export function useWallet() {
     kyc,
     loginWithGoogle,
     loginState,
+    loadFavoriteAssets,
+    loadPaymentMethods,
     logout,
     message,
     network,
@@ -2710,6 +3336,7 @@ export function useWallet() {
     openUrl,
     oauthState,
     openRampOrder,
+    paymentMethods,
     privySessionReady,
     privyError,
     quoteSwap,
@@ -2728,6 +3355,7 @@ export function useWallet() {
     refreshSession,
     renameWallet,
     resetLoginCode,
+    savePaymentMethod,
     selectedAsset,
     selectedAssetCode,
     selectedBalance,
@@ -2739,6 +3367,7 @@ export function useWallet() {
     selectWallet,
     setAmount,
     setCode,
+    setDefaultPaymentMethod,
     setEmail,
     setMessage,
     setRecipient,
@@ -2747,8 +3376,10 @@ export function useWallet() {
     sessionSyncing,
     swapAsset,
     switchNetwork,
+    toggleFavoriteAsset,
     dismissErrorDialog,
     transactions,
+    updatePaymentMethod,
     verifyCodeAndLogin,
     visibleAssets,
     wallet,

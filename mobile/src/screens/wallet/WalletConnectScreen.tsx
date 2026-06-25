@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -9,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useAppPopup } from '@components/common/AppPopup';
 
 import {
   ModernScreenHeader,
@@ -32,13 +32,12 @@ export function WalletConnectScreen({
   wallet: WalletState;
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
+  const { showPopup } = useAppPopup();
   const walletConnect = useWalletConnect();
 
   function confirmDisconnect(topic: string, name: string) {
-    Alert.alert(
-      `Disconnect ${name}?`,
-      'The dApp will no longer be able to request transaction signatures.',
-      [
+    showPopup({
+      actions: [
         { style: 'cancel', text: 'Keep connected' },
         {
           onPress: () => walletConnect.disconnectSession(topic),
@@ -46,7 +45,11 @@ export function WalletConnectScreen({
           text: 'Disconnect',
         },
       ],
-    );
+      message:
+        'The dApp will no longer be able to request transaction signatures.',
+      title: `Disconnect ${name}?`,
+      variant: 'warning',
+    });
   }
 
   return (
@@ -80,7 +83,7 @@ export function WalletConnectScreen({
               ? `${wallet.isMainnet ? 'Mainnet' : 'Testnet'} · ${shortAddress(
                   wallet.wallet?.address,
                 )}`
-              : 'Reown project ID not configured'}
+              : 'WalletConnect unavailable'}
           </Text>
         </View>
         <TouchableOpacity
@@ -112,10 +115,10 @@ export function WalletConnectScreen({
         <View style={styles.infoCard}>
           <Ionicons color="#8D5D19" name="information-circle" size={22} />
           <View style={styles.flex}>
-            <Text style={styles.infoTitle}>Configuration required</Text>
+            <Text style={styles.infoTitle}>WalletConnect unavailable</Text>
             <Text style={styles.infoText}>
-              Set WALLETCONNECT_PROJECT_ID in the Worker and deploy it before
-              pairing a dApp.
+              This feature is not ready yet. Please try again after the next
+              app update.
             </Text>
           </View>
         </View>

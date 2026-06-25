@@ -9,6 +9,7 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import DraggableFlatList, {
   RenderItemParams,
   ScaleDecorator,
@@ -19,6 +20,57 @@ import { PressScale } from './ui/primitives';
 import { shortAddress } from '@utils/format';
 import type { WalletState } from '@hooks/useWallet';
 import type { Wallet } from '@app-types';
+
+const WALLET_ORDER_STORAGE_PREFIX = 'privy-wallet-order';
+
+function getWalletOrderStorageKey(email: string | undefined, network: string) {
+  return `${WALLET_ORDER_STORAGE_PREFIX}:${email || 'local'}:${network}`;
+}
+
+function sortWalletsByStoredOrder(wallets: Wallet[], walletIds: string[]) {
+  if (walletIds.length === 0) {
+    return wallets;
+  }
+
+  const order = new Map(walletIds.map((id, index) => [id, index]));
+
+  return [...wallets].sort((a, b) => {
+    const aIndex = order.get(a.id);
+    const bIndex = order.get(b.id);
+
+    if (aIndex === undefined && bIndex === undefined) {
+      return 0;
+    }
+
+    if (aIndex === undefined) {
+      return 1;
+    }
+
+    if (bIndex === undefined) {
+      return -1;
+    }
+
+    return aIndex - bIndex;
+  });
+}
+
+async function readWalletOrder(key: string) {
+  const raw = await AsyncStorage.getItem(key);
+
+  if (!raw) {
+    return [];
+  }
+
+  const parsed = JSON.parse(raw);
+
+  return Array.isArray(parsed)
+    ? parsed.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+async function writeWalletOrder(key: string, wallets: Wallet[]) {
+  await AsyncStorage.setItem(key, JSON.stringify(wallets.map(item => item.id)));
+}
 
 export function WalletManagerModal({
   visible,
@@ -37,17 +89,46 @@ export function WalletManagerModal({
     walletState.busy?.startsWith('Creating'),
   );
   const networkLabel = walletState.isMainnet ? 'Mainnet' : 'Testnet';
+  const orderStorageKey = getWalletOrderStorageKey(
+    walletState.account?.email,
+    walletState.network,
+  );
 
   // sync data from state when modal opens or state updates
   useEffect(() => {
+    let cancelled = false;
     const list =
       walletState.wallets?.length > 0
         ? walletState.wallets
         : walletState.wallet
         ? [walletState.wallet]
         : [];
-    setData(list.filter(item => item.network === walletState.network));
-  }, [walletState.network, walletState.wallets, walletState.wallet, visible]);
+    const networkWallets = list.filter(
+      item => item.network === walletState.network,
+    );
+
+    readWalletOrder(orderStorageKey)
+      .then(walletIds => {
+        if (!cancelled) {
+          setData(sortWalletsByStoredOrder(networkWallets, walletIds));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setData(networkWallets);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    orderStorageKey,
+    walletState.network,
+    walletState.wallets,
+    walletState.wallet,
+    visible,
+  ]);
 
   // Handle close edit mode
   useEffect(() => {
@@ -180,7 +261,10 @@ export function WalletManagerModal({
             {data.length > 0 ? (
               <DraggableFlatList
                 data={data}
-                onDragEnd={({ data: nextData }) => setData(nextData)}
+                onDragEnd={({ data: nextData }) => {
+                  setData(nextData);
+                  writeWalletOrder(orderStorageKey, nextData).catch(() => null);
+                }}
                 keyExtractor={item => item.id}
                 renderItem={renderItem}
                 contentContainerStyle={styles.list}

@@ -1,25 +1,50 @@
 import React, { useState, useEffect } from 'react';
-import { Alert, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import ReactNativeBiometrics from 'react-native-biometrics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAppPopup } from '@components/common/AppPopup';
 import {
   AssetPickerModal,
-  AssetSelectButton,
   getModernAssets,
   InfoLine,
   PressScale,
+  SuccessLottie,
   modern,
 } from '@components/wallet';
 import type { WalletState } from '@hooks/useWallet';
 import type { SendResult } from '@app-types';
-import { formatDate, formatTokenAmount, shortAddress } from '@utils/format';
+import {
+  formatDate,
+  formatEstimatedStellarFee,
+  formatStellarFee,
+  formatTokenAmount,
+  shortAddress,
+} from '@utils/format';
+import {
+  getAvailableAmount,
+  isLikelyStellarPublicKey,
+  validateStellarAmount,
+} from '@utils/walletValidation';
 
 type SendStep = 'compose' | 'review' | 'success';
 
 import { TokenIcon } from '@components/wallet';
 
-function LocalSectionHeader({ title, action }: { title: string; action?: React.ReactNode }) {
+function LocalSectionHeader({
+  title,
+  action,
+}: {
+  title: string;
+  action?: React.ReactNode;
+}) {
   return (
     <View style={styles.sectionHeader}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -31,18 +56,30 @@ function LocalSectionHeader({ title, action }: { title: string; action?: React.R
 function LocalAssetSelectButton({ asset, label, onPress, valueLabel }: any) {
   return (
     <PressScale onPress={onPress} style={styles.assetSelectButton}>
-      <TokenIcon assetCode={asset?.assetCode} imageUrl={asset?.image} size={42} />
+      <TokenIcon
+        assetCode={asset?.assetCode}
+        imageUrl={asset?.image}
+        size={42}
+      />
       <View style={styles.assetSelectCopy}>
         <Text style={styles.assetSelectLabel}>{label}</Text>
-        <Text style={styles.assetSelectTitle}>{asset?.assetCode || 'Select'}</Text>
+        <Text style={styles.assetSelectTitle}>
+          {asset?.assetCode || 'Select'}
+        </Text>
         <Text style={styles.assetSelectSubtitle}>
-          {asset?.assetIssuer ? 'Custom asset' : 'Lumens'} · Balance {valueLabel.split(' ')[0]}
+          {asset?.assetIssuer ? 'Custom asset' : 'Lumens'} · Balance{' '}
+          {valueLabel.split(' ')[0]}
         </Text>
       </View>
       <View style={styles.assetSelectTrailing}>
         <Text style={styles.assetSelectValue}>{valueLabel}</Text>
-        <Text style={styles.assetSelectFiat}>≈ $0.00</Text>
-        <Ionicons color="#6C757D" name="chevron-down" size={16} style={{ alignSelf: 'flex-end', marginTop: 4 }} />
+
+        <Ionicons
+          color="#6C757D"
+          name="chevron-down"
+          size={16}
+          style={{ alignSelf: 'flex-end', marginTop: 4 }}
+        />
       </View>
     </PressScale>
   );
@@ -103,6 +140,7 @@ export function SendScreen({
   wallet: WalletState;
 }) {
   const insets = useSafeAreaInsets();
+  const { showPopup } = useAppPopup();
   const [step, setStep] = useState<SendStep>('compose');
   const [assetPickerVisible, setAssetPickerVisible] = useState(false);
   const [lastResult, setLastResult] = useState<SendResult | null>(null);
@@ -121,13 +159,66 @@ export function SendScreen({
     wallet.recipientContact?.wallet.address === wallet.recipient
       ? wallet.recipientContact.label
       : shortAddress(wallet.recipient);
+  const recipientValue = wallet.recipient.trim();
+  const recipientValid = isLikelyStellarPublicKey(recipientValue);
+  const sendAmountValidation = validateStellarAmount(wallet.amount);
+  const availableSendAmount = getAvailableAmount(
+    wallet.selectedBalance,
+    selectedAsset?.balance,
+  );
+  const exceedsSendBalance =
+    sendAmountValidation.valid &&
+    sendAmountValidation.amount > availableSendAmount;
+  const sendFormWarning =
+    wallet.amount.trim() && !sendAmountValidation.valid
+      ? sendAmountValidation.message
+      : recipientValue && !recipientValid
+      ? 'Enter a valid Stellar recipient address that starts with G.'
+      : exceedsSendBalance
+      ? selectedAsset?.isNative
+        ? `You can send up to ${formatTokenAmount(
+            String(availableSendAmount),
+          )} XLM. Stellar keeps ${formatTokenAmount(
+            wallet.selectedBalance?.reservedBalance ||
+              wallet.selectedBalance?.minimumBalance ||
+              '0',
+          )} XLM reserved for account minimum balance and network fees.`
+        : `You can send up to ${formatTokenAmount(
+            String(availableSendAmount),
+          )} ${wallet.selectedAssetCode}.`
+      : null;
   const canSubmit =
     wallet.walletCanSign &&
     (!wallet.isMainnet || wallet.walletActive) &&
-    Boolean(wallet.amount) &&
-    Boolean(wallet.recipient.trim());
+    sendAmountValidation.valid &&
+    recipientValid &&
+    !exceedsSendBalance;
+
+  function startReview() {
+    if (sendFormWarning) {
+      showPopup({
+        message: sendFormWarning,
+        title: 'Transfer unavailable',
+        variant: 'warning',
+      });
+      return;
+    }
+
+    setStep('review');
+  }
 
   async function handleConfirmSend() {
+    if (!canSubmit) {
+      showPopup({
+        message:
+          sendFormWarning ||
+          'Enter a valid recipient and amount before sending.',
+        title: 'Transfer unavailable',
+        variant: 'warning',
+      });
+      return;
+    }
+
     const rnBiometrics = new ReactNativeBiometrics();
     const { available } = await rnBiometrics.isSensorAvailable();
 
@@ -139,14 +230,19 @@ export function SendScreen({
         });
 
         if (!success) {
-          Alert.alert(
-            'Authentication failed',
-            'Could not send the transaction.',
-          );
+          showPopup({
+            message: 'Could not send the transaction.',
+            title: 'Authentication failed',
+            variant: 'warning',
+          });
           return;
         }
       } catch {
-        Alert.alert('Authentication error', 'Please try again.');
+        showPopup({
+          message: 'Please try again.',
+          title: 'Authentication error',
+          variant: 'danger',
+        });
         return;
       }
     }
@@ -175,11 +271,18 @@ export function SendScreen({
     });
   }
 
-  function renderHero(title: string, subtitle: string, onHeroBack?: () => void) {
+  function renderHero(
+    title: string,
+    subtitle: string,
+    onHeroBack?: () => void,
+  ) {
     return (
       <View style={[styles.hero, { paddingTop: insets.top + 12 }]}>
         <View style={styles.heroHeader}>
-          <PressScale onPress={onHeroBack || onBack} style={styles.heroBackButton}>
+          <PressScale
+            onPress={onHeroBack || onBack}
+            style={styles.heroBackButton}
+          >
             <Ionicons color="#FFFFFF" name="chevron-back" size={24} />
           </PressScale>
           <Text style={styles.heroHeaderTitle}>Transfer</Text>
@@ -196,9 +299,9 @@ export function SendScreen({
     const transaction = lastResult.transaction;
     const networkName =
       wallet.network === 'mainnet' ? 'Stellar Mainnet' : 'Stellar Testnet';
-    const amountText = `- ${formatTokenAmount(transaction.amount || wallet.amount)} ${
-      lastResult.assetCode
-    }`;
+    const amountText = `- ${formatTokenAmount(
+      transaction.amount || wallet.amount,
+    )} ${lastResult.assetCode}`;
     const detailRows = [
       {
         label: 'Date & Time',
@@ -223,7 +326,7 @@ export function SendScreen({
       },
       {
         label: 'Network Fee',
-        value: '0.00001 XLM',
+        value: formatStellarFee(transaction.feeChargedXlm),
       },
       {
         label: 'Transaction ID',
@@ -257,9 +360,7 @@ export function SendScreen({
           ]}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.txStatusIcon}>
-            <Ionicons color="#B8FF45" name="arrow-up" size={24} />
-          </View>
+          <SuccessLottie size={96} style={styles.txStatusAnimation} />
           <Text style={styles.txStatusText}>Transfer sent</Text>
 
           <Text
@@ -289,12 +390,16 @@ export function SendScreen({
           </View>
         </ScrollView>
 
-        <View style={[styles.txBottomAction, { paddingBottom: insets.bottom + 10 }]}>
+        <View
+          style={[styles.txBottomAction, { paddingBottom: insets.bottom + 10 }]}
+        >
           <PressScale
             onPress={() => wallet.openUrl(transaction.explorerUrl)}
             style={styles.txExpertButton}
           >
-            <Text style={styles.txExpertButtonText}>View on Stellar Expert</Text>
+            <Text style={styles.txExpertButtonText}>
+              View on Stellar Expert
+            </Text>
             <Ionicons color="#071421" name="open-outline" size={14} />
           </PressScale>
         </View>
@@ -305,11 +410,20 @@ export function SendScreen({
   if (step === 'review') {
     return (
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 48 }]}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: insets.bottom + 48 },
+        ]}
         style={styles.root}
         showsVerticalScrollIndicator={false}
       >
-        {renderHero('Review transfer', wallet.isMainnet ? 'Review carefully. Mainnet transactions move real assets.' : 'Review carefully before sending test tokens.', () => setStep('compose'))}
+        {renderHero(
+          'Review transfer',
+          wallet.isMainnet
+            ? 'Review carefully. Mainnet transactions move real assets.'
+            : 'Review carefully before sending test tokens.',
+          () => setStep('compose'),
+        )}
         <View style={styles.receiptCard}>
           <LocalSectionHeader title="Transfer details" />
           <InfoLine
@@ -334,7 +448,10 @@ export function SendScreen({
               value={wallet.selectedAsset?.assetIssuer || 'Unknown issuer'}
             />
           ) : null}
-          <InfoLine label="Estimated fee" value="0.00001 XLM" />
+          <InfoLine
+            label="Network fee"
+            value={formatEstimatedStellarFee()}
+          />
           <Text style={modern.emptyModernText}>
             {wallet.isMainnet
               ? 'This is a real Mainnet transaction. The app will ask for biometric confirmation before Privy signs it.'
@@ -343,7 +460,10 @@ export function SendScreen({
           <PressScale
             disabled={wallet.isBusy || !canSubmit}
             onPress={handleConfirmSend}
-            style={[styles.primaryButton, (wallet.isBusy || !canSubmit) ? styles.disabledButton : null]}
+            style={[
+              styles.primaryButton,
+              wallet.isBusy || !canSubmit ? styles.disabledButton : null,
+            ]}
           >
             <Text style={styles.primaryButtonText}>
               {wallet.busy || (wallet.isMainnet ? 'Confirm' : 'Send')}
@@ -357,11 +477,19 @@ export function SendScreen({
   return (
     <>
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 48 }]}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: insets.bottom + 48 },
+        ]}
         style={styles.root}
         showsVerticalScrollIndicator={false}
       >
-        {renderHero('Send crypto', wallet.isMainnet ? 'Transfer crypto to another Stellar wallet on Mainnet.' : 'Transfer Testnet XLM or USDC to another Stellar wallet.')}
+        {renderHero(
+          'Send crypto',
+          wallet.isMainnet
+            ? 'Transfer crypto to another Stellar wallet on Mainnet.'
+            : 'Transfer Testnet XLM or USDC to another Stellar wallet.',
+        )}
 
         <View style={styles.receiptCard}>
           {!wallet.walletCanSign ? (
@@ -396,7 +524,9 @@ export function SendScreen({
               label="Sending asset"
               onPress={() => setAssetPickerVisible(true)}
               valueLabel={`${formatTokenAmount(
-                wallet.selectedBalance?.balance || selectedAsset?.balance || '0',
+                wallet.selectedBalance?.balance ||
+                  selectedAsset?.balance ||
+                  '0',
                 { compact: true },
               )} ${wallet.selectedAssetCode}`}
             />
@@ -443,10 +573,16 @@ export function SendScreen({
               style={styles.input}
               value={wallet.amount}
             />
+            {sendFormWarning ? (
+              <Text style={styles.warningText}>{sendFormWarning}</Text>
+            ) : null}
             <PressScale
               disabled={wallet.isBusy || !canSubmit}
-              onPress={() => setStep('review')}
-              style={[styles.primaryButton, (wallet.isBusy || !canSubmit) ? styles.disabledButton : null]}
+              onPress={startReview}
+              style={[
+                styles.primaryButton,
+                wallet.isBusy || !canSubmit ? styles.disabledButton : null,
+              ]}
             >
               <Text style={styles.primaryButtonText}>Review transfer</Text>
             </PressScale>
@@ -456,7 +592,6 @@ export function SendScreen({
 
       <AssetPickerModal
         assets={assets}
-        onAddTrustline={wallet.addTrustline}
         onClose={() => setAssetPickerVisible(false)}
         onRemoteSearch={searchPickerAssets}
         onSelect={asset => wallet.setSelectedAssetCode(asset.assetCode)}
@@ -784,21 +919,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
   },
-  txStatusIcon: {
-    alignItems: 'center',
+  txStatusAnimation: {
     alignSelf: 'center',
-    backgroundColor: 'rgba(184,255,69,0.08)',
-    borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 20,
-    borderWidth: 1,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
+    marginBottom: -2,
   },
   txStatusText: {
     color: '#AEB7AD',
     fontSize: 12,
     fontWeight: '800',
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  warningText: {
+    color: '#B96B00',
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
     marginTop: 10,
     textAlign: 'center',
   },

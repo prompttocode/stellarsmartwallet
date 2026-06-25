@@ -62,6 +62,40 @@ type StoredRampOrderRow = {
   wallet_id: string;
 };
 
+type PaymentMethodInput = {
+  accountNumber: string;
+  accountType: 0 | 1 | 2;
+  bankId: string;
+  bankName: string;
+  fullName: string;
+  isDefault?: boolean;
+};
+
+type StoredPaymentMethodRow = {
+  account_email: string;
+  account_number: string;
+  account_type: number;
+  bank_id: string;
+  bank_name: string;
+  created_at: string;
+  full_name: string;
+  id: string;
+  is_default: number;
+  updated_at: string;
+};
+
+type PaymentMethod = {
+  accountNumber: string;
+  accountType: 0 | 1 | 2;
+  bankId: string;
+  bankName: string;
+  createdAt: string;
+  fullName: string;
+  id: string;
+  isDefault: boolean;
+  updatedAt: string;
+};
+
 function rampLog(
   level: RampLogLevel,
   event: string,
@@ -95,6 +129,82 @@ function maskStellarAddress(value: string) {
   return value.length > 12
     ? `${value.slice(0, 6)}...${value.slice(-6)}`
     : value;
+}
+
+function normalizeBankPaymentFields(
+  value: Record<string, unknown>,
+  options: { requireBankName: boolean } = { requireBankName: false }
+) {
+  const bankId = String(value.bankId || value.bank_id || "").trim();
+  const bankName = String(value.bankName || value.bank_name || "")
+    .trim()
+    .replace(/\s+/g, " ");
+  const fullName = String(value.fullName || value.full_name || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+  const accountNumber = String(
+    value.accountNumber || value.account_number || ""
+  ).trim();
+  const accountType = Number(value.accountType ?? value.account_type);
+
+  if (!/^\d{6}$/.test(bankId)) {
+    throw makeError("Bank BIN must contain 6 digits", 400);
+  }
+
+  if (options.requireBankName && (bankName.length < 2 || bankName.length > 100)) {
+    throw makeError("Bank name is invalid", 400);
+  }
+
+  if (!/^[A-Z0-9 ]{2,100}$/.test(fullName)) {
+    throw makeError(
+      "Account holder name must use unaccented letters and numbers",
+      400
+    );
+  }
+
+  if (!/^\d{4,30}$/.test(accountNumber)) {
+    throw makeError("Bank account number is invalid", 400);
+  }
+
+  if (![0, 1, 2].includes(accountType)) {
+    throw makeError("Bank account type is invalid", 400);
+  }
+
+  return {
+    accountNumber,
+    accountType: accountType as 0 | 1 | 2,
+    bankId,
+    bankName,
+    fullName,
+  };
+}
+
+function normalizePaymentMethodInput(
+  value: Record<string, unknown>
+): PaymentMethodInput {
+  return {
+    ...normalizeBankPaymentFields(value, { requireBankName: true }),
+    isDefault: Boolean(value.isDefault ?? value.is_default),
+  };
+}
+
+function serializePaymentMethod(row: StoredPaymentMethodRow): PaymentMethod {
+  const accountType = Number(row.account_type);
+
+  return {
+    accountNumber: row.account_number,
+    accountType: [0, 1, 2].includes(accountType)
+      ? (accountType as 0 | 1 | 2)
+      : 0,
+    bankId: row.bank_id,
+    bankName: row.bank_name,
+    createdAt: row.created_at,
+    fullName: row.full_name,
+    id: row.id,
+    isDefault: Number(row.is_default || 0) === 1,
+    updatedAt: row.updated_at,
+  };
 }
 
 function getOrderLogFields(order: RampOrderData | null | undefined) {
@@ -743,12 +853,326 @@ function getRampProviders(env: Env) {
   ];
 }
 
+function requirePaymentMethodsDb(env: Env) {
+  if (!env.DB) {
+    throw makeError("Payment method storage is not configured", 503);
+  }
+
+  return env.DB;
+}
+
+async function getPaymentMethodAccount(
+  c: Context<WorkerBindings>,
+  body: Record<string, unknown>
+) {
+  const network = normalizeNetwork(
+    body.network || c.req.query("network") || "testnet"
+  );
+
+  return requireAccountContext(c.env, c.req.header("authorization"), body, {
+    network,
+    requireAuth: true,
+  });
+}
+
+async function listPaymentMethods(env: Env, accountEmail: string) {
+  if (!env.DB) {
+    return [];
+  }
+
+  const rows = await env.DB.prepare(
+    `SELECT *
+     FROM account_payment_methods
+     WHERE account_email = ?
+     ORDER BY is_default DESC, updated_at DESC`
+  )
+    .bind(accountEmail)
+    .all<StoredPaymentMethodRow>();
+
+  return (rows.results || []).map(serializePaymentMethod);
+}
+
+async function findPaymentMethodById(
+  env: Env,
+  accountEmail: string,
+  id: string
+) {
+  const row = await requirePaymentMethodsDb(env)
+    .prepare(
+      `SELECT *
+       FROM account_payment_methods
+       WHERE account_email = ? AND id = ?
+       LIMIT 1`
+    )
+    .bind(accountEmail, id)
+    .first<StoredPaymentMethodRow>();
+
+  return row ? serializePaymentMethod(row) : null;
+}
+
+async function findPaymentMethodByBankAccount(
+  env: Env,
+  accountEmail: string,
+  bankId: string,
+  accountNumber: string
+) {
+  const row = await requirePaymentMethodsDb(env)
+    .prepare(
+      `SELECT *
+       FROM account_payment_methods
+       WHERE account_email = ? AND bank_id = ? AND account_number = ?
+       LIMIT 1`
+    )
+    .bind(accountEmail, bankId, accountNumber)
+    .first<StoredPaymentMethodRow>();
+
+  return row ? serializePaymentMethod(row) : null;
+}
+
+async function clearDefaultPaymentMethod(env: Env, accountEmail: string) {
+  await requirePaymentMethodsDb(env)
+    .prepare(
+      `UPDATE account_payment_methods
+       SET is_default = 0, updated_at = ?
+       WHERE account_email = ?`
+    )
+    .bind(new Date().toISOString(), accountEmail)
+    .run();
+}
+
+async function upsertPaymentMethod(
+  env: Env,
+  accountEmail: string,
+  input: PaymentMethodInput
+) {
+  const existing = await findPaymentMethodByBankAccount(
+    env,
+    accountEmail,
+    input.bankId,
+    input.accountNumber
+  );
+  const now = new Date().toISOString();
+  const id = existing?.id || crypto.randomUUID();
+
+  if (input.isDefault) {
+    await clearDefaultPaymentMethod(env, accountEmail);
+  }
+
+  await requirePaymentMethodsDb(env)
+    .prepare(
+      `INSERT INTO account_payment_methods (
+         id,
+         account_email,
+         bank_id,
+         bank_name,
+         account_number,
+         full_name,
+         account_type,
+         is_default,
+         created_at,
+         updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(account_email, bank_id, account_number) DO UPDATE SET
+         bank_name = excluded.bank_name,
+         full_name = excluded.full_name,
+         account_type = excluded.account_type,
+         is_default = excluded.is_default,
+         updated_at = excluded.updated_at`
+    )
+    .bind(
+      id,
+      accountEmail,
+      input.bankId,
+      input.bankName,
+      input.accountNumber,
+      input.fullName,
+      input.accountType,
+      input.isDefault ? 1 : existing?.isDefault ? 1 : 0,
+      existing?.createdAt || now,
+      now
+    )
+    .run();
+
+  return findPaymentMethodById(env, accountEmail, id);
+}
+
+async function updatePaymentMethod(
+  env: Env,
+  accountEmail: string,
+  id: string,
+  input: PaymentMethodInput
+) {
+  const existing = await findPaymentMethodById(env, accountEmail, id);
+
+  if (!existing) {
+    throw makeError("Payment method not found", 404);
+  }
+
+  const duplicate = await findPaymentMethodByBankAccount(
+    env,
+    accountEmail,
+    input.bankId,
+    input.accountNumber
+  );
+
+  if (duplicate && duplicate.id !== id) {
+    throw makeError("Payment method already exists", 409);
+  }
+
+  if (input.isDefault) {
+    await clearDefaultPaymentMethod(env, accountEmail);
+  }
+
+  await requirePaymentMethodsDb(env)
+    .prepare(
+      `UPDATE account_payment_methods
+       SET bank_id = ?,
+           bank_name = ?,
+           account_number = ?,
+           full_name = ?,
+           account_type = ?,
+           is_default = ?,
+           updated_at = ?
+       WHERE account_email = ? AND id = ?`
+    )
+    .bind(
+      input.bankId,
+      input.bankName,
+      input.accountNumber,
+      input.fullName,
+      input.accountType,
+      input.isDefault ? 1 : existing.isDefault ? 1 : 0,
+      new Date().toISOString(),
+      accountEmail,
+      id
+    )
+    .run();
+
+  return findPaymentMethodById(env, accountEmail, id);
+}
+
 export function registerRampRoutes(app: Hono<WorkerBindings>) {
   app.get("/api/ramp/providers", (c) =>
     c.json({
       providers: getRampProviders(c.env),
     })
   );
+
+  app.get("/api/ramp/payment-methods", async (c) => {
+    const account = await getPaymentMethodAccount(c, {
+      email: c.req.query("email"),
+      network: c.req.query("network"),
+    });
+
+    return c.json({
+      success: true,
+      data: {
+        methods: await listPaymentMethods(c.env, account.email),
+      },
+    });
+  });
+
+  app.post("/api/ramp/payment-methods", async (c) => {
+    const body = await readJsonBody(c);
+    const account = await getPaymentMethodAccount(c, body);
+    const method = await upsertPaymentMethod(
+      c.env,
+      account.email,
+      normalizePaymentMethodInput(body)
+    );
+
+    return c.json({
+      success: true,
+      data: { method },
+    });
+  });
+
+  app.put("/api/ramp/payment-methods/:id", async (c) => {
+    const id = String(c.req.param("id") || "").trim();
+    const body = await readJsonBody(c);
+    const account = await getPaymentMethodAccount(c, body);
+
+    if (!id) {
+      throw makeError("Payment method id is required", 400);
+    }
+
+    const method = await updatePaymentMethod(
+      c.env,
+      account.email,
+      id,
+      normalizePaymentMethodInput(body)
+    );
+
+    return c.json({
+      success: true,
+      data: { method },
+    });
+  });
+
+  app.delete("/api/ramp/payment-methods/:id", async (c) => {
+    const id = String(c.req.param("id") || "").trim();
+    const account = await getPaymentMethodAccount(c, {
+      email: c.req.query("email"),
+      network: c.req.query("network"),
+    });
+
+    if (!id) {
+      throw makeError("Payment method id is required", 400);
+    }
+
+    const existing = await findPaymentMethodById(c.env, account.email, id);
+
+    if (!existing) {
+      throw makeError("Payment method not found", 404);
+    }
+
+    await requirePaymentMethodsDb(c.env)
+      .prepare(
+        `DELETE FROM account_payment_methods
+         WHERE account_email = ? AND id = ?`
+      )
+      .bind(account.email, id)
+      .run();
+
+    return c.json({
+      success: true,
+      data: { deleted: true },
+    });
+  });
+
+  app.post("/api/ramp/payment-methods/:id/default", async (c) => {
+    const id = String(c.req.param("id") || "").trim();
+    const body = await readJsonBody(c);
+    const account = await getPaymentMethodAccount(c, body);
+
+    if (!id) {
+      throw makeError("Payment method id is required", 400);
+    }
+
+    const existing = await findPaymentMethodById(c.env, account.email, id);
+
+    if (!existing) {
+      throw makeError("Payment method not found", 404);
+    }
+
+    await clearDefaultPaymentMethod(c.env, account.email);
+    await requirePaymentMethodsDb(c.env)
+      .prepare(
+        `UPDATE account_payment_methods
+         SET is_default = 1, updated_at = ?
+         WHERE account_email = ? AND id = ?`
+      )
+      .bind(new Date().toISOString(), account.email, id)
+      .run();
+
+    return c.json({
+      success: true,
+      data: {
+        method: await findPaymentMethodById(c.env, account.email, id),
+      },
+    });
+  });
 
   app.post("/api/ramp/quote", async (c) => {
     const body = await readJsonBody(c);
@@ -897,31 +1321,8 @@ export function registerRampRoutes(app: Hono<WorkerBindings>) {
     const body = await readJsonBody(c);
     const order = await buildOrderPayload(c, body, "sell");
     const paymentInfo = (body.paymentInfo || {}) as Record<string, unknown>;
-    const bankId = String(paymentInfo.bankId || "").trim();
-    const fullName = String(paymentInfo.fullName || "")
-      .trim()
-      .toUpperCase();
-    const accountNumber = String(paymentInfo.accountNumber || "").trim();
-    const accountType = Number(paymentInfo.accountType);
-
-    if (!/^\d{6}$/.test(bankId)) {
-      throw makeError("Bank BIN must contain 6 digits", 400);
-    }
-
-    if (!/^[A-Z0-9 ]{2,100}$/.test(fullName)) {
-      throw makeError(
-        "Account holder name must use unaccented letters and numbers",
-        400
-      );
-    }
-
-    if (!/^\d{4,30}$/.test(accountNumber)) {
-      throw makeError("Bank account number is invalid", 400);
-    }
-
-    if (![0, 1, 2].includes(accountType)) {
-      throw makeError("Bank account type is invalid", 400);
-    }
+    const { accountNumber, accountType, bankId, fullName } =
+      normalizeBankPaymentFields(paymentInfo);
 
     const normalizedPaymentInfo = {
       account_number: accountNumber,

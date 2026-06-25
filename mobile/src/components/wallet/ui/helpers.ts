@@ -76,20 +76,79 @@ export function getModernAssets(
 export function getWalletAssets(
   balances: BalanceItem[],
   visibleAssets: AssetItem[],
+  favoriteAssets: AssetItem[] = [],
 ) {
-  return balances.map(balance => {
+  const merged = new Map<string, BalanceItem>();
+
+  for (const balance of balances) {
     const marketAsset = visibleAssets.find(
       asset => getAssetKey(asset) === getAssetKey(balance),
     );
 
-    return {
+    merged.set(getAssetKey(balance), {
       ...marketAsset,
       ...balance,
       image: marketAsset?.image || balance.image || null,
       priceUsd: marketAsset?.priceUsd ?? balance.priceUsd ?? null,
       rating: marketAsset?.rating ?? balance.rating ?? null,
       volume7d: marketAsset?.volume7d ?? balance.volume7d ?? null,
-    };
+    });
+  }
+
+  for (const favorite of favoriteAssets) {
+    const key = getAssetKey(favorite);
+
+    if (merged.has(key)) {
+      continue;
+    }
+
+    const marketAsset = visibleAssets.find(asset => getAssetKey(asset) === key);
+    const isNative = favorite.isNative || (favorite.assetCode === 'XLM' && !favorite.assetIssuer);
+
+    merged.set(key, {
+      ...favorite,
+      ...marketAsset,
+      assetCode: favorite.assetCode,
+      assetIssuer: favorite.assetIssuer,
+      balance: '0',
+      demo: favorite.demo,
+      displayName: favorite.displayName || marketAsset?.displayName || favorite.assetCode,
+      exists: false,
+      homeDomain: favorite.homeDomain || marketAsset?.homeDomain || null,
+      image: marketAsset?.image || favorite.image || null,
+      isNative,
+      network: favorite.network,
+      priceUsd: marketAsset?.priceUsd ?? favorite.priceUsd ?? null,
+      rating: marketAsset?.rating ?? favorite.rating ?? null,
+      trusted: isNative,
+      trustLevel: marketAsset?.trustLevel || favorite.trustLevel,
+      volume7d: marketAsset?.volume7d ?? favorite.volume7d ?? null,
+    });
+  }
+
+  const favoriteOrder = new Map(
+    favoriteAssets.map((asset, index) => [getAssetKey(asset), index]),
+  );
+
+  return [...merged.values()].sort((a, b) => {
+    const aFavoriteIndex = favoriteOrder.get(getAssetKey(a));
+    const bFavoriteIndex = favoriteOrder.get(getAssetKey(b));
+    const aFavorite = typeof aFavoriteIndex === 'number';
+    const bFavorite = typeof bFavoriteIndex === 'number';
+
+    if (aFavorite && bFavorite) {
+      return aFavoriteIndex - bFavoriteIndex;
+    }
+
+    if (aFavorite) {
+      return -1;
+    }
+
+    if (bFavorite) {
+      return 1;
+    }
+
+    return 0;
   });
 }
 

@@ -16,6 +16,7 @@ import { loginStyles as styles } from './loginStyles';
 
 const OTP_LENGTH = 6;
 const loadingAnimation = require('@assets/lottie/loading.json');
+const loginAnimation = require('@assets/lottie/Login.json');
 
 function sanitizeOtp(value: string) {
   return value.replace(/\D/g, '').slice(0, OTP_LENGTH);
@@ -241,12 +242,17 @@ function WelcomeStep({ wallet, onSelectEmail }: { wallet: WalletState, onSelectE
 
   return (
     <View style={styles.stepContainer}>
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <View style={{ marginBottom: 40 }}>
-          <Ionicons name="planet" size={32} color="#FFFFFF" />
-        </View>
+      <View style={styles.loginHero}>
+        <LottieView
+          autoPlay
+          loop
+          source={loginAnimation}
+          style={styles.loginAnimation}
+        />
+      </View>
 
-        <View style={{ alignItems: 'center', marginBottom: 20 }}>
+      <View style={styles.loginBottom}>
+        <View style={styles.loginWelcomeCopy}>
           <Text style={styles.welcomeTitle}>Welcome</Text>
           <Text style={styles.welcomeSubtitle}>Your journey starts from here</Text>
         </View>
@@ -254,9 +260,7 @@ function WelcomeStep({ wallet, onSelectEmail }: { wallet: WalletState, onSelectE
         {status ? (
           <SessionStatus detail={status.detail} label={status.label} />
         ) : null}
-      </View>
 
-      <View>
         <View style={styles.buttonContainer}>
           <ActionButton 
             disabled={preparingPrivy || restoringSession || wallet.isBusy}

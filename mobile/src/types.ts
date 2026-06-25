@@ -72,6 +72,21 @@ export type AssetsResponse = {
   network?: StellarNetwork;
 };
 
+export type FavoriteAsset = AssetItem & {
+  createdAt: string;
+  id: string;
+  updatedAt: string;
+};
+
+export type FavoriteAssetsResponse = {
+  data: {
+    asset?: FavoriteAsset | null;
+    assets?: FavoriteAsset[];
+    deleted?: boolean;
+  };
+  success: boolean;
+};
+
 export type CollectibleItem = AssetItem & {
   balance: string;
   claimed: boolean;
@@ -124,7 +139,12 @@ export type TransactionItem = {
   createdAt: string;
   direction: 'sent' | 'received' | 'trustline' | 'other';
   explorerUrl: string;
+  feeChargedStroops?: string | null;
+  feeChargedXlm?: string | null;
+  maxFeeStroops?: string | null;
+  maxFeeXlm?: string | null;
   network?: StellarNetwork;
+  operationCount?: number | null;
   operation:
     | 'payment'
     | 'create_account'
@@ -164,6 +184,7 @@ export type SendResult = {
   hash: string;
   ledger: number;
   network?: StellarNetwork;
+  requiresClientSignature?: boolean;
   sourceBalances: BalanceItem[];
   sourceXlm: string;
   destinationXlm: string;
@@ -173,14 +194,18 @@ export type SendResult = {
     | 'change_trust'
     | 'path_payment_strict_send';
   transaction: TransactionItem;
+  transactionXdr?: string;
   transactions: TransactionItem[];
 };
 
 export type TrustlineResult = {
   alreadyTrusted: boolean;
   balances: BalanceItem[];
+  hash?: `0x${string}`;
   network?: StellarNetwork;
+  requiresClientSignature?: boolean;
   transaction: TransactionItem | null;
+  transactionXdr?: string;
   transactions: TransactionItem[];
 };
 
@@ -188,14 +213,19 @@ export type FundNftResult = {
   alreadyClaimed: boolean;
   balances: BalanceItem[];
   collectibles: CollectibleItem[];
+  hash?: `0x${string}`;
   network?: StellarNetwork;
+  requiresClientSignature?: boolean;
   transaction: TransactionItem | null;
+  transactionXdr?: string;
   transactions: TransactionItem[];
   trustlineTransaction?: TransactionItem | null;
 };
 
 export type SwapQuoteResult = {
   destMin: string;
+  feeEstimateStroops?: string | null;
+  feeEstimateXlm?: string | null;
   fromAmount: string;
   fromAssetCode: string;
   fromAssetIssuer?: string | null;
@@ -211,16 +241,20 @@ export type SwapQuoteResult = {
 export type SwapResult = {
   accountId: string;
   balances: BalanceItem[];
+  feeEstimateStroops?: string | null;
+  feeEstimateXlm?: string | null;
   fromAmount: string;
   fromAssetCode: string;
   hash: string;
   ledger: number;
   network?: StellarNetwork;
   rate: number;
+  requiresClientSignature?: boolean;
   sourceWalletId: string;
   toAmount: string;
   toAssetCode: string;
   transaction: TransactionItem;
+  transactionXdr?: string;
   transactions: TransactionItem[];
 };
 
@@ -320,6 +354,19 @@ export type RampPaymentInfo = {
   bankId: string;
   fullName: string;
 };
+
+export type RampPaymentMethod = RampPaymentInfo & {
+  bankName: string;
+  createdAt: string;
+  id: string;
+  isDefault: boolean;
+  updatedAt: string;
+};
+
+export type RampPaymentMethodsResponse = RampApiResponse<{
+  method?: RampPaymentMethod;
+  methods?: RampPaymentMethod[];
+}>;
 
 export type WalletConnectConfig = {
   configured: boolean;

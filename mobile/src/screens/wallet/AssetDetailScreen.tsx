@@ -1,17 +1,13 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { LineChart } from 'react-native-wagmi-charts';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useHistoricalPrice, Timeframe } from '../../hooks/useHistoricalPrice';
 import {
-  ModernScreenHeader,
   PressScale,
-  SectionHeader,
   TokenIcon,
-  modern,
   useSafeScreenInsetStyle,
-  ExplorerLink,
 } from '@components/wallet';
 import type { AssetItem, BalanceItem } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
@@ -51,6 +47,18 @@ function formatCompact(value?: number | null) {
     maximumFractionDigits: 2,
     notation: 'compact',
   });
+}
+
+function getAssetExplorerUrl(asset: AssetItem | BalanceItem) {
+  const explorerNetwork = asset.network === 'mainnet' ? 'public' : 'testnet';
+
+  if (asset.isNative) {
+    return `https://stellar.expert/explorer/${explorerNetwork}/asset/XLM`;
+  }
+
+  return `https://stellar.expert/explorer/${explorerNetwork}/asset/${
+    asset.assetCode
+  }-${asset.assetIssuer || ''}`;
 }
 
 function makeFallbackAsset(
@@ -136,8 +144,6 @@ function mergeRouteAsset(
   return makeFallbackAsset(params, wallet.network);
 }
 
-
-
 export function AssetDetailScreen({
   onBack,
   onGoToReceive,
@@ -158,25 +164,81 @@ export function AssetDetailScreen({
     () => mergeRouteAsset(route.params || {}, wallet),
     [route.params, wallet],
   );
-  
-  const [timeframe, setTimeframe] = useState<Timeframe>('7D');
-  const { data: chartData, loading: chartLoading } = useHistoricalPrice(asset.assetCode, timeframe);
-  
-  const needsTrustline = !asset.isNative && !asset.trusted;
 
-  const currentPrice = asset.priceUsd ? `$${asset.priceUsd.toPrecision(4)}` : '$0.00';
+  const [timeframe, setTimeframe] = useState<Timeframe>('7D');
+  const { data: chartData, loading: chartLoading } = useHistoricalPrice(
+    asset,
+    timeframe,
+  );
+  const [favoriteNotice, setFavoriteNotice] = useState<string | null>(null);
+
+  const needsTrustline = !asset.isNative && !asset.trusted;
+  const isFavorite = wallet.isFavoriteAsset(asset);
+  const explorerUrl = getAssetExplorerUrl(asset);
+  const assetNoticeKey = asset.isNative
+    ? `${asset.network}:native`
+    : `${asset.network}:${asset.assetCode}:${asset.assetIssuer || ''}`;
+
+  useEffect(() => {
+    setFavoriteNotice(null);
+  }, [assetNoticeKey]);
+
+  const marketPriceUsd =
+    typeof asset.priceUsd === 'number' &&
+    Number.isFinite(asset.priceUsd) &&
+    asset.priceUsd > 0
+      ? asset.priceUsd
+      : null;
+  const currentPrice = marketPriceUsd
+    ? `≈ ${formatUsd(marketPriceUsd) || '$0.00'}`
+    : 'No price';
   const balanceValue = Number(asset.balance);
-  const balanceUsd = asset.priceUsd ? formatUsd(balanceValue * asset.priceUsd) : '$0.00';
-  
+  const balanceUsd =
+    marketPriceUsd && Number.isFinite(balanceValue)
+      ? `≈ ${formatUsd(balanceValue * marketPriceUsd) || '$0.00'}`
+      : 'Not priced';
+  const chartEmptyText = chartLoading
+    ? 'Loading chart...'
+    : asset.network === 'testnet' && !['XLM', 'USDC'].includes(asset.assetCode)
+    ? 'No public market chart for this Testnet asset'
+    : 'No public market chart for this asset';
+
   // Calculate price change if we have chart data
-  let priceChangeStr = '+0.00%';
+  let priceChangeStr: string | null = null;
   let isPositive = true;
-  if (chartData.length > 0) {
+  if (chartData.length > 1 && chartData[0].value > 0) {
     const startPrice = chartData[0].value;
     const endPrice = chartData[chartData.length - 1].value;
     const change = ((endPrice - startPrice) / startPrice) * 100;
     isPositive = change >= 0;
     priceChangeStr = `${isPositive ? '+' : ''}${change.toFixed(2)}%`;
+  }
+
+  async function toggleFavorite() {
+    setFavoriteNotice(null);
+    const nextFavorite = await wallet.toggleFavoriteAsset(asset);
+
+    if (nextFavorite === true) {
+      setFavoriteNotice(`${asset.assetCode} added to favorites.`);
+    } else if (nextFavorite === false) {
+      setFavoriteNotice(`${asset.assetCode} removed from favorites.`);
+    } else {
+      setFavoriteNotice('Could not update favorite asset.');
+    }
+  }
+
+  async function shareAsset() {
+    const networkLabel =
+      asset.network === 'mainnet' ? 'Stellar Mainnet' : 'Stellar Testnet';
+    const issuerLabel = asset.isNative
+      ? 'Native Stellar asset'
+      : `Issuer: ${shortAddress(asset.assetIssuer || '')}`;
+
+    await Share.share({
+      message: `${asset.displayName} (${asset.assetCode})\n${networkLabel}\n${issuerLabel}\n${explorerUrl}`,
+      title: `${asset.assetCode} on Stellar`,
+      url: explorerUrl,
+    });
   }
 
   return (
@@ -192,30 +254,59 @@ export function AssetDetailScreen({
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </PressScale>
         <View style={styles.headerRight}>
-          <PressScale style={styles.headerIconBtn}>
-            <Ionicons name="star-outline" size={22} color="#FFFFFF" />
+          <PressScale
+            disabled={wallet.isBusy}
+            onPress={toggleFavorite}
+            style={styles.headerIconBtn}
+          >
+            <Ionicons
+              name={isFavorite ? 'star' : 'star-outline'}
+              size={22}
+              color={isFavorite ? '#FFD60A' : '#FFFFFF'}
+            />
           </PressScale>
-          <PressScale style={styles.headerIconBtn}>
+          <PressScale onPress={shareAsset} style={styles.headerIconBtn}>
             <Ionicons name="share-social-outline" size={22} color="#FFFFFF" />
           </PressScale>
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 32 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 32 }}
+      >
         {/* Asset Header Info */}
         <View style={styles.assetHeaderInfo}>
           <View style={styles.assetTitleRow}>
-            <TokenIcon assetCode={asset.assetCode} imageUrl={asset.image} size={40} />
+            <TokenIcon
+              assetCode={asset.assetCode}
+              imageUrl={asset.image}
+              size={40}
+            />
             <View style={styles.assetNameCol}>
               <Text style={styles.assetName}>{asset.displayName}</Text>
               <Text style={styles.assetSymbol}>{asset.assetCode}</Text>
             </View>
           </View>
-          
+
           <Text style={styles.currentPrice}>{currentPrice}</Text>
-          <Text style={[styles.priceChange, { color: isPositive ? '#B8FF45' : '#FF453A' }]}>
-            <Ionicons name={isPositive ? "arrow-up" : "arrow-down"} size={12} /> {priceChangeStr}
-          </Text>
+          {priceChangeStr ? (
+            <Text
+              style={[
+                styles.priceChange,
+                { color: isPositive ? '#B8FF45' : '#FF453A' },
+              ]}
+            >
+              <Ionicons
+                name={isPositive ? 'arrow-up' : 'arrow-down'}
+                size={12}
+              />{' '}
+              {priceChangeStr}
+            </Text>
+          ) : null}
+          {favoriteNotice ? (
+            <Text style={styles.favoriteNotice}>{favoriteNotice}</Text>
+          ) : null}
         </View>
 
         {/* Chart Section */}
@@ -230,8 +321,16 @@ export function AssetDetailScreen({
               </LineChart>
             </LineChart.Provider>
           ) : (
-            <View style={{ height: 200, justifyContent: 'center', alignItems: 'center' }}>
-              <Text style={{ color: '#555' }}>{chartLoading ? 'Loading chart...' : 'No chart data'}</Text>
+            <View
+              style={{
+                height: 200,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{ color: '#555' }}>
+                {chartEmptyText}
+              </Text>
             </View>
           )}
         </View>
@@ -241,7 +340,9 @@ export function AssetDetailScreen({
         {/* Balance Card */}
         <View style={styles.balanceCard}>
           <Text style={styles.balanceLabel}>Your Balance</Text>
-          <Text style={styles.balanceAmount}>{formatTokenAmount(asset.balance)} {asset.assetCode}</Text>
+          <Text style={styles.balanceAmount}>
+            {formatTokenAmount(asset.balance)} {asset.assetCode}
+          </Text>
           <Text style={styles.balanceUsd}>{balanceUsd}</Text>
         </View>
 
@@ -249,13 +350,21 @@ export function AssetDetailScreen({
           {needsTrustline ? (
             <PressScale
               style={styles.buyButton}
-              onPress={() => wallet.addTrustline(asset.assetCode, asset.assetIssuer || undefined)}
+              onPress={() =>
+                wallet.addTrustline(
+                  asset.assetCode,
+                  asset.assetIssuer || undefined,
+                )
+              }
               disabled={wallet.isBusy}
             >
-              <Text style={styles.buyButtonText}>Enable Asset</Text>
+              <Text style={styles.buyButtonText}>Enable Crypto</Text>
             </PressScale>
           ) : (
-            <PressScale style={styles.buyButton} onPress={() => onGoToRamp('buy')}>
+            <PressScale
+              style={styles.buyButton}
+              onPress={() => onGoToRamp('buy')}
+            >
               <Text style={styles.buyButtonText}>Buy {asset.assetCode}</Text>
             </PressScale>
           )}
@@ -316,6 +425,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     marginTop: 4,
+  },
+  favoriteNotice: {
+    color: '#A7B0BE',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 8,
   },
   chartContainer: {
     marginTop: 30,

@@ -20,6 +20,9 @@ export function getErrorMessage(error: unknown) {
   return friendly ? `${friendly}\n\nCode: ${normalized}` : rawMessage;
 }
 
+export const STELLAR_MINIMUM_FEE_XLM = '0.00001';
+const STROOPS_PER_XLM = 10_000_000n;
+
 export function shortAddress(address?: string) {
   if (!address) {
     return 'Not available';
@@ -71,6 +74,43 @@ export function formatTokenAmount(
       options.maxFractionDigits ?? (absAmount >= 1_000 ? 2 : 7),
     minimumFractionDigits: 0,
   }).format(amount);
+}
+
+export function formatStellarFee(
+  feeXlm?: string | null,
+  fallback = 'Not available',
+) {
+  if (!feeXlm) {
+    return fallback;
+  }
+
+  return `${formatTokenAmount(feeXlm, { maxFractionDigits: 7 })} XLM`;
+}
+
+export function stroopsToXlm(value?: bigint | number | string | null) {
+  const raw = String(value ?? '').trim();
+
+  if (!/^\d+$/.test(raw)) {
+    return null;
+  }
+
+  const stroops = BigInt(raw);
+  const whole = stroops / STROOPS_PER_XLM;
+  const fraction = (stroops % STROOPS_PER_XLM).toString().padStart(7, '0');
+  const trimmedFraction = fraction.replace(/0+$/, '');
+
+  return trimmedFraction ? `${whole}.${trimmedFraction}` : whole.toString();
+}
+
+export function formatStellarFeeFromStroops(
+  feeStroops?: bigint | number | string | null,
+  fallback = 'Not available',
+) {
+  return formatStellarFee(stroopsToXlm(feeStroops), fallback);
+}
+
+export function formatEstimatedStellarFee(feeXlm?: string | null) {
+  return `Estimated ${formatStellarFee(feeXlm || STELLAR_MINIMUM_FEE_XLM)}`;
 }
 
 export function isEmailLike(emailValue: string) {

@@ -1,8 +1,9 @@
 import React from 'react';
-import { Alert, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useAppPopup } from '@components/common/AppPopup';
 import QRCode from 'react-native-qrcode-styled';
 import {
   ModernScreenHeader,
@@ -27,6 +28,7 @@ export function FaucetScreen({
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
   const insets = useSafeAreaInsets();
+  const { showPopup } = useAppPopup();
   const assets = getModernAssets(wallet.balances, wallet.visibleAssets);
   const address = wallet.wallet?.address || '';
   const networkLabel = wallet.isMainnet ? 'Mainnet' : 'Testnet';
@@ -46,7 +48,11 @@ export function FaucetScreen({
   function copyAddress() {
     if (!address) return;
     Clipboard.setString(address);
-    Alert.alert('Copied', 'Wallet address copied to clipboard.');
+    showPopup({
+      message: 'Wallet address copied to clipboard.',
+      title: 'Copied',
+      variant: 'success',
+    });
   }
 
   return (

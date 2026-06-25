@@ -3,6 +3,7 @@ import {
   assertAccountWallet,
   assertStellarAddress,
   buildSubmittedTransactionItem,
+  makeError,
   NATIVE_ASSET_CODE,
   normalizeNetwork,
   readJsonBody,
@@ -37,6 +38,26 @@ function walletConnectLog(
   } else {
     console.info(entry);
   }
+}
+
+function normalizeClientSignature(value: unknown) {
+  const signature = String(value || '').trim();
+
+  if (!signature) {
+    return null;
+  }
+
+  if (!/^(0x)?[0-9a-fA-F]+$/.test(signature)) {
+    throw makeError('Invalid Stellar signature format', 400);
+  }
+
+  const signatureHex = signature.replace(/^0x/i, '');
+
+  if (signatureHex.length !== 128) {
+    throw makeError('Invalid Stellar signature format', 400);
+  }
+
+  return signatureHex;
 }
 
 export function registerWalletConnectRoutes(app: Hono<WorkerBindings>) {
@@ -103,6 +124,12 @@ export function registerWalletConnectRoutes(app: Hono<WorkerBindings>) {
       network,
       requireAuth: true,
     });
+    const clientSignatureHex = normalizeClientSignature(
+      body.clientSignature || body.signature,
+    );
+    const expectedSigningHash = String(
+      body.signingHash || body.hash || '',
+    ).trim();
 
     assertStellarAddress(sourceAddress, 'Signing wallet');
     const sourceWallet = assertAccountWallet({
@@ -118,11 +145,15 @@ export function registerWalletConnectRoutes(app: Hono<WorkerBindings>) {
       result = await signStellarXdr({
         env: c.env,
         network,
+        clientSigningSupported: body.clientSigningSupported === true,
+        clientSignatureHex,
         sourceAddress,
         submit: Boolean(body.submit),
         wallet: sourceWallet,
         walletId: sourceWalletId,
-        xdr: body.xdr,
+        xdr: clientSignatureHex && body.transactionXdr
+          ? body.transactionXdr
+          : body.xdr,
       });
     } catch (error) {
       walletConnectLog('error', 'walletconnect.sign_failed', {
@@ -135,6 +166,36 @@ export function registerWalletConnectRoutes(app: Hono<WorkerBindings>) {
         topic: topic || null,
       });
       throw error;
+    }
+
+    if (
+      clientSignatureHex &&
+      expectedSigningHash &&
+      result.signingHash &&
+      expectedSigningHash.toLowerCase() !== result.signingHash.toLowerCase()
+    ) {
+      throw makeError('Transaction changed before signing. Please try again.', 409);
+    }
+
+    if (result.requiresClientSignature) {
+      walletConnectLog('info', 'walletconnect.sign_challenge_created', {
+        method: method || null,
+        network,
+        operationCount: result.review.operationCount,
+        peerName: peerName || null,
+        sourceAddress: maskAddress(sourceAddress),
+        submit: Boolean(body.submit),
+        topic: topic || null,
+      });
+
+      return c.json(
+        {
+          ...result,
+          hash: null,
+          transaction: null,
+        },
+        202,
+      );
     }
 
     walletConnectLog('info', 'walletconnect.signed', {

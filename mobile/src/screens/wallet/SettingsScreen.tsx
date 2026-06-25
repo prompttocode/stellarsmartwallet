@@ -1,7 +1,8 @@
 import React, { ReactNode, useEffect, useState } from 'react';
 import {
-  Alert,
   AppState,
+  Image,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -18,6 +19,8 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import * as ExpoLinking from 'expo-linking';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAppPopup } from '@components/common/AppPopup';
+import { BANK_OPTIONS } from '@constants/banks';
 
 import {
   ModernScreenHeader,
@@ -29,8 +32,15 @@ import {
   SupportedCurrency,
   useCurrencyConfig,
 } from '@contexts/CurrencyContext';
+import type { StellarNetwork } from '@app-types';
+import type { RampPaymentMethod } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
 import { shortAddress } from '@utils/format';
+import {
+  getImportSecretPublicAddress,
+  validateImportSecret,
+  validateWatchOnlyAddress,
+} from '@utils/walletValidation';
 
 const CURRENCIES: { code: SupportedCurrency; name: string; symbol: string }[] =
   [
@@ -41,8 +51,62 @@ const CURRENCIES: { code: SupportedCurrency; name: string; symbol: string }[] =
     { code: 'GBP', name: 'British Pound', symbol: '£' },
   ];
 
-type DetailSheet = 'advanced' | 'security' | 'wallet' | null;
+type DetailSheet = 'advanced' | 'payment' | 'security' | 'wallet' | null;
 type ToolMode = 'import' | 'watch' | null;
+type PaymentSheetMode = 'form' | 'list';
+
+const HORIZON_ACCOUNT_URLS: Record<StellarNetwork, string> = {
+  mainnet: 'https://horizon.stellar.org/accounts/',
+  testnet: 'https://horizon-testnet.stellar.org/accounts/',
+};
+
+function getOtherNetwork(network: StellarNetwork): StellarNetwork {
+  return network === 'mainnet' ? 'testnet' : 'mainnet';
+}
+
+function getNetworkLabel(network: StellarNetwork) {
+  return network === 'mainnet' ? 'Mainnet' : 'Testnet';
+}
+
+function maskBankAccount(value: string) {
+  return value.length > 4 ? `•••• ${value.slice(-4)}` : value;
+}
+
+async function checkHorizonAccountExists(
+  address: string,
+  network: StellarNetwork,
+) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  let response: Response;
+
+  try {
+    response = await fetch(
+      `${HORIZON_ACCOUNT_URLS[network]}${encodeURIComponent(address)}`,
+      { signal: controller.signal },
+    );
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`${getNetworkLabel(network)} account check timed out`);
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (response.ok) {
+    return true;
+  }
+
+  if (response.status === 404) {
+    return false;
+  }
+
+  throw new Error(
+    `Horizon ${getNetworkLabel(network)} returned ${response.status}`,
+  );
+}
 
 function BottomSheet({
   bottomInset,
@@ -163,6 +227,7 @@ export function SettingsScreen({
 }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
   const insets = useSafeAreaInsets();
+  const { showPopup } = useAppPopup();
   const { selectedCurrency, setSelectedCurrency } = useCurrencyConfig();
   const [detailSheet, setDetailSheet] = useState<DetailSheet>(null);
   const [currencyVisible, setCurrencyVisible] = useState(false);
@@ -170,9 +235,23 @@ export function SettingsScreen({
   const [toolMode, setToolMode] = useState<ToolMode>(null);
   const [toolValue, setToolValue] = useState('');
   const [toolName, setToolName] = useState('');
+  const [toolError, setToolError] = useState<string | null>(null);
   const [backupVisible, setBackupVisible] = useState(false);
   const [backupConfirmation, setBackupConfirmation] = useState('');
   const [walletExportOpening, setWalletExportOpening] = useState(false);
+  const [addressCopied, setAddressCopied] = useState(false);
+  const [toolCheckingNetwork, setToolCheckingNetwork] = useState(false);
+  const [paymentSheetMode, setPaymentSheetMode] =
+    useState<PaymentSheetMode>('list');
+  const [editingPaymentMethod, setEditingPaymentMethod] =
+    useState<RampPaymentMethod | null>(null);
+  const [paymentBankId, setPaymentBankId] = useState(BANK_OPTIONS[0].bin);
+  const [paymentFullName, setPaymentFullName] = useState('');
+  const [paymentAccountNumber, setPaymentAccountNumber] = useState('');
+  const [paymentAccountType, setPaymentAccountType] = useState<0 | 1 | 2>(0);
+  const [paymentDefault, setPaymentDefault] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentNotice, setPaymentNotice] = useState<string | null>(null);
 
   const activeWallet =
     wallet.wallets.find(item => item.id === wallet.activeWalletId) ||
@@ -189,20 +268,133 @@ export function SettingsScreen({
     ? activeWallet.kind === 'watch_only'
       ? 'Watch-only wallet'
       : activeWallet.kind === 'imported_privy'
-        ? 'Imported via Privy'
-        : 'Managed by Privy'
+      ? 'Imported via Privy'
+      : 'Managed by Privy'
     : 'No wallet on this network';
+  const defaultPaymentMethod = wallet.paymentMethods.find(
+    method => method.isDefault,
+  );
+  const paymentBank =
+    BANK_OPTIONS.find(bank => bank.bin === paymentBankId) || BANK_OPTIONS[0];
 
   function closeToolModal() {
+    Keyboard.dismiss();
     setToolMode(null);
-    setToolValue('');
-    setToolName('');
+    setToolError(null);
+    setToolCheckingNetwork(false);
+    setTimeout(() => {
+      setToolValue('');
+      setToolName('');
+    }, 260);
   }
 
   function closeBackupModal() {
     setBackupVisible(false);
     setBackupConfirmation('');
   }
+
+  function resetPaymentForm(method?: RampPaymentMethod | null) {
+    setEditingPaymentMethod(method || null);
+    setPaymentBankId(method?.bankId || BANK_OPTIONS[0].bin);
+    setPaymentFullName(method?.fullName || '');
+    setPaymentAccountNumber(method?.accountNumber || '');
+    setPaymentAccountType(method?.accountType || 0);
+    setPaymentDefault(Boolean(method?.isDefault));
+    setPaymentError(null);
+  }
+
+  function openPaymentMethods() {
+    setPaymentSheetMode('list');
+    setPaymentNotice(null);
+    setPaymentError(null);
+    setDetailSheet('payment');
+    wallet.loadPaymentMethods({ silent: true }).catch(() => null);
+  }
+
+  function openPaymentForm(method?: RampPaymentMethod) {
+    resetPaymentForm(method || null);
+    setPaymentNotice(null);
+    setPaymentSheetMode('form');
+  }
+
+  function getPaymentFormError() {
+    const fullName = paymentFullName.trim().toUpperCase();
+    const accountNumber = paymentAccountNumber.trim();
+
+    if (!/^[A-Z0-9 ]{2,100}$/.test(fullName)) {
+      return 'Account holder name must use unaccented letters and numbers.';
+    }
+
+    if (!/^\d{4,30}$/.test(accountNumber)) {
+      return 'Bank account number must contain 4-30 digits.';
+    }
+
+    return null;
+  }
+
+  async function submitPaymentMethod() {
+    const formError = getPaymentFormError();
+
+    if (formError) {
+      setPaymentError(formError);
+      return;
+    }
+
+    const payload = {
+      accountNumber: paymentAccountNumber.trim(),
+      accountType: paymentAccountType,
+      bankId: paymentBank.bin,
+      bankName: paymentBank.name,
+      fullName: paymentFullName.trim().toUpperCase(),
+      isDefault: paymentDefault,
+    };
+    const result = editingPaymentMethod
+      ? await wallet.updatePaymentMethod(editingPaymentMethod.id, payload)
+      : await wallet.savePaymentMethod(payload);
+
+    if (!result) {
+      setPaymentError('Could not save this payment method. Try again.');
+      return;
+    }
+
+    setPaymentNotice(
+      editingPaymentMethod
+        ? 'Payment method updated.'
+        : 'Payment method saved.',
+    );
+    resetPaymentForm(null);
+    setPaymentSheetMode('list');
+  }
+
+  async function removePaymentMethod(method: RampPaymentMethod) {
+    const deleted = await wallet.deletePaymentMethod(method.id);
+
+    if (deleted) {
+      setPaymentNotice('Payment method deleted.');
+    }
+  }
+
+  async function makeDefaultPaymentMethod(method: RampPaymentMethod) {
+    const result = await wallet.setDefaultPaymentMethod(method.id);
+
+    if (result) {
+      setPaymentNotice('Default payment method updated.');
+    }
+  }
+
+  useEffect(() => {
+    if (detailSheet !== 'wallet') {
+      setAddressCopied(false);
+    }
+  }, [detailSheet]);
+
+  useEffect(() => {
+    if (detailSheet !== 'payment') {
+      resetPaymentForm(null);
+      setPaymentSheetMode('list');
+      setPaymentNotice(null);
+    }
+  }, [detailSheet]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextState => {
@@ -219,11 +411,15 @@ export function SettingsScreen({
     const hasPrivyToken = await wallet.refreshPrivySecuritySession();
 
     if (!hasPrivyToken) {
-      Alert.alert(
-        'Privy sign-in required',
-        'This security action needs an active Privy session. Please sign out and sign in again with email OTP or Google.',
-      );
       closeToolModal();
+      setTimeout(() => {
+        showPopup({
+          message:
+            'This security action needs an active Privy session. Please sign out and sign in again with email OTP or Google.',
+          title: 'Privy sign-in required',
+          variant: 'warning',
+        });
+      }, 280);
       return false;
     }
 
@@ -236,6 +432,7 @@ export function SettingsScreen({
     }
 
     setToolMode(mode);
+    setToolError(null);
   }
 
   function openToolFromAdvanced(mode: Exclude<ToolMode, null>) {
@@ -247,18 +444,21 @@ export function SettingsScreen({
 
   async function openBackupRecovery() {
     if (!activeWallet?.canSign) {
-      Alert.alert(
-        'Recovery key unavailable',
-        'Watch-only wallets do not contain a private recovery key.',
-      );
+      showPopup({
+        message: 'Watch-only wallets do not contain a private recovery key.',
+        title: 'Recovery key unavailable',
+        variant: 'warning',
+      });
       return;
     }
 
     if (activeWallet.kind === 'imported_privy') {
-      Alert.alert(
-        'Recovery key unavailable',
-        'This wallet was imported from your own Stellar secret key. Keep the original S... key you imported.',
-      );
+      showPopup({
+        message:
+          'This wallet was imported from your own Stellar secret key. Keep the original S... key you imported.',
+        title: 'Recovery key unavailable',
+        variant: 'warning',
+      });
       return;
     }
 
@@ -269,15 +469,21 @@ export function SettingsScreen({
 
   async function revealRecoveryKey() {
     if (backupConfirmation.trim() !== 'EXPORT') {
-      Alert.alert('Confirmation required', 'Enter EXPORT exactly to continue.');
+      showPopup({
+        message: 'Enter EXPORT exactly to continue.',
+        title: 'Confirmation required',
+        variant: 'warning',
+      });
       return;
     }
 
     if (walletExportOpening) {
-      Alert.alert(
-        'Export already opening',
-        'A secure export browser is already being opened. Finish or close that session first.',
-      );
+      showPopup({
+        message:
+          'A secure export browser is already being opened. Finish or close that session first.',
+        title: 'Export already opening',
+        variant: 'info',
+      });
       return;
     }
 
@@ -303,7 +509,11 @@ export function SettingsScreen({
         const message =
           error instanceof Error ? error.message : 'Unable to open browser.';
 
-        Alert.alert('Recovery export failed', message);
+        showPopup({
+          message,
+          title: 'Recovery export failed',
+          variant: 'danger',
+        });
       } finally {
         setWalletExportOpening(false);
       }
@@ -311,22 +521,109 @@ export function SettingsScreen({
   }
 
   async function submitTool() {
+    setToolError(null);
+
+    if (!toolMode) {
+      return;
+    }
+
+    const trimmedValue = toolValue.trim();
+    const validationMessage =
+      toolMode === 'import'
+        ? validateImportSecret(trimmedValue)
+        : validateWatchOnlyAddress(trimmedValue);
+
+    if (validationMessage) {
+      setToolError(validationMessage);
+      return;
+    }
+
+    if (toolMode === 'import') {
+      const importedAddress = getImportSecretPublicAddress(trimmedValue);
+
+      if (!importedAddress) {
+        setToolError(
+          'This import key could not be decoded. Check that you pasted the full Privy 64-hex key or Stellar S... key.',
+        );
+        return;
+      }
+
+      const duplicateWallet = wallet.wallets.find(
+        item =>
+          item.network === wallet.network &&
+          item.address.toUpperCase() === importedAddress.toUpperCase(),
+      );
+
+      if (duplicateWallet) {
+        setToolError(
+          `${shortAddress(
+            importedAddress,
+          )} is already in this account on Stellar ${wallet.network}.`,
+        );
+        return;
+      }
+
+      setToolCheckingNetwork(true);
+
+      try {
+        const currentNetwork = wallet.network;
+        const otherNetwork = getOtherNetwork(currentNetwork);
+        const [currentExists, otherExists] = await Promise.all([
+          checkHorizonAccountExists(importedAddress, currentNetwork),
+          checkHorizonAccountExists(importedAddress, otherNetwork),
+        ]);
+
+        if (!currentExists) {
+          setToolError(
+            otherExists
+              ? `This key belongs to an active ${getNetworkLabel(
+                  otherNetwork,
+                )} account. Switch to ${getNetworkLabel(
+                  otherNetwork,
+                )} before importing it.`
+              : `This address is not active on ${getNetworkLabel(
+                  currentNetwork,
+                )}. Fund it on ${getNetworkLabel(
+                  currentNetwork,
+                )} first, then import again.`,
+          );
+          return;
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Unable to verify this wallet network.';
+
+        setToolError(`${message}. Please try again before importing.`);
+        return;
+      } finally {
+        setToolCheckingNetwork(false);
+      }
+    }
+
     if (toolMode === 'import' && !(await requirePrivyToolSession())) {
       return;
     }
 
     if (toolMode === 'import') {
-      const result = await wallet.importWallet(toolValue, toolName);
+      const result = await wallet.importWallet(trimmedValue, toolName, {
+        showAlert: false,
+      });
 
       if (result) {
         closeToolModal();
+      } else {
+        setToolError(
+          'Import failed or timed out. Check your connection and try again.',
+        );
       }
 
       return;
     }
 
     if (toolMode === 'watch') {
-      const result = await wallet.addWatchOnlyWallet(toolValue, toolName);
+      const result = await wallet.addWatchOnlyWallet(trimmedValue, toolName);
 
       if (result) {
         closeToolModal();
@@ -351,7 +648,7 @@ export function SettingsScreen({
     }
 
     Clipboard.setString(activeWallet.address);
-    Alert.alert('Copied', 'Wallet address copied to clipboard.');
+    setAddressCopied(true);
   }
 
   function confirmNetworkSwitch(nextNetwork: 'mainnet' | 'testnet') {
@@ -361,19 +658,21 @@ export function SettingsScreen({
 
     const nextLabel = nextNetwork === 'mainnet' ? 'Mainnet' : 'Testnet';
 
-    Alert.alert(
-      `Switch to ${nextLabel}?`,
-      nextNetwork === 'testnet'
-        ? 'Testnet uses demo assets. Your Mainnet balances will be hidden until you switch back.'
-        : 'Mainnet uses real assets and real money. Check every transaction carefully.',
-      [
+    showPopup({
+      actions: [
         { style: 'cancel', text: 'Cancel' },
         {
           onPress: () => wallet.switchNetwork(nextNetwork),
           text: `Switch to ${nextLabel}`,
         },
       ],
-    );
+      message:
+        nextNetwork === 'testnet'
+          ? 'Testnet uses demo assets. Your Mainnet balances will be hidden until you switch back.'
+          : 'Mainnet uses real assets and real money. Check every transaction carefully.',
+      title: `Switch to ${nextLabel}?`,
+      variant: nextNetwork === 'mainnet' ? 'warning' : 'info',
+    });
   }
 
   function openWalletManager() {
@@ -382,18 +681,27 @@ export function SettingsScreen({
   }
 
   function renderToolModal() {
-    if (!toolMode) {
-      return null;
-    }
-
+    const modalVisible = Boolean(toolMode);
     const isImport = toolMode === 'import';
+    const trimmedToolValue = toolValue.trim();
+    const toolValidationMessage = trimmedToolValue
+      ? isImport
+        ? validateImportSecret(trimmedToolValue)
+        : validateWatchOnlyAddress(trimmedToolValue)
+      : null;
+    const visibleToolError = toolError || toolValidationMessage;
+    const saveDisabled =
+      wallet.isBusy ||
+      toolCheckingNetwork ||
+      !trimmedToolValue ||
+      Boolean(toolValidationMessage);
 
     return (
       <Modal
         animationType="fade"
         onRequestClose={closeToolModal}
         transparent
-        visible
+        visible={modalVisible}
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -408,7 +716,7 @@ export function SettingsScreen({
             <View style={styles.toolModal}>
               <View style={styles.toolModalIcon}>
                 <Ionicons
-                  color="#20242B"
+                  color="#000000"
                   name={isImport ? 'download-outline' : 'eye-outline'}
                   size={24}
                 />
@@ -418,12 +726,16 @@ export function SettingsScreen({
               </Text>
               <Text style={styles.toolModalText}>
                 {isImport
-                  ? 'Import a Stellar secret key (S...) or the 64-hex private key exported by Privy. It is sent securely to Privy and is not stored locally.'
+                  ? 'Import a private key exported by Privy.'
                   : 'Track a public Stellar address (G...) without transaction signing.'}
               </Text>
               <TextInput
                 autoCapitalize="none"
-                onChangeText={setToolName}
+                onChangeText={value => {
+                  setToolName(value);
+                  setToolError(null);
+                  setToolCheckingNetwork(false);
+                }}
                 placeholder="Wallet name (optional)"
                 placeholderTextColor="#9499A2"
                 style={styles.input}
@@ -432,12 +744,19 @@ export function SettingsScreen({
               <TextInput
                 autoCapitalize="characters"
                 multiline
-                onChangeText={setToolValue}
-                placeholder={isImport ? 'S... or 0x...' : 'G...'}
+                onChangeText={value => {
+                  setToolValue(value);
+                  setToolError(null);
+                  setToolCheckingNetwork(false);
+                }}
+                placeholder={isImport ? 'Private key' : 'G...'}
                 placeholderTextColor="#9499A2"
                 style={[styles.input, styles.secretInput]}
                 value={toolValue}
               />
+              {visibleToolError ? (
+                <Text style={styles.validationText}>{visibleToolError}</Text>
+              ) : null}
               <View style={styles.modalActions}>
                 <TouchableOpacity
                   onPress={closeToolModal}
@@ -446,12 +765,19 @@ export function SettingsScreen({
                   <Text style={styles.modalSecondaryText}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  disabled={wallet.isBusy}
+                  disabled={saveDisabled}
                   onPress={submitTool}
-                  style={styles.modalPrimaryButton}
+                  style={[
+                    styles.modalPrimaryButton,
+                    saveDisabled ? styles.modalPrimaryButtonDisabled : null,
+                  ]}
                 >
                   <Text style={styles.modalPrimaryText}>
-                    {wallet.isBusy ? wallet.busy : 'Save'}
+                    {toolCheckingNetwork
+                      ? 'Checking...'
+                      : wallet.isBusy
+                      ? wallet.busy
+                      : 'Save'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -530,8 +856,8 @@ export function SettingsScreen({
                     {wallet.isBusy
                       ? wallet.busy
                       : walletExportOpening
-                        ? 'Opening browser'
-                        : 'Open secure page'}
+                      ? 'Opening browser'
+                      : 'Open secure page'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -608,8 +934,8 @@ export function SettingsScreen({
                       selected
                         ? '#FFFFFF'
                         : network === 'mainnet'
-                          ? '#15966A'
-                          : '#4878D7'
+                        ? '#15966A'
+                        : '#4878D7'
                     }
                     name={
                       network === 'mainnet'
@@ -692,6 +1018,21 @@ export function SettingsScreen({
           />
           <View style={styles.divider} />
           <SettingsRow
+            icon="card-outline"
+            onPress={openPaymentMethods}
+            subtitle={
+              defaultPaymentMethod
+                ? `${defaultPaymentMethod.bankName} · ${maskBankAccount(
+                    defaultPaymentMethod.accountNumber,
+                  )}`
+                : `${wallet.paymentMethods.length} saved method${
+                    wallet.paymentMethods.length === 1 ? '' : 's'
+                  }`
+            }
+            title="Payment methods"
+          />
+          <View style={styles.divider} />
+          <SettingsRow
             icon="lock-closed-outline"
             onPress={() => setDetailSheet('security')}
             subtitle="Biometric signing and Privy custody"
@@ -704,7 +1045,7 @@ export function SettingsScreen({
             subtitle={
               wallet.walletConnectConfig?.configured
                 ? 'Connect and manage Stellar dApps'
-                : 'Reown project ID not configured'
+                : 'Not available yet'
             }
             title="WalletConnect"
           />
@@ -761,19 +1102,31 @@ export function SettingsScreen({
 
             <View style={styles.addressBox}>
               <Text style={styles.addressLabel}>WALLET ADDRESS</Text>
-              <Text selectable style={styles.addressText}>
-                {activeWallet.address}
-              </Text>
+              <Text style={styles.addressText}>{activeWallet.address}</Text>
             </View>
 
             <View style={styles.walletActions}>
               <TouchableOpacity
                 activeOpacity={0.75}
                 onPress={copyActiveWalletAddress}
-                style={styles.walletAction}
+                style={[
+                  styles.walletAction,
+                  addressCopied ? styles.walletActionSuccess : null,
+                ]}
               >
-                <Ionicons color="#FFFFFF" name="copy-outline" size={21} />
-                <Text style={styles.walletActionText}>Copy</Text>
+                <Ionicons
+                  color={addressCopied ? '#B8FF45' : '#FFFFFF'}
+                  name={addressCopied ? 'checkmark-circle' : 'copy-outline'}
+                  size={21}
+                />
+                <Text
+                  style={[
+                    styles.walletActionText,
+                    addressCopied ? styles.walletActionSuccessText : null,
+                  ]}
+                >
+                  {addressCopied ? 'Copied' : 'Copy'}
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 activeOpacity={0.75}
@@ -876,6 +1229,264 @@ export function SettingsScreen({
       <BottomSheet
         bottomInset={insets.bottom}
         onClose={() => setDetailSheet(null)}
+        title="Payment methods"
+        visible={detailSheet === 'payment'}
+      >
+        <ScrollView
+          contentContainerStyle={styles.paymentSheetContent}
+          showsVerticalScrollIndicator={false}
+          style={styles.paymentSheetScroll}
+        >
+          {paymentNotice ? (
+            <Text style={styles.paymentNotice}>{paymentNotice}</Text>
+          ) : null}
+
+          {paymentSheetMode === 'list' ? (
+            <>
+              {wallet.paymentMethods.length > 0 ? (
+                <View style={styles.paymentList}>
+                  {wallet.paymentMethods.map(method => {
+                    const bank =
+                      BANK_OPTIONS.find(item => item.bin === method.bankId) ||
+                      null;
+
+                    return (
+                      <View key={method.id} style={styles.paymentMethodCard}>
+                        <View style={styles.paymentMethodTop}>
+                          <View style={styles.bankLogoBoxSmall}>
+                            {bank ? (
+                              <Image
+                                resizeMode="contain"
+                                source={bank.image}
+                                style={styles.bankLogoSmall}
+                              />
+                            ) : (
+                              <Ionicons
+                                color="#FFFFFF"
+                                name="business-outline"
+                                size={20}
+                              />
+                            )}
+                          </View>
+                          <View style={styles.rowCopy}>
+                            <View style={styles.paymentMethodTitleRow}>
+                              <Text style={styles.paymentMethodTitle}>
+                                {method.bankName}
+                              </Text>
+                              {method.isDefault ? (
+                                <Text style={styles.defaultBadge}>Default</Text>
+                              ) : null}
+                            </View>
+                            <Text style={styles.paymentMethodMeta}>
+                              {maskBankAccount(method.accountNumber)} ·{' '}
+                              {method.fullName}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={styles.paymentMethodActions}>
+                          <TouchableOpacity
+                            activeOpacity={0.78}
+                            onPress={() => openPaymentForm(method)}
+                            style={styles.paymentMiniButton}
+                          >
+                            <Text style={styles.paymentMiniText}>Edit</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            activeOpacity={0.78}
+                            disabled={method.isDefault || wallet.isBusy}
+                            onPress={() => makeDefaultPaymentMethod(method)}
+                            style={[
+                              styles.paymentMiniButton,
+                              method.isDefault || wallet.isBusy
+                                ? styles.paymentMiniButtonDisabled
+                                : null,
+                            ]}
+                          >
+                            <Text style={styles.paymentMiniText}>Default</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            activeOpacity={0.78}
+                            disabled={wallet.isBusy}
+                            onPress={() => removePaymentMethod(method)}
+                            style={[
+                              styles.paymentMiniButton,
+                              styles.paymentDangerButton,
+                              wallet.isBusy
+                                ? styles.paymentMiniButtonDisabled
+                                : null,
+                            ]}
+                          >
+                            <Text style={styles.paymentDangerText}>Delete</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : (
+                <View style={styles.emptyState}>
+                  <Ionicons color="#A1B0C8" name="card-outline" size={34} />
+                  <Text style={styles.emptyTitle}>No saved bank yet</Text>
+                  <Text style={styles.emptyText}>
+                    Add a bank account here, then choose it when withdrawing
+                    VND.
+                  </Text>
+                </View>
+              )}
+              <TouchableOpacity
+                activeOpacity={0.82}
+                onPress={() => openPaymentForm()}
+                style={styles.paymentAddButton}
+              >
+                <Ionicons color="#07100B" name="add" size={20} />
+                <Text style={styles.paymentAddText}>Add payment method</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={styles.paymentFormLabel}>Bank</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.bankRail}
+              >
+                {BANK_OPTIONS.map(bank => {
+                  const selected = paymentBankId === bank.bin;
+
+                  return (
+                    <TouchableOpacity
+                      activeOpacity={0.82}
+                      key={bank.bin}
+                      onPress={() => {
+                        setPaymentBankId(bank.bin);
+                        setPaymentError(null);
+                      }}
+                      style={[
+                        styles.bankChip,
+                        selected ? styles.bankChipSelected : null,
+                      ]}
+                    >
+                      <Image
+                        resizeMode="contain"
+                        source={bank.image}
+                        style={styles.bankChipLogo}
+                      />
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.bankChipText,
+                          selected ? styles.bankChipTextSelected : null,
+                        ]}
+                      >
+                        {bank.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              <TextInput
+                autoCapitalize="characters"
+                onChangeText={value => {
+                  setPaymentFullName(value.toUpperCase());
+                  setPaymentError(null);
+                }}
+                placeholder="Account holder name without accents"
+                placeholderTextColor="#9499A2"
+                style={styles.input}
+                value={paymentFullName}
+              />
+              <TextInput
+                keyboardType="number-pad"
+                onChangeText={value => {
+                  setPaymentAccountNumber(value.replace(/\D/g, ''));
+                  setPaymentError(null);
+                }}
+                placeholder="Account number"
+                placeholderTextColor="#9499A2"
+                style={styles.input}
+                value={paymentAccountNumber}
+              />
+
+              <View style={styles.segmented}>
+                {([0, 1, 2] as const).map(type => {
+                  const selected = paymentAccountType === type;
+                  const label =
+                    type === 0 ? 'Personal' : type === 1 ? 'Business' : 'Other';
+
+                  return (
+                    <TouchableOpacity
+                      activeOpacity={0.82}
+                      key={type}
+                      onPress={() => setPaymentAccountType(type)}
+                      style={[
+                        styles.segment,
+                        selected ? styles.segmentActive : null,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.segmentText,
+                          selected ? styles.segmentTextActive : null,
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <TouchableOpacity
+                activeOpacity={0.82}
+                onPress={() => setPaymentDefault(value => !value)}
+                style={styles.paymentDefaultRow}
+              >
+                <Ionicons
+                  color={paymentDefault ? '#B8FF45' : '#A1B0C8'}
+                  name={paymentDefault ? 'checkmark-circle' : 'ellipse-outline'}
+                  size={22}
+                />
+                <Text style={styles.paymentDefaultText}>
+                  Set as default payment method
+                </Text>
+              </TouchableOpacity>
+
+              {paymentError ? (
+                <Text style={styles.validationText}>{paymentError}</Text>
+              ) : null}
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  onPress={() => {
+                    resetPaymentForm(null);
+                    setPaymentSheetMode('list');
+                  }}
+                  style={styles.modalSecondaryButton}
+                >
+                  <Text style={styles.modalSecondaryText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  disabled={wallet.isBusy}
+                  onPress={submitPaymentMethod}
+                  style={[
+                    styles.modalPrimaryButton,
+                    wallet.isBusy ? styles.modalPrimaryButtonDisabled : null,
+                  ]}
+                >
+                  <Text style={styles.modalPrimaryText}>
+                    {wallet.isBusy ? wallet.busy : 'Save'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </ScrollView>
+      </BottomSheet>
+
+      <BottomSheet
+        bottomInset={insets.bottom}
+        onClose={() => setDetailSheet(null)}
         title="Security"
         visible={detailSheet === 'security'}
       >
@@ -898,8 +1509,8 @@ export function SettingsScreen({
               canBackupRecovery
                 ? 'Open Privy secure page in your browser to export the recovery key once'
                 : activeWallet?.kind === 'imported_privy'
-                  ? 'Imported wallets already use your own S... key'
-                  : 'Unavailable for watch-only wallets'
+                ? 'Imported wallets already use your own S... key'
+                : 'Unavailable for watch-only wallets'
             }
             title="Backup recovery key"
           />
@@ -934,14 +1545,12 @@ export function SettingsScreen({
           <SettingsRow
             icon="download-outline"
             onPress={() => openToolFromAdvanced('import')}
-            subtitle="Add a signing wallet using an S... key"
             title="Import wallet"
           />
           <View style={styles.divider} />
           <SettingsRow
             icon="eye-outline"
             onPress={() => openToolFromAdvanced('watch')}
-            subtitle="Track a public G... address"
             title="Add watch-only wallet"
           />
         </View>
@@ -1020,6 +1629,49 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 7,
     marginTop: 3,
+  },
+  bankChip: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 7,
+    marginRight: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    width: 92,
+  },
+  bankChipLogo: {
+    height: 26,
+    width: 48,
+  },
+  bankChipSelected: {
+    backgroundColor: 'rgba(184,255,69,0.12)',
+    borderColor: 'rgba(184,255,69,0.36)',
+  },
+  bankChipText: {
+    color: '#A1B0C8',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  bankChipTextSelected: {
+    color: '#B8FF45',
+  },
+  bankLogoBoxSmall: {
+    alignItems: 'center',
+    backgroundColor: '#1E222B',
+    borderRadius: 14,
+    height: 42,
+    justifyContent: 'center',
+    width: 54,
+  },
+  bankLogoSmall: {
+    height: 28,
+    width: 46,
+  },
+  bankRail: {
+    marginTop: 10,
   },
   centerModalOverlay: {
     alignItems: 'center',
@@ -1125,6 +1777,16 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
   },
+  defaultBadge: {
+    backgroundColor: 'rgba(184,255,69,0.14)',
+    borderRadius: 9,
+    color: '#B8FF45',
+    fontSize: 10,
+    fontWeight: '900',
+    overflow: 'hidden',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
   groupCard: {
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 20,
@@ -1191,8 +1853,11 @@ const styles = StyleSheet.create({
     minHeight: 48,
     justifyContent: 'center',
   },
+  modalPrimaryButtonDisabled: {
+    opacity: 0.45,
+  },
   modalPrimaryText: {
-    color: '#FFFFFF',
+    color: '#07100B',
     fontSize: 14,
     fontWeight: '800',
   },
@@ -1205,9 +1870,119 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   modalSecondaryText: {
-    color: '#000000',
+    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '800',
+  },
+  paymentAddButton: {
+    alignItems: 'center',
+    backgroundColor: '#B8FF45',
+    borderRadius: 16,
+    flexDirection: 'row',
+    gap: 7,
+    justifyContent: 'center',
+    minHeight: 50,
+  },
+  paymentAddText: {
+    color: '#07100B',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  paymentDangerButton: {
+    backgroundColor: 'rgba(255,82,82,0.12)',
+  },
+  paymentDangerText: {
+    color: '#FF7A88',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  paymentDefaultRow: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 14,
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+    padding: 12,
+  },
+  paymentDefaultText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  paymentFormLabel: {
+    color: '#A1B0C8',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.1,
+  },
+  paymentList: {
+    gap: 10,
+  },
+  paymentMethodActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  paymentMethodCard: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 12,
+    padding: 12,
+  },
+  paymentMethodMeta: {
+    color: '#A1B0C8',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  paymentMethodTitle: {
+    color: '#FFFFFF',
+    flexShrink: 1,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  paymentMethodTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  paymentMethodTop: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 11,
+  },
+  paymentMiniButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 12,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 38,
+  },
+  paymentMiniButtonDisabled: {
+    opacity: 0.45,
+  },
+  paymentMiniText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  paymentNotice: {
+    backgroundColor: 'rgba(184,255,69,0.12)',
+    borderRadius: 13,
+    color: '#B8FF45',
+    fontSize: 12,
+    fontWeight: '800',
+    padding: 11,
+    textAlign: 'center',
+  },
+  paymentSheetContent: {
+    gap: 12,
+    paddingBottom: 4,
+  },
+  paymentSheetScroll: {
+    maxHeight: 540,
   },
   networkCard: {
     backgroundColor: 'rgba(255,255,255,0.05)',
@@ -1505,7 +2280,7 @@ const styles = StyleSheet.create({
   },
   toolModalIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#B8FF45',
     borderRadius: 20,
     height: 46,
     justifyContent: 'center',
@@ -1523,6 +2298,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginBottom: 6,
   },
+  validationText: {
+    color: '#FFB86B',
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
+    marginTop: -4,
+  },
   walletAction: {
     alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.1)',
@@ -1536,6 +2318,14 @@ const styles = StyleSheet.create({
   },
   walletActionDisabled: {
     opacity: 0.42,
+  },
+  walletActionSuccess: {
+    backgroundColor: 'rgba(184, 255, 69, 0.12)',
+    borderColor: 'rgba(184, 255, 69, 0.22)',
+    borderWidth: 1,
+  },
+  walletActionSuccessText: {
+    color: '#B8FF45',
   },
   walletActionText: {
     color: '#FFFFFF',

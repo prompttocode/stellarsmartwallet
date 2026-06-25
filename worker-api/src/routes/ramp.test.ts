@@ -58,7 +58,7 @@ vi.mock("../core", () => ({
   shouldRequireMainnetAuth: (network: string) => network === "mainnet",
 }));
 
-import { requireVerifiedKyc } from "../core";
+import { requireAccountContext, requireVerifiedKyc } from "../core";
 import { registerRampRoutes } from "./ramp";
 
 type TestEnv = {
@@ -78,6 +78,7 @@ const env: TestEnv = {
 
 function createRampDb() {
   const rows = new Map<string, Record<string, unknown>>();
+  const paymentMethods = new Map<string, Record<string, unknown>>();
 
   return {
     prepare(sql: string) {
@@ -89,6 +90,26 @@ function createRampDb() {
           return this;
         },
         async all() {
+          if (sql.includes("FROM account_payment_methods")) {
+            const [accountEmail] = values;
+            const results = [...paymentMethods.values()]
+              .filter((row) => row.account_email === accountEmail)
+              .sort((a, b) => {
+                const defaultDelta =
+                  Number(b.is_default || 0) - Number(a.is_default || 0);
+
+                if (defaultDelta) {
+                  return defaultDelta;
+                }
+
+                return String(b.updated_at || "").localeCompare(
+                  String(a.updated_at || "")
+                );
+              });
+
+            return { results };
+          }
+
           if (sql.includes("FROM ramp_orders")) {
             const [accountEmail, walletId, network, limit] = values;
             const results = [...rows.values()]
@@ -106,6 +127,29 @@ function createRampDb() {
           return { results: [] };
         },
         async first() {
+          if (sql.includes("FROM account_payment_methods")) {
+            if (sql.includes("bank_id") && sql.includes("account_number")) {
+              const [accountEmail, bankId, accountNumber] = values;
+
+              return (
+                [...paymentMethods.values()].find(
+                  (row) =>
+                    row.account_email === accountEmail &&
+                    row.bank_id === bankId &&
+                    row.account_number === accountNumber
+                ) || null
+              );
+            }
+
+            const [accountEmail, id] = values;
+
+            return (
+              [...paymentMethods.values()].find(
+                (row) => row.account_email === accountEmail && row.id === id
+              ) || null
+            );
+          }
+
           if (sql.includes("FROM ramp_orders")) {
             const [paymentCode, providerOrderId] = values;
 
@@ -121,6 +165,97 @@ function createRampDb() {
           return null;
         },
         async run() {
+          if (sql.includes("INSERT INTO account_payment_methods")) {
+            const [
+              id,
+              accountEmail,
+              bankId,
+              bankName,
+              accountNumber,
+              fullName,
+              accountType,
+              isDefault,
+              createdAt,
+              updatedAt,
+            ] = values;
+            const existing = [...paymentMethods.values()].find(
+              (row) =>
+                row.account_email === accountEmail &&
+                row.bank_id === bankId &&
+                row.account_number === accountNumber
+            );
+            const rowId = String(existing?.id || id);
+
+            paymentMethods.set(rowId, {
+              account_email: accountEmail,
+              account_number: accountNumber,
+              account_type: accountType,
+              bank_id: bankId,
+              bank_name: bankName,
+              created_at: existing?.created_at || createdAt,
+              full_name: fullName,
+              id: rowId,
+              is_default: isDefault,
+              updated_at: updatedAt,
+            });
+          } else if (
+            sql.includes("UPDATE account_payment_methods") &&
+            sql.includes("SET is_default = 0")
+          ) {
+            const [updatedAt, accountEmail] = values;
+
+            for (const row of paymentMethods.values()) {
+              if (row.account_email === accountEmail) {
+                row.is_default = 0;
+                row.updated_at = updatedAt;
+              }
+            }
+          } else if (
+            sql.includes("UPDATE account_payment_methods") &&
+            sql.includes("SET is_default = 1")
+          ) {
+            const [updatedAt, accountEmail, id] = values;
+            const row = paymentMethods.get(String(id));
+
+            if (row && row.account_email === accountEmail) {
+              row.is_default = 1;
+              row.updated_at = updatedAt;
+            }
+          } else if (
+            sql.includes("UPDATE account_payment_methods") &&
+            sql.includes("SET bank_id =")
+          ) {
+            const [
+              bankId,
+              bankName,
+              accountNumber,
+              fullName,
+              accountType,
+              isDefault,
+              updatedAt,
+              accountEmail,
+              id,
+            ] = values;
+            const row = paymentMethods.get(String(id));
+
+            if (row && row.account_email === accountEmail) {
+              row.bank_id = bankId;
+              row.bank_name = bankName;
+              row.account_number = accountNumber;
+              row.full_name = fullName;
+              row.account_type = accountType;
+              row.is_default = isDefault;
+              row.updated_at = updatedAt;
+            }
+          } else if (sql.includes("DELETE FROM account_payment_methods")) {
+            const [accountEmail, id] = values;
+            const row = paymentMethods.get(String(id));
+
+            if (row && row.account_email === accountEmail) {
+              paymentMethods.delete(String(id));
+            }
+          }
+
           if (sql.includes("INSERT INTO ramp_orders")) {
             const [
               paymentCode,
@@ -214,11 +349,226 @@ function feeResponse() {
 describe("payment ramp routes", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.mocked(requireAccountContext).mockResolvedValue({
+      email: "user@example.com",
+      id: "account-1",
+    } as never);
     vi.mocked(requireVerifiedKyc).mockResolvedValue({
       accountEmail: "user@example.com",
       providerUserId: "provider-user-1",
       status: "verified",
     });
+  });
+
+  it("lists an empty saved payment method collection", async () => {
+    const response = await createApp().request(
+      "/api/ramp/payment-methods?email=user@example.com",
+      undefined,
+      { ...env, DB: createRampDb() }
+    );
+    const body = (await response.json()) as {
+      data: { methods: unknown[] };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.data.methods).toEqual([]);
+  });
+
+  it("creates and lists a normalized saved payment method", async () => {
+    const testEnv = { ...env, DB: createRampDb() };
+    const app = createApp();
+    const createResponse = await app.request(
+      "/api/ramp/payment-methods",
+      {
+        body: JSON.stringify({
+          accountNumber: "0123456789",
+          accountType: 0,
+          bankId: "970422",
+          bankName: "MB Bank",
+          email: "user@example.com",
+          fullName: "nguyen van a",
+          isDefault: true,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+      testEnv
+    );
+    const createBody = (await createResponse.json()) as {
+      data: { method: { fullName: string; isDefault: boolean } };
+    };
+
+    expect(createResponse.status).toBe(200);
+    expect(createBody.data.method).toMatchObject({
+      accountNumber: "0123456789",
+      bankId: "970422",
+      bankName: "MB Bank",
+      fullName: "NGUYEN VAN A",
+      isDefault: true,
+    });
+
+    const listResponse = await app.request(
+      "/api/ramp/payment-methods?email=user@example.com",
+      undefined,
+      testEnv
+    );
+    const listBody = (await listResponse.json()) as {
+      data: { methods: Array<{ id: string }> };
+    };
+
+    expect(listBody.data.methods).toHaveLength(1);
+  });
+
+  it("upserts duplicate bank account methods instead of creating duplicates", async () => {
+    const testEnv = { ...env, DB: createRampDb() };
+    const app = createApp();
+    const payload = {
+      accountNumber: "0123456789",
+      accountType: 0,
+      bankId: "970422",
+      bankName: "MB Bank",
+      email: "user@example.com",
+      fullName: "NGUYEN VAN A",
+    };
+
+    const first = await app.request(
+      "/api/ramp/payment-methods",
+      {
+        body: JSON.stringify(payload),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+      testEnv
+    );
+    const firstBody = (await first.json()) as {
+      data: { method: { id: string } };
+    };
+    const second = await app.request(
+      "/api/ramp/payment-methods",
+      {
+        body: JSON.stringify({
+          ...payload,
+          fullName: "NGUYEN VAN B",
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+      testEnv
+    );
+    const secondBody = (await second.json()) as {
+      data: { method: { fullName: string; id: string } };
+    };
+    const listResponse = await app.request(
+      "/api/ramp/payment-methods?email=user@example.com",
+      undefined,
+      testEnv
+    );
+    const listBody = (await listResponse.json()) as {
+      data: { methods: Array<unknown> };
+    };
+
+    expect(secondBody.data.method.id).toBe(firstBody.data.method.id);
+    expect(secondBody.data.method.fullName).toBe("NGUYEN VAN B");
+    expect(listBody.data.methods).toHaveLength(1);
+  });
+
+  it("updates, defaults, deletes, and isolates saved payment methods by account", async () => {
+    const testEnv = { ...env, DB: createRampDb() };
+    const app = createApp();
+    const create = async (accountNumber: string, bankName: string) => {
+      const response = await app.request(
+        "/api/ramp/payment-methods",
+        {
+          body: JSON.stringify({
+            accountNumber,
+            accountType: 0,
+            bankId: "970422",
+            bankName,
+            email: "user@example.com",
+            fullName: "NGUYEN VAN A",
+          }),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        },
+        testEnv
+      );
+      const body = (await response.json()) as {
+        data: { method: { id: string } };
+      };
+
+      return body.data.method.id;
+    };
+    const firstId = await create("0123456789", "MB Bank");
+    const secondId = await create("9876543210", "MB Bank");
+
+    const defaultResponse = await app.request(
+      `/api/ramp/payment-methods/${secondId}/default`,
+      {
+        body: JSON.stringify({ email: "user@example.com" }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+      testEnv
+    );
+
+    expect(defaultResponse.status).toBe(200);
+
+    const updateResponse = await app.request(
+      `/api/ramp/payment-methods/${firstId}`,
+      {
+        body: JSON.stringify({
+          accountNumber: "0123456789",
+          accountType: 1,
+          bankId: "970422",
+          bankName: "MB Business",
+          email: "user@example.com",
+          fullName: "CONG TY A",
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "PUT",
+      },
+      testEnv
+    );
+    const updateBody = (await updateResponse.json()) as {
+      data: { method: { accountType: number; bankName: string } };
+    };
+
+    expect(updateBody.data.method).toMatchObject({
+      accountType: 1,
+      bankName: "MB Business",
+    });
+
+    vi.mocked(requireAccountContext).mockResolvedValueOnce({
+      email: "other@example.com",
+      id: "account-2",
+    } as never);
+
+    const unauthorizedDelete = await app.request(
+      `/api/ramp/payment-methods/${firstId}?email=other@example.com`,
+      { method: "DELETE" },
+      testEnv
+    );
+
+    expect(unauthorizedDelete.status).toBe(404);
+
+    const deleteResponse = await app.request(
+      `/api/ramp/payment-methods/${firstId}?email=user@example.com`,
+      { method: "DELETE" },
+      testEnv
+    );
+    const listResponse = await app.request(
+      "/api/ramp/payment-methods?email=user@example.com",
+      undefined,
+      testEnv
+    );
+    const listBody = (await listResponse.json()) as {
+      data: { methods: Array<{ id: string; isDefault: boolean }> };
+    };
+
+    expect(deleteResponse.status).toBe(200);
+    expect(listBody.data.methods).toEqual([
+      expect.objectContaining({ id: secondId, isDefault: true }),
+    ]);
   });
 
   it("quotes buy orders with rate and minimum fee", async () => {

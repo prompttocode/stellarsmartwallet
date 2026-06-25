@@ -3,7 +3,7 @@ import { FlatList, Modal, Pressable, Text, TextInput, View } from 'react-native'
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { AssetItem, BalanceItem } from '@app-types';
-import { formatTokenAmount, shortAddress } from '@utils/format';
+import { formatTokenAmount } from '@utils/format';
 import { modern } from '../modernStyles';
 import { PressScale } from './primitives';
 import { TokenIcon } from './token';
@@ -26,15 +26,39 @@ function canUseAsset(asset: BalanceItem) {
   return asset.isNative || asset.trusted;
 }
 
-function getAssetPriceText(asset: BalanceItem) {
-  if (typeof asset.priceUsd === 'number' && Number.isFinite(asset.priceUsd)) {
-    return `≈ $${asset.priceUsd.toLocaleString('en-US', {
-      maximumFractionDigits: asset.priceUsd >= 1 ? 2 : 6,
-      minimumFractionDigits: asset.priceUsd >= 1 ? 2 : 0,
-    })}`;
+function formatAssetUsd(value?: number | null) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return null;
   }
 
-  return null;
+  return `$${value.toLocaleString('en-US', {
+    maximumFractionDigits: value >= 1 ? 2 : 6,
+    minimumFractionDigits: value >= 1 ? 2 : 0,
+  })}`;
+}
+
+function getAssetPriceText(asset: BalanceItem) {
+  const unitPrice = formatAssetUsd(asset.priceUsd);
+
+  return unitPrice ? `≈ ${unitPrice}` : null;
+}
+
+function getAssetHoldingValueText(asset: BalanceItem) {
+  const balanceAmount = Number(asset.balance) || 0;
+
+  if (
+    canUseAsset(asset) &&
+    balanceAmount > 0 &&
+    typeof asset.priceUsd === 'number'
+  ) {
+    const holdingValue = formatAssetUsd(balanceAmount * asset.priceUsd);
+
+    if (holdingValue) {
+      return `≈ ${holdingValue}`;
+    }
+  }
+
+  return getAssetPriceText(asset);
 }
 
 function getAssetSearchText(asset: BalanceItem) {
@@ -135,7 +159,6 @@ export function AssetSelectButton({
 export function AssetPickerModal({
   assets,
   disabledAssetCodes = [],
-  onAddTrustline,
   onClose,
   onRemoteSearch,
   onSelect,
@@ -146,7 +169,6 @@ export function AssetPickerModal({
 }: {
   assets: BalanceItem[];
   disabledAssetCodes?: string[];
-  onAddTrustline?: (assetCode: string, assetIssuer?: string | null) => void;
   onClose: () => void;
   onRemoteSearch?: (query: string) => Promise<BalanceItem[]>;
   onSelect: (asset: BalanceItem) => void;
@@ -316,10 +338,7 @@ export function AssetPickerModal({
                 disabledCodes.has(item.assetCode) ||
                 (selectableOnlyTrusted && !available);
               const selected = item.assetCode === selectedAssetCode;
-              const priceText = getAssetPriceText(item);
-              const assetName = item.displayName || item.assetCode;
-              const assetMeta =
-                item.homeDomain || shortAddress(item.assetIssuer || undefined);
+              const priceText = getAssetHoldingValueText(item);
               const selectItem = () => {
                 onSelect(item);
                 onClose();
@@ -368,12 +387,6 @@ export function AssetPickerModal({
                           </Text>
                         </View>
                       </View>
-                      <Text numberOfLines={1} style={modern.assetPickerName}>
-                        {assetName}
-                      </Text>
-                      <Text numberOfLines={1} style={modern.assetPickerMeta}>
-                        {assetMeta}
-                      </Text>
                     </View>
                   </Pressable>
                   <View style={modern.assetPickerTrailing}>
@@ -398,16 +411,6 @@ export function AssetPickerModal({
                         />
                       ) : null}
                     </Pressable>
-                    {!available && onAddTrustline ? (
-                      <PressScale
-                        onPress={() =>
-                          onAddTrustline(item.assetCode, item.assetIssuer)
-                        }
-                        style={modern.assetPickerAddButton}
-                      >
-                        <Text style={modern.assetPickerAddText}>Enable</Text>
-                      </PressScale>
-                    ) : null}
                   </View>
                 </View>
               );

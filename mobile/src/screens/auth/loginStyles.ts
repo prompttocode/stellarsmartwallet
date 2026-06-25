@@ -50,6 +50,25 @@ export const loginStyles = StyleSheet.create({
     height: 250,
     opacity: 0.8,
   },
+  loginHero: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 300,
+    paddingBottom: 18,
+    paddingTop: 8,
+  },
+  loginAnimation: {
+    height: 270,
+    width: 270,
+  },
+  loginBottom: {
+    width: '100%',
+  },
+  loginWelcomeCopy: {
+    alignItems: 'center',
+    marginBottom: 26,
+  },
 
   // Welcome Text
   welcomeTextContainer: {
@@ -72,24 +91,28 @@ export const loginStyles = StyleSheet.create({
   },
   sessionStatusBox: {
     alignItems: 'center',
+    alignSelf: 'center',
     backgroundColor: 'rgba(184, 255, 69, 0.08)',
     borderColor: 'rgba(184, 255, 69, 0.18)',
     borderRadius: 18,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 12,
+    marginBottom: 16,
     marginTop: 12,
     maxWidth: 320,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    width: '100%',
   },
   sessionStatusAnimation: {
-    height: 34,
-    width: 44,
+    height: 30,
+    width: 34,
   },
   sessionStatusCopy: {
     flex: 1,
     gap: 2,
+    minWidth: 0,
   },
   sessionStatusText: {
     color: '#8E8E93',

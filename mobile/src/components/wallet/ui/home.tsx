@@ -1,5 +1,10 @@
 import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, Text, View } from 'react-native';
+import type {
+  ImageSourcePropType,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+} from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -16,9 +21,6 @@ import { TokenIcon } from './token';
 export function WalletHero({
   address,
   children,
-  email,
-  hidden,
-  onHideToggle,
   onNetworkPress,
   onScan,
   onSearch,
@@ -26,12 +28,10 @@ export function WalletHero({
   portfolioNote,
   portfolioValue,
   network = 'testnet',
+  walletName,
 }: {
   address?: string;
   children?: ReactNode;
-  email?: string;
-  hidden: boolean;
-  onHideToggle: () => void;
   onNetworkPress?: () => void;
   onScan: () => void;
   onSearch: () => void;
@@ -39,6 +39,7 @@ export function WalletHero({
   portfolioNote?: string;
   portfolioValue: string;
   network?: 'testnet' | 'mainnet';
+  walletName?: string;
 }) {
   const [networkPillExpanded, setNetworkPillExpanded] = useState(false);
   const networkPillWidth = useSharedValue(72);
@@ -97,7 +98,9 @@ export function WalletHero({
   }
 
   return (
-    <View style={modern.hero}>
+    <View
+      style={[modern.hero, network === 'mainnet' ? modern.heroMainnet : null]}
+    >
       <View style={heroScrimStyle}>
         <View style={modern.heroTop}>
           <Pressable onPress={handleNetworkPress}>
@@ -124,7 +127,7 @@ export function WalletHero({
               size={15}
             />
             <Text numberOfLines={1} style={modern.addressPillText}>
-              {shortAddress(address)}
+              {walletName || shortAddress(address)}
             </Text>
           </Pressable>
           <View style={modern.heroActions}>
@@ -151,31 +154,10 @@ export function WalletHero({
             </View>
           </View>
 
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 12,
-              marginTop: 16,
-            }}
-          >
-            <Text
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              style={[modern.heroAmount, { marginTop: 0 }]}
-            >
-              {hidden ? '••••' : portfolioValue}
-            </Text>
-            <PressScale onPress={onHideToggle} style={modern.heroEyeButton}>
-              <Ionicons
-                color="#000000"
-                name={hidden ? 'eye-off-outline' : 'eye-outline'}
-                size={20}
-              />
-            </PressScale>
-          </View>
-          {!hidden && portfolioNote ? (
+          <Text numberOfLines={1} adjustsFontSizeToFit style={modern.heroAmount}>
+            {portfolioValue}
+          </Text>
+          {portfolioNote ? (
             <Text style={modern.heroPriceNote}>{portfolioNote}</Text>
           ) : null}
 
@@ -190,7 +172,7 @@ export function ActivateWalletNotice({ onPress }: { onPress: () => void }) {
   return (
     <View style={modern.activateNotice}>
       <View style={modern.activateIcon}>
-        <Ionicons color="#0F8EA3" name="flash-outline" size={24} />
+        <Ionicons color="#B8FF45" name="flash-outline" size={22} />
       </View>
       <View style={modern.activateCopy}>
         <Text style={modern.activateTitle}>Activate wallet</Text>
@@ -199,7 +181,7 @@ export function ActivateWalletNotice({ onPress }: { onPress: () => void }) {
         </Text>
       </View>
       <PressScale onPress={onPress} style={modern.activateButton}>
-        <Text style={modern.activateButtonText}>Active</Text>
+        <Text style={modern.activateButtonText}>Activate</Text>
       </PressScale>
     </View>
   );
@@ -227,6 +209,90 @@ export function QuickActionGrid({
           <Text style={modern.quickLabel}>{action.label}</Text>
         </PressScale>
       ))}
+    </View>
+  );
+}
+
+export function HomeBannerCarousel({
+  banners,
+}: {
+  banners: ImageSourcePropType[];
+}) {
+  const scrollRef = useRef<ScrollView>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [bannerWidth, setBannerWidth] = useState(0);
+
+  useEffect(() => {
+    if (bannerWidth <= 0 || banners.length <= 1) {
+      return undefined;
+    }
+
+    const interval = setInterval(() => {
+      setActiveIndex(currentIndex => {
+        const nextIndex = (currentIndex + 1) % banners.length;
+
+        scrollRef.current?.scrollTo({
+          animated: true,
+          x: nextIndex * bannerWidth,
+          y: 0,
+        });
+
+        return nextIndex;
+      });
+    }, 3500);
+
+    return () => clearInterval(interval);
+  }, [bannerWidth, banners.length]);
+
+  function handleMomentumEnd(
+    event: NativeSyntheticEvent<NativeScrollEvent>,
+  ) {
+    if (bannerWidth <= 0) {
+      return;
+    }
+
+    const nextIndex = Math.round(
+      event.nativeEvent.contentOffset.x / bannerWidth,
+    );
+
+    setActiveIndex(Math.max(0, Math.min(nextIndex, banners.length - 1)));
+  }
+
+  return (
+    <View
+      onLayout={event => setBannerWidth(event.nativeEvent.layout.width)}
+      style={modern.homeBannerWrap}
+    >
+      <ScrollView
+        horizontal
+        onMomentumScrollEnd={handleMomentumEnd}
+        pagingEnabled
+        ref={scrollRef}
+        scrollEventThrottle={16}
+        showsHorizontalScrollIndicator={false}
+        style={modern.homeBannerScroll}
+      >
+        {banners.map((banner, index) => (
+          <Image
+            key={index}
+            resizeMode="stretch"
+            source={banner}
+            style={[modern.homeBannerImage, { width: bannerWidth || 1 }]}
+          />
+        ))}
+      </ScrollView>
+
+      <View style={modern.homeBannerDots}>
+        {banners.map((_, index) => (
+          <View
+            key={index}
+            style={[
+              modern.homeBannerDot,
+              index === activeIndex ? modern.homeBannerDotActive : null,
+            ]}
+          />
+        ))}
+      </View>
     </View>
   );
 }
