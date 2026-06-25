@@ -677,7 +677,7 @@ export const modern = StyleSheet.create({
   },
   assetPickerBody: {
     flex: 1,
-    gap: 2,
+    justifyContent: 'center',
     minWidth: 0,
   },
   assetPickerClose: {
@@ -732,18 +732,6 @@ export const modern = StyleSheet.create({
   assetPickerList: {
     marginTop: 6,
   },
-  assetPickerMeta: {
-    color: '#A1B0C8',
-    fontSize: 11,
-    fontWeight: '700',
-    minWidth: 0,
-  },
-  assetPickerName: {
-    color: '#A1B0C8',
-    fontSize: 12,
-    fontWeight: '800',
-    minWidth: 0,
-  },
   assetPickerOverlay: {
     backgroundColor: 'rgba(5,16,25,0.42)',
     flex: 1,
@@ -768,9 +756,9 @@ export const modern = StyleSheet.create({
     borderBottomWidth: 1,
     flexDirection: 'row',
     gap: 10,
-    minHeight: 76,
+    minHeight: 64,
     paddingHorizontal: 2,
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   assetPickerRowDisabled: {
     opacity: 0.5,

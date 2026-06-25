@@ -31,13 +31,42 @@ import {
   formatTokenAmount,
   shortAddress,
 } from '@utils/format';
-import { validateStellarAmount } from '@utils/walletValidation';
+import {
+  getAvailableAmount,
+  validateStellarAmount,
+} from '@utils/walletValidation';
 
 function formatSwapBalance(value?: string | null) {
   return formatTokenAmount(value || '0', {
     compact: true,
     maxFractionDigits: 4,
   });
+}
+
+function formatMaxSwapAmount(value?: number | string | null) {
+  const raw = String(value ?? '0').trim().replace(',', '.');
+  const match = raw.match(/^(\d+)(?:\.(\d+))?$/);
+
+  if (match) {
+    const whole = match[1].replace(/^0+(?=\d)/, '') || '0';
+    const fraction = (match[2] || '').slice(0, 7).replace(/0+$/, '');
+
+    if (whole === '0' && !fraction) {
+      return '0';
+    }
+
+    return fraction ? `${whole}.${fraction}` : whole;
+  }
+
+  const amount = Number(raw);
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return '0';
+  }
+
+  const truncated = Math.floor(amount * 10_000_000) / 10_000_000;
+
+  return truncated.toFixed(7).replace(/\.?0+$/, '');
 }
 
 function shortHash(value?: string | null) {
@@ -135,20 +164,27 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
   const amountValidation = validateStellarAmount(sellAmount, 'Swap amount');
   const requestedSellAmount = amountValidation.amount;
   const amountValid = amountValidation.valid;
-  const availableSellAmount = Number(
-    sellBalance?.availableBalance ||
-      sellBalance?.balance ||
-      sellAsset?.balance ||
-      0,
+  const availableSellAmount = getAvailableAmount(
+    sellBalance,
+    sellAsset?.balance,
+  );
+  const maxSwapAmount = formatMaxSwapAmount(
+    sellBalance?.availableBalance || sellBalance?.balance || sellAsset?.balance,
   );
   const exceedsSellBalance =
     amountValid &&
     Number.isFinite(availableSellAmount) &&
     requestedSellAmount > availableSellAmount;
   const swapAmountWarning = exceedsSellBalance
-    ? `You can swap up to ${formatTokenAmount(
-        String(availableSellAmount),
-      )} ${sellCode}.`
+    ? sellAsset?.isNative
+      ? `You can swap up to ${formatTokenAmount(
+          String(availableSellAmount),
+        )} XLM. Stellar keeps ${formatTokenAmount(
+          sellBalance?.reservedBalance || sellBalance?.minimumBalance || '0',
+        )} XLM reserved for account minimum balance and network fees.`
+      : `You can swap up to ${formatTokenAmount(
+          String(availableSellAmount),
+        )} ${sellCode}.`
     : sellAmount.trim() && !amountValid
     ? amountValidation.message || 'Enter a valid swap amount.'
     : null;
@@ -435,11 +471,11 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
                     numberOfLines={1}
                     style={modern.swapBalanceText}
                   >
-                    {formatSwapBalance(sellAsset?.balance)}
+                    {formatSwapBalance(maxSwapAmount)}
                   </Text>
                   <PressScale
                     onPress={() => {
-                      setSellAmount(sellAsset?.balance || '0');
+                      setSellAmount(maxSwapAmount);
                       resetQuote();
                     }}
                   >

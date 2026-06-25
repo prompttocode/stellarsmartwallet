@@ -83,7 +83,7 @@ export function WalletConnectScreen({
               ? `${wallet.isMainnet ? 'Mainnet' : 'Testnet'} · ${shortAddress(
                   wallet.wallet?.address,
                 )}`
-              : 'Reown project ID not configured'}
+              : 'WalletConnect unavailable'}
           </Text>
         </View>
         <TouchableOpacity
@@ -115,10 +115,10 @@ export function WalletConnectScreen({
         <View style={styles.infoCard}>
           <Ionicons color="#8D5D19" name="information-circle" size={22} />
           <View style={styles.flex}>
-            <Text style={styles.infoTitle}>Configuration required</Text>
+            <Text style={styles.infoTitle}>WalletConnect unavailable</Text>
             <Text style={styles.infoText}>
-              Set WALLETCONNECT_PROJECT_ID in the Worker and deploy it before
-              pairing a dApp.
+              This feature is not ready yet. Please try again after the next
+              app update.
             </Text>
           </View>
         </View>

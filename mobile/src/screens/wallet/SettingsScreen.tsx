@@ -103,7 +103,9 @@ async function checkHorizonAccountExists(
     return false;
   }
 
-  throw new Error(`Horizon ${getNetworkLabel(network)} returned ${response.status}`);
+  throw new Error(
+    `Horizon ${getNetworkLabel(network)} returned ${response.status}`,
+  );
 }
 
 function BottomSheet({
@@ -266,8 +268,8 @@ export function SettingsScreen({
     ? activeWallet.kind === 'watch_only'
       ? 'Watch-only wallet'
       : activeWallet.kind === 'imported_privy'
-        ? 'Imported via Privy'
-        : 'Managed by Privy'
+      ? 'Imported via Privy'
+      : 'Managed by Privy'
     : 'No wallet on this network';
   const defaultPaymentMethod = wallet.paymentMethods.find(
     method => method.isDefault,
@@ -356,7 +358,9 @@ export function SettingsScreen({
     }
 
     setPaymentNotice(
-      editingPaymentMethod ? 'Payment method updated.' : 'Payment method saved.',
+      editingPaymentMethod
+        ? 'Payment method updated.'
+        : 'Payment method saved.',
     );
     resetPaymentForm(null);
     setPaymentSheetMode('list');
@@ -712,7 +716,7 @@ export function SettingsScreen({
             <View style={styles.toolModal}>
               <View style={styles.toolModalIcon}>
                 <Ionicons
-                  color="#20242B"
+                  color="#000000"
                   name={isImport ? 'download-outline' : 'eye-outline'}
                   size={24}
                 />
@@ -722,7 +726,7 @@ export function SettingsScreen({
               </Text>
               <Text style={styles.toolModalText}>
                 {isImport
-                  ? 'Import a Stellar secret key (S...) or the 64-hex private key exported by Privy. It is sent securely to Privy and is not stored locally.'
+                  ? 'Import a private key exported by Privy.'
                   : 'Track a public Stellar address (G...) without transaction signing.'}
               </Text>
               <TextInput
@@ -745,15 +749,13 @@ export function SettingsScreen({
                   setToolError(null);
                   setToolCheckingNetwork(false);
                 }}
-                placeholder={isImport ? 'S... or 64-hex Privy key' : 'G...'}
+                placeholder={isImport ? 'Private key' : 'G...'}
                 placeholderTextColor="#9499A2"
                 style={[styles.input, styles.secretInput]}
                 value={toolValue}
               />
               {visibleToolError ? (
-                <Text style={styles.validationText}>
-                  {visibleToolError}
-                </Text>
+                <Text style={styles.validationText}>{visibleToolError}</Text>
               ) : null}
               <View style={styles.modalActions}>
                 <TouchableOpacity
@@ -774,8 +776,8 @@ export function SettingsScreen({
                     {toolCheckingNetwork
                       ? 'Checking...'
                       : wallet.isBusy
-                        ? wallet.busy
-                        : 'Save'}
+                      ? wallet.busy
+                      : 'Save'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -854,8 +856,8 @@ export function SettingsScreen({
                     {wallet.isBusy
                       ? wallet.busy
                       : walletExportOpening
-                        ? 'Opening browser'
-                        : 'Open secure page'}
+                      ? 'Opening browser'
+                      : 'Open secure page'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -932,8 +934,8 @@ export function SettingsScreen({
                       selected
                         ? '#FFFFFF'
                         : network === 'mainnet'
-                          ? '#15966A'
-                          : '#4878D7'
+                        ? '#15966A'
+                        : '#4878D7'
                     }
                     name={
                       network === 'mainnet'
@@ -1043,7 +1045,7 @@ export function SettingsScreen({
             subtitle={
               wallet.walletConnectConfig?.configured
                 ? 'Connect and manage Stellar dApps'
-                : 'Reown project ID not configured'
+                : 'Not available yet'
             }
             title="WalletConnect"
           />
@@ -1100,9 +1102,7 @@ export function SettingsScreen({
 
             <View style={styles.addressBox}>
               <Text style={styles.addressLabel}>WALLET ADDRESS</Text>
-              <Text style={styles.addressText}>
-                {activeWallet.address}
-              </Text>
+              <Text style={styles.addressText}>{activeWallet.address}</Text>
             </View>
 
             <View style={styles.walletActions}>
@@ -1328,7 +1328,8 @@ export function SettingsScreen({
                   <Ionicons color="#A1B0C8" name="card-outline" size={34} />
                   <Text style={styles.emptyTitle}>No saved bank yet</Text>
                   <Text style={styles.emptyText}>
-                    Add a bank account here, then choose it when withdrawing VND.
+                    Add a bank account here, then choose it when withdrawing
+                    VND.
                   </Text>
                 </View>
               )}
@@ -1508,8 +1509,8 @@ export function SettingsScreen({
               canBackupRecovery
                 ? 'Open Privy secure page in your browser to export the recovery key once'
                 : activeWallet?.kind === 'imported_privy'
-                  ? 'Imported wallets already use your own S... key'
-                  : 'Unavailable for watch-only wallets'
+                ? 'Imported wallets already use your own S... key'
+                : 'Unavailable for watch-only wallets'
             }
             title="Backup recovery key"
           />
@@ -1544,14 +1545,12 @@ export function SettingsScreen({
           <SettingsRow
             icon="download-outline"
             onPress={() => openToolFromAdvanced('import')}
-            subtitle="Add a signing wallet using an S... key"
             title="Import wallet"
           />
           <View style={styles.divider} />
           <SettingsRow
             icon="eye-outline"
             onPress={() => openToolFromAdvanced('watch')}
-            subtitle="Track a public G... address"
             title="Add watch-only wallet"
           />
         </View>
@@ -2281,7 +2280,7 @@ const styles = StyleSheet.create({
   },
   toolModalIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#B8FF45',
     borderRadius: 20,
     height: 46,
     justifyContent: 'center',

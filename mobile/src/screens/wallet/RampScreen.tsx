@@ -1476,9 +1476,12 @@ export function RampScreen({
 
         {!providerConfigured ? (
           <View style={modern.sectionCard}>
-            <Text style={modern.emptyModernTitle}>Provider unavailable</Text>
+            <Text style={modern.emptyModernTitle}>
+              Buy and withdraw unavailable
+            </Text>
             <Text style={modern.emptyModernText}>
-              The Payment API partner key is not configured on the Worker.
+              VND buy and withdrawal are temporarily unavailable. Please try
+              again later.
             </Text>
           </View>
         ) : null}

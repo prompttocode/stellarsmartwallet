@@ -441,7 +441,7 @@ export function WalletConnectProvider({
         await respondWithError(
           nextClient,
           event,
-          'WalletConnect request does not contain Stellar XDR.',
+          'This WalletConnect request is missing transaction details.',
         );
         return false;
       }
@@ -599,7 +599,7 @@ export function WalletConnectProvider({
 
       if (!currentWallet.walletConnectConfig?.projectId) {
         showPopup({
-          message: 'Add a Reown project ID to the Worker configuration first.',
+          message: 'WalletConnect is not available yet. Please try again later.',
           title: 'WalletConnect unavailable',
           variant: 'warning',
         });
@@ -1042,11 +1042,15 @@ export function WalletConnectProvider({
 
       if (response.requiresClientSignature) {
         if (!isPrivyHash(response.signingHash)) {
-          throw new Error('WalletConnect request is missing a valid signing hash.');
+          throw new Error(
+            'Could not prepare this WalletConnect request. Please try again.',
+          );
         }
 
         if (!response.transactionXdr) {
-          throw new Error('WalletConnect request is missing the transaction XDR.');
+          throw new Error(
+            'Could not prepare this WalletConnect request. Please try again.',
+          );
         }
 
         const signedRequest = await withTimeout(

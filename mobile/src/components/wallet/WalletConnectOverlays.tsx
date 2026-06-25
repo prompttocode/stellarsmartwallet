@@ -472,7 +472,7 @@ export function WalletConnectOverlays({ wallet }: { wallet: WalletState }) {
                       Checking transaction
                     </Text>
                     <Text style={styles.reviewStateText}>
-                      The Worker is decoding the Stellar XDR before signing.
+                      Checking transaction details before signing.
                     </Text>
                   </View>
                 ) : request.reviewError ? (
@@ -609,7 +609,7 @@ export function WalletConnectOverlays({ wallet }: { wallet: WalletState }) {
             <Text style={styles.resultText}>
               {result?.method === 'stellar_signAndSubmitXDR'
                 ? `The transaction from ${result.peerName} was submitted to Stellar.`
-                : `The signed XDR was returned to ${result?.peerName}.`}
+                : `The signed transaction was returned to ${result?.peerName}.`}
             </Text>
             {result?.hash ? (
               <TouchableOpacity

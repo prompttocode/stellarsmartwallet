@@ -47,7 +47,7 @@ export function AppsScreen({ wallet }: { wallet: WalletState }) {
     }
 
     wallet.setMessage(
-      `Preview connection for ${request.name}. The app has not granted real dApp permissions.`,
+      `${request.name} connection will be available after WalletConnect is enabled.`,
     );
     setRequest(null);
   }
@@ -71,7 +71,9 @@ export function AppsScreen({ wallet }: { wallet: WalletState }) {
           </View>
           <View style={styles.txBody}>
             <Text style={styles.txTitle}>Active connections</Text>
-            <Text style={styles.txMeta}>Demo UI, no real dApp permissions</Text>
+            <Text style={styles.txMeta}>
+              WalletConnect sessions will appear here.
+            </Text>
           </View>
           <Text style={styles.linkText}>›</Text>
         </View>
@@ -113,8 +115,8 @@ export function AppsScreen({ wallet }: { wallet: WalletState }) {
             </View>
           </View>
           <Text style={styles.helper}>
-            {request.name} wants to connect to your Stellar wallet preview to
-            view balances and request transactions. This is only a UI preview.
+            {request.name} can connect once WalletConnect is available for this
+            app.
           </Text>
           <View style={styles.buttonPair}>
             <ActionButton

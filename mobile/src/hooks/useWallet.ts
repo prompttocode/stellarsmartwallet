@@ -1527,11 +1527,11 @@ export function useWallet() {
 
     if (result.requiresClientSignature) {
       if (!isPrivyHash(result.hash)) {
-        throw new Error('Asset enable request is missing a valid signing hash.');
+        throw new Error('Could not prepare this asset update. Please try again.');
       }
 
       if (!result.transactionXdr) {
-        throw new Error('Asset enable request is missing the transaction XDR.');
+        throw new Error('Could not prepare this asset update. Please try again.');
       }
 
       const signedTrustline = await withTimeout(
@@ -1734,11 +1734,11 @@ export function useWallet() {
 
       if (result.requiresClientSignature) {
         if (!isPrivyHash(result.hash)) {
-          throw new Error('NFT claim is missing a valid signing hash.');
+          throw new Error('Could not prepare this NFT claim. Please try again.');
         }
 
         if (!result.transactionXdr) {
-          throw new Error('NFT claim is missing the transaction XDR.');
+          throw new Error('Could not prepare this NFT claim. Please try again.');
         }
 
         const signedClaim = await withTimeout(
@@ -1883,11 +1883,11 @@ export function useWallet() {
 
       if (result.requiresClientSignature) {
         if (!isPrivyHash(result.hash)) {
-          throw new Error('Transfer request is missing a valid signing hash.');
+          throw new Error('Could not prepare this transfer. Please try again.');
         }
 
         if (!result.transactionXdr) {
-          throw new Error('Transfer request is missing the transaction XDR.');
+          throw new Error('Could not prepare this transfer. Please try again.');
         }
 
         const signedTransfer = await withTimeout(
@@ -2118,11 +2118,11 @@ export function useWallet() {
 
       if (result.requiresClientSignature) {
         if (!isPrivyHash(result.hash)) {
-          throw new Error('Swap request is missing a valid signing hash.');
+          throw new Error('Could not prepare this swap. Please try again.');
         }
 
         if (!result.transactionXdr) {
-          throw new Error('Swap request is missing the transaction XDR.');
+          throw new Error('Could not prepare this swap. Please try again.');
         }
 
         const signedSwap = await withTimeout(
@@ -2971,13 +2971,13 @@ export function useWallet() {
         if (result.requiresClientSignature) {
           if (!isPrivyHash(result.hash)) {
             throw new Error(
-              'Withdrawal transfer is missing a valid signing hash.',
+              'Could not prepare this withdrawal transfer. Please try again.',
             );
           }
 
           if (!result.transactionXdr) {
             throw new Error(
-              'Withdrawal transfer is missing the transaction XDR.',
+              'Could not prepare this withdrawal transfer. Please try again.',
             );
           }
 
