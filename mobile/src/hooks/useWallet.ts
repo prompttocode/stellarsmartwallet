@@ -207,9 +207,7 @@ export function useWallet() {
   const [privySessionReady, setPrivySessionReady] = useState(false);
   const [serverSessionReady, setServerSessionReady] = useState(false);
   const [sessionSyncing, setSessionSyncing] = useState(false);
-  const [restoreAttemptedForUser, setRestoreAttemptedForUser] = useState<
-    string | null
-  >(null);
+  const restoreAttemptedForUserRef = useRef<string | null>(null);
   const {
     user,
     isReady,
@@ -598,7 +596,7 @@ export function useWallet() {
     setServerSessionReady(false);
     setSessionSyncing(false);
     sessionBootstrapWalletRef.current = null;
-    setRestoreAttemptedForUser(null);
+    restoreAttemptedForUserRef.current = null;
 
     if (nextMessage) {
       setMessage(nextMessage);
@@ -1034,7 +1032,12 @@ export function useWallet() {
       options: FinishPrivySessionOptions = {},
     ) => {
       const identityToken =
-        existingIdentityToken || (await getTokenWithRetry(getIdentityToken));
+        existingIdentityToken ||
+        (await withTimeout(
+          getTokenWithRetry(getIdentityToken),
+          PRIVY_SECURITY_SESSION_TIMEOUT_MS,
+          'Privy session check timed out.',
+        ).catch(() => null));
       const sessionEmail = String(fallbackEmail || '')
         .trim()
         .toLowerCase();
@@ -1078,24 +1081,28 @@ export function useWallet() {
   );
 
   useEffect(() => {
+    const restoreAttemptKey = userKey ? `${userKey}:${network}` : null;
+
     if (
       isReady &&
       user &&
       userKey &&
       !account &&
-      restoreAttemptedForUser !== userKey
+      restoreAttemptedForUserRef.current !== restoreAttemptKey
     ) {
       const restoreUserKey = userKey;
+      const restoreNetwork = network;
 
-      setRestoreAttemptedForUser(restoreUserKey);
+      restoreAttemptedForUserRef.current = restoreAttemptKey;
       let cancelled = false;
 
       async function restoreSession() {
         setSessionSyncing(true);
 
-        const cached = await readCachedSession(restoreUserKey, network).catch(
-          () => null,
-        );
+        const cached = await readCachedSession(
+          restoreUserKey,
+          restoreNetwork,
+        ).catch(() => null);
 
         if (cancelled) {
           return;
@@ -1118,7 +1125,7 @@ export function useWallet() {
           await finishPrivySession(
             undefined,
             getEmailFromPrivyUser(user),
-            network,
+            restoreNetwork,
             { privyUser: user },
           );
         } catch (error) {
@@ -1141,6 +1148,10 @@ export function useWallet() {
 
       return () => {
         cancelled = true;
+        if (restoreAttemptedForUserRef.current === restoreAttemptKey) {
+          restoreAttemptedForUserRef.current = null;
+        }
+        setSessionSyncing(false);
       };
     }
   }, [
@@ -1148,7 +1159,6 @@ export function useWallet() {
     applySession,
     isReady,
     network,
-    restoreAttemptedForUser,
     user,
     userKey,
   ]);
