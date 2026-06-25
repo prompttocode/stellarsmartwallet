@@ -18,7 +18,11 @@ import {
   type WalletConnectOperationReview,
 } from '@contexts/WalletConnectContext';
 import type { WalletState } from '@hooks/useWallet';
-import { formatTokenAmount, shortAddress } from '@utils/format';
+import {
+  formatStellarFeeFromStroops,
+  formatTokenAmount,
+  shortAddress,
+} from '@utils/format';
 import {
   getAvailableAmount,
   getXlmTrustlineReserveWarning,
@@ -503,9 +507,9 @@ export function WalletConnectOverlays({ wallet }: { wallet: WalletState }) {
                         </Text>
                       </View>
                       <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Network fee</Text>
+                        <Text style={styles.summaryLabel}>Max network fee</Text>
                         <Text style={styles.summaryValue}>
-                          {request.review.fee} stroops
+                          {formatStellarFeeFromStroops(request.review.fee)}
                         </Text>
                       </View>
                       <View style={styles.summaryRow}>

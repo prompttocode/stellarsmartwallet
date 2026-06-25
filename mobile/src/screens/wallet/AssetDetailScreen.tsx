@@ -183,13 +183,20 @@ export function AssetDetailScreen({
     setFavoriteNotice(null);
   }, [assetNoticeKey]);
 
-  const currentPrice = asset.priceUsd
-    ? `$${asset.priceUsd.toPrecision(4)}`
-    : '$0.00';
+  const marketPriceUsd =
+    typeof asset.priceUsd === 'number' &&
+    Number.isFinite(asset.priceUsd) &&
+    asset.priceUsd > 0
+      ? asset.priceUsd
+      : null;
+  const currentPrice = marketPriceUsd
+    ? `≈ ${formatUsd(marketPriceUsd) || '$0.00'}`
+    : 'No price';
   const balanceValue = Number(asset.balance);
-  const balanceUsd = asset.priceUsd
-    ? formatUsd(balanceValue * asset.priceUsd)
-    : '$0.00';
+  const balanceUsd =
+    marketPriceUsd && Number.isFinite(balanceValue)
+      ? `≈ ${formatUsd(balanceValue * marketPriceUsd) || '$0.00'}`
+      : 'Not priced';
   const chartEmptyText = chartLoading
     ? 'Loading chart...'
     : asset.network === 'testnet' && !['XLM', 'USDC'].includes(asset.assetCode)
@@ -197,9 +204,9 @@ export function AssetDetailScreen({
     : 'No public market chart for this asset';
 
   // Calculate price change if we have chart data
-  let priceChangeStr = '+0.00%';
+  let priceChangeStr: string | null = null;
   let isPositive = true;
-  if (chartData.length > 0) {
+  if (chartData.length > 1 && chartData[0].value > 0) {
     const startPrice = chartData[0].value;
     const endPrice = chartData[chartData.length - 1].value;
     const change = ((endPrice - startPrice) / startPrice) * 100;
@@ -283,15 +290,20 @@ export function AssetDetailScreen({
           </View>
 
           <Text style={styles.currentPrice}>{currentPrice}</Text>
-          <Text
-            style={[
-              styles.priceChange,
-              { color: isPositive ? '#B8FF45' : '#FF453A' },
-            ]}
-          >
-            <Ionicons name={isPositive ? 'arrow-up' : 'arrow-down'} size={12} />{' '}
-            {priceChangeStr}
-          </Text>
+          {priceChangeStr ? (
+            <Text
+              style={[
+                styles.priceChange,
+                { color: isPositive ? '#B8FF45' : '#FF453A' },
+              ]}
+            >
+              <Ionicons
+                name={isPositive ? 'arrow-up' : 'arrow-down'}
+                size={12}
+              />{' '}
+              {priceChangeStr}
+            </Text>
+          ) : null}
           {favoriteNotice ? (
             <Text style={styles.favoriteNotice}>{favoriteNotice}</Text>
           ) : null}

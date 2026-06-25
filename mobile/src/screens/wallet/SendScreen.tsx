@@ -21,7 +21,13 @@ import {
 } from '@components/wallet';
 import type { WalletState } from '@hooks/useWallet';
 import type { SendResult } from '@app-types';
-import { formatDate, formatTokenAmount, shortAddress } from '@utils/format';
+import {
+  formatDate,
+  formatEstimatedStellarFee,
+  formatStellarFee,
+  formatTokenAmount,
+  shortAddress,
+} from '@utils/format';
 import {
   getAvailableAmount,
   isLikelyStellarPublicKey,
@@ -320,7 +326,7 @@ export function SendScreen({
       },
       {
         label: 'Network Fee',
-        value: '0.00001 XLM',
+        value: formatStellarFee(transaction.feeChargedXlm),
       },
       {
         label: 'Transaction ID',
@@ -442,7 +448,10 @@ export function SendScreen({
               value={wallet.selectedAsset?.assetIssuer || 'Unknown issuer'}
             />
           ) : null}
-          <InfoLine label="Estimated fee" value="0.00001 XLM" />
+          <InfoLine
+            label="Network fee"
+            value={formatEstimatedStellarFee()}
+          />
           <Text style={modern.emptyModernText}>
             {wallet.isMainnet
               ? 'This is a real Mainnet transaction. The app will ask for biometric confirmation before Privy signs it.'

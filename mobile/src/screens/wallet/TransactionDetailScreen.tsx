@@ -3,7 +3,12 @@ import { ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PressScale, TokenIcon } from '@components/wallet';
-import { formatDate, formatTokenAmount, shortAddress } from '@utils/format';
+import {
+  formatDate,
+  formatStellarFee,
+  formatTokenAmount,
+  shortAddress,
+} from '@utils/format';
 import type { TransactionItem } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
 
@@ -116,7 +121,7 @@ export function TransactionDetailScreen({
     },
     {
       label: 'Network Fee',
-      value: '0.00001 XLM',
+      value: formatStellarFee(transaction.feeChargedXlm),
     },
     {
       label: 'Transaction ID',

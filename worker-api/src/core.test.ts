@@ -14,8 +14,11 @@ import {
   assertStellarMemo,
   buildPaymentTransaction,
   getAvailableNativeBalance,
+  getDefaultFeeEstimateFields,
   getStellarSubmissionErrorMessage,
+  getTransactionFeeFields,
   reviewStellarXdr,
+  stroopsToXlm,
   type Env,
 } from './core';
 
@@ -142,6 +145,56 @@ describe('Stellar submission errors', () => {
         'Stellar could not submit this transaction.',
       ),
     ).toBe('Stellar could not submit this transaction.');
+  });
+
+  it('maps insufficient network fee bids to a readable message', () => {
+    const message = getStellarSubmissionErrorMessage({
+      response: {
+        data: {
+          extras: {
+            result_codes: {
+              transaction: 'tx_insufficient_fee',
+            },
+          },
+        },
+      },
+    });
+
+    expect(message).toContain('higher network fee');
+  });
+});
+
+describe('Stellar network fees', () => {
+  it('converts Horizon fee stroops to XLM exactly', () => {
+    expect(stroopsToXlm('100')).toBe('0.00001');
+    expect(stroopsToXlm('12345678')).toBe('1.2345678');
+  });
+
+  it('normalizes transaction fee fields from Horizon records', () => {
+    expect(
+      getTransactionFeeFields({
+        fee_charged: '100',
+        max_fee: '1000',
+        operation_count: 1,
+      }),
+    ).toMatchObject({
+      feeChargedStroops: '100',
+      feeChargedXlm: '0.00001',
+      maxFeeStroops: '1000',
+      maxFeeXlm: '0.0001',
+      operationCount: 1,
+    });
+  });
+
+  it('estimates the max transaction fee before submit', () => {
+    expect(getDefaultFeeEstimateFields(1)).toEqual({
+      feeEstimateStroops: '100',
+      feeEstimateXlm: '0.00001',
+    });
+    expect(getDefaultFeeEstimateFields(2)).toEqual({
+      feeEstimateStroops: '200',
+      feeEstimateXlm: '0.00002',
+    });
   });
 });
 

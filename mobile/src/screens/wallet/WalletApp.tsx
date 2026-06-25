@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -15,7 +15,7 @@ import {
 } from '@react-navigation/bottom-tabs';
 
 import { modern } from '@components/wallet';
-import { LoadingOverlay } from '@components/common/LoadingOverlay';
+import { NonBlockingProgressBanner } from '@components/common/NonBlockingProgressBanner';
 import { CurrencyProvider } from '@contexts/CurrencyContext';
 import { WalletConnectProvider } from '@contexts/WalletConnectContext';
 import { WalletConnectOverlays } from '@components/wallet/WalletConnectOverlays';
@@ -82,7 +82,7 @@ const GLOBAL_LOADING_BUSY_PREFIXES = [
   'Swap ',
 ];
 
-function shouldUseGlobalLoadingOverlay(busy: string | null) {
+function shouldUseGlobalLoadingBanner(busy: string | null) {
   if (!busy) {
     return false;
   }
@@ -91,6 +91,43 @@ function shouldUseGlobalLoadingOverlay(busy: string | null) {
     GLOBAL_LOADING_BUSY_EXACT.has(busy) ||
     GLOBAL_LOADING_BUSY_PREFIXES.some(prefix => busy.startsWith(prefix))
   );
+}
+
+function getCompletedStatusText(label: string) {
+  if (label.startsWith('Sending ')) {
+    return `Sent ${label.replace('Sending ', '')}`;
+  }
+
+  if (label.startsWith('Swap ')) {
+    return 'Swap complete';
+  }
+
+  if (label.startsWith('Enabling ')) {
+    return `Enabled ${label.replace('Enabling ', '')}`;
+  }
+
+  if (label.startsWith('Creating buy order')) {
+    return 'Buy order created';
+  }
+
+  if (label.startsWith('Creating sell order')) {
+    return 'Sell order created';
+  }
+
+  const exactMessages: Record<string, string> = {
+    'Claiming demo NFT': 'NFT claimed',
+    'Confirming test crypto receipt': 'Crypto receipt confirmed',
+    'Confirming test payment': 'Payment confirmed',
+    'Creating receiver': 'Receiver created',
+    'Funding test XLM': 'Funded test XLM',
+    'Getting Testnet USDC': 'Got Testnet USDC',
+    'Opening secure export': 'Secure export ready',
+    'Sign in with Google': 'Signed in',
+    'Submitting KYC': 'KYC submitted',
+    'Verifying Privy code': 'Verified',
+  };
+
+  return exactMessages[label] || 'Completed';
 }
 
 function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
@@ -307,10 +344,41 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
 
 export function WalletApp({ wallet }: { wallet: WalletState }) {
   const statusText = wallet.busy || 'Loading...';
-  const shouldShowLoadingOverlay =
-    shouldUseGlobalLoadingOverlay(wallet.busy) &&
+  const [completedStatusText, setCompletedStatusText] = useState<string | null>(
+    null,
+  );
+  const previousGlobalBusyRef = useRef<string | null>(null);
+  const shouldShowLoadingBanner =
+    shouldUseGlobalLoadingBanner(wallet.busy) &&
     !wallet.errorDialog &&
     !isRampOrderTerminal(wallet.activeRampOrder);
+  const shouldShowSuccessBanner =
+    !shouldShowLoadingBanner && Boolean(completedStatusText);
+
+  useEffect(() => {
+    const activeGlobalBusy = shouldUseGlobalLoadingBanner(wallet.busy)
+      ? wallet.busy
+      : null;
+
+    if (activeGlobalBusy) {
+      previousGlobalBusyRef.current = activeGlobalBusy;
+      setCompletedStatusText(null);
+      return undefined;
+    }
+
+    const completedLabel = previousGlobalBusyRef.current;
+    previousGlobalBusyRef.current = null;
+
+    if (!completedLabel || wallet.errorDialog) {
+      setCompletedStatusText(null);
+      return undefined;
+    }
+
+    setCompletedStatusText(getCompletedStatusText(completedLabel));
+    const timer = setTimeout(() => setCompletedStatusText(null), 1200);
+
+    return () => clearTimeout(timer);
+  }, [wallet.busy, wallet.errorDialog]);
 
   return (
     <CurrencyProvider>
@@ -441,9 +509,12 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
             </Stack.Navigator>
           </NavigationContainer>
 
-          <LoadingOverlay
-            visible={shouldShowLoadingOverlay}
-            message={statusText}
+          <NonBlockingProgressBanner
+            message={
+              shouldShowLoadingBanner ? statusText : completedStatusText || ''
+            }
+            variant={shouldShowLoadingBanner ? 'loading' : 'success'}
+            visible={shouldShowLoadingBanner || shouldShowSuccessBanner}
           />
           <WalletConnectOverlays wallet={wallet} />
         </View>

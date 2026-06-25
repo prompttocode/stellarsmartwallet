@@ -127,6 +127,7 @@ export const TESTNET_USDC_ISSUER =
 export const MAINNET_USDC_ISSUER =
   'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
 const STELLAR_BASE_RESERVE_XLM = 0.5;
+const STROOPS_PER_XLM = 10_000_000n;
 const TRUSTLINE_FEE_BUFFER_XLM = 0.0001;
 const PAYMENT_FEE_BUFFER_XLM = 0.0001;
 export const KNOWN_ASSET_CASES = new Map(
@@ -365,6 +366,76 @@ export function formatStellarAmount(amount: number) {
   }
 
   return floored.toFixed(7).replace(/\.?0+$/, '');
+}
+
+function normalizeStroops(value: unknown) {
+  const raw = String(value ?? '').trim();
+
+  if (!/^\d+$/.test(raw)) {
+    return null;
+  }
+
+  return raw;
+}
+
+export function stroopsToXlm(value: unknown) {
+  const stroops = normalizeStroops(value);
+
+  if (!stroops) {
+    return null;
+  }
+
+  const amount = BigInt(stroops);
+  const whole = amount / STROOPS_PER_XLM;
+  const fraction = amount % STROOPS_PER_XLM;
+  const fractionText = fraction
+    .toString()
+    .padStart(7, '0')
+    .replace(/0+$/, '');
+
+  return fractionText ? `${whole}.${fractionText}` : whole.toString();
+}
+
+function normalizeOperationCount(value: unknown) {
+  const count = Number(value);
+
+  return Number.isFinite(count) ? count : null;
+}
+
+export function getTransactionFeeFields(record?: Record<string, any> | null) {
+  const feeChargedStroops = normalizeStroops(
+    record?.feeChargedStroops ?? record?.fee_charged,
+  );
+  const maxFeeStroops = normalizeStroops(record?.maxFeeStroops ?? record?.max_fee);
+
+  return {
+    feeChargedStroops,
+    feeChargedXlm:
+      record?.feeChargedXlm && feeChargedStroops === record.feeChargedStroops
+        ? String(record.feeChargedXlm)
+        : stroopsToXlm(feeChargedStroops),
+    maxFeeStroops,
+    maxFeeXlm:
+      record?.maxFeeXlm && maxFeeStroops === record.maxFeeStroops
+        ? String(record.maxFeeXlm)
+        : stroopsToXlm(maxFeeStroops),
+    operationCount: normalizeOperationCount(
+      record?.operationCount ?? record?.operation_count,
+    ),
+  };
+}
+
+export function getDefaultFeeEstimateFields(operationCount = 1) {
+  const count =
+    Number.isFinite(operationCount) && operationCount > 0
+      ? Math.floor(operationCount)
+      : 1;
+  const feeEstimateStroops = String(BigInt(BASE_FEE) * BigInt(count));
+
+  return {
+    feeEstimateStroops,
+    feeEstimateXlm: stroopsToXlm(feeEstimateStroops),
+  };
 }
 
 export function assertSecretKey(secret: unknown, field = 'Secret key') {
@@ -1979,6 +2050,10 @@ export function getStellarSubmissionErrorMessage(
     return 'Not enough XLM reserve to complete this Stellar transaction. Deposit more XLM first.';
   }
 
+  if (allCodes.includes('tx_insufficient_fee')) {
+    return 'Stellar requires a higher network fee right now. Please try again in a moment.';
+  }
+
   if (allCodes.includes('op_no_issuer')) {
     return 'The token issuer does not exist on this Stellar network.';
   }
@@ -2493,6 +2568,7 @@ export async function quoteStellarSwap(
 
   return {
     destMin,
+    ...getDefaultFeeEstimateFields(1),
     fromAmount: sendAmount,
     fromAssetCode: fromDefinition.assetCode,
     fromAssetIssuer: fromDefinition.assetIssuer,
@@ -2677,6 +2753,23 @@ export async function fetchAccountOperations(
   >;
 }
 
+export async function tryFetchTransactionFeeFields(
+  env: Env,
+  network: StellarNetwork,
+  hash: string,
+) {
+  try {
+    const transaction = (await getStellarServer(env, network)
+      .transactions()
+      .transaction(hash)
+      .call()) as Record<string, any>;
+
+    return getTransactionFeeFields(transaction);
+  } catch {
+    return null;
+  }
+}
+
 export function normalizeOperationRecord(
   env: Env,
   address: string,
@@ -2759,6 +2852,7 @@ export function normalizeOperationRecord(
         operation.source_amount ||
         operation.destination_amount ||
         '0';
+  const feeFields = getTransactionFeeFields(operation.transaction_attr);
 
   return {
     id: operation.id,
@@ -2789,6 +2883,7 @@ export function normalizeOperationRecord(
     ledger: Number(operation.transaction_attr?.ledger || operation.ledger || 0),
     network,
     operation: isPathPayment ? 'path_payment_strict_send' : operation.type,
+    ...feeFields,
     to,
   };
 }
@@ -3135,6 +3230,7 @@ export function buildSubmittedTransactionItem({
   assetIssuer,
   direction = 'sent',
   env,
+  feeInfo,
   from,
   network,
   operation,
@@ -3146,12 +3242,15 @@ export function buildSubmittedTransactionItem({
   assetIssuer?: string | null;
   direction?: string;
   env: Env;
+  feeInfo?: Record<string, any> | null;
   from: string;
   network: StellarNetwork;
   operation: string;
-  submitted: { hash: string; ledger?: number };
+  submitted: { hash: string; ledger?: number } & Record<string, any>;
   to: string;
 }) {
+  const feeFields = getTransactionFeeFields(feeInfo || submitted);
+
   return {
     id: submitted.hash,
     amount,
@@ -3165,6 +3264,7 @@ export function buildSubmittedTransactionItem({
     ledger: submitted.ledger,
     network,
     operation,
+    ...feeFields,
     to,
   };
 }

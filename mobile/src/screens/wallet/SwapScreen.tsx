@@ -25,7 +25,12 @@ import {
 } from '@components/wallet';
 import type { SwapResult } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
-import { formatTokenAmount, shortAddress } from '@utils/format';
+import {
+  formatEstimatedStellarFee,
+  formatStellarFee,
+  formatTokenAmount,
+  shortAddress,
+} from '@utils/format';
 import { validateStellarAmount } from '@utils/walletValidation';
 
 function formatSwapBalance(value?: string | null) {
@@ -100,6 +105,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
   const [lastSwap, setLastSwap] = useState<SwapResult | null>(null);
   const [quote, setQuote] = useState<null | {
     destMin: string;
+    feeEstimateXlm?: string | null;
     rate: number;
     toAmount: string;
   }>(null);
@@ -163,6 +169,23 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
         maxFractionDigits: 7,
       })} ${buyCode}`
     : 'Not loaded';
+  const slippageLimitPercent = quote
+    ? (() => {
+        const quotedAmount = Number(quote.toAmount);
+        const minimumAmount = Number(quote.destMin);
+
+        if (
+          !Number.isFinite(quotedAmount) ||
+          quotedAmount <= 0 ||
+          !Number.isFinite(minimumAmount)
+        ) {
+          return 0.5;
+        }
+
+        return Math.max(0, (1 - minimumAmount / quotedAmount) * 100);
+      })()
+    : 0.5;
+  const slippageLimitLabel = `${slippageLimitPercent.toFixed(2)}%`;
 
   function resetQuote() {
     setQuoteLoading(false);
@@ -216,6 +239,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
       if (result) {
         setQuote({
           destMin: result.destMin,
+          feeEstimateXlm: result.feeEstimateXlm,
           rate: result.rate,
           toAmount: result.toAmount,
         });
@@ -344,7 +368,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
             <SwapSuccessDetailRow
               isLast
               label="Network Fee"
-              value="0.00001 XLM"
+              value={formatStellarFee(lastSwap.transaction.feeChargedXlm)}
             />
           </View>
         </ScrollView>
@@ -617,19 +641,16 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
                 </Text>
               </View>
               <View style={modern.swapConfirmDetailRow}>
-                <Text style={modern.swapConfirmDetailLabel}>Price Impact</Text>
-                <Text
-                  style={[
-                    modern.swapConfirmDetailValue,
-                    modern.swapConfirmPositiveValue,
-                  ]}
-                >
-                  &lt; 0.01%
+                <Text style={modern.swapConfirmDetailLabel}>Slippage Limit</Text>
+                <Text style={modern.swapConfirmDetailValue}>
+                  {slippageLimitLabel}
                 </Text>
               </View>
               <View style={modern.swapConfirmDetailRow}>
                 <Text style={modern.swapConfirmDetailLabel}>Network Fee</Text>
-                <Text style={modern.swapConfirmDetailValue}>0.00001 XLM</Text>
+                <Text style={modern.swapConfirmDetailValue}>
+                  {formatEstimatedStellarFee(quote?.feeEstimateXlm)}
+                </Text>
               </View>
               <View style={modern.swapConfirmDetailRow}>
                 <View style={modern.swapConfirmRouteLabel}>

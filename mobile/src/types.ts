@@ -139,7 +139,12 @@ export type TransactionItem = {
   createdAt: string;
   direction: 'sent' | 'received' | 'trustline' | 'other';
   explorerUrl: string;
+  feeChargedStroops?: string | null;
+  feeChargedXlm?: string | null;
+  maxFeeStroops?: string | null;
+  maxFeeXlm?: string | null;
   network?: StellarNetwork;
+  operationCount?: number | null;
   operation:
     | 'payment'
     | 'create_account'
@@ -219,6 +224,8 @@ export type FundNftResult = {
 
 export type SwapQuoteResult = {
   destMin: string;
+  feeEstimateStroops?: string | null;
+  feeEstimateXlm?: string | null;
   fromAmount: string;
   fromAssetCode: string;
   fromAssetIssuer?: string | null;
@@ -234,6 +241,8 @@ export type SwapQuoteResult = {
 export type SwapResult = {
   accountId: string;
   balances: BalanceItem[];
+  feeEstimateStroops?: string | null;
+  feeEstimateXlm?: string | null;
   fromAmount: string;
   fromAssetCode: string;
   hash: string;

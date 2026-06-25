@@ -65,42 +65,49 @@ import {
   validateStellarAmount,
   validateWatchOnlyAddress,
 } from '@utils/walletValidation';
-
-type RunOptions = {
-  showAlert?: boolean;
-  showBusy?: boolean;
-};
-
-type ErrorDialogState = {
-  message: string;
-  title: string;
-};
-
-const LEGACY_LOCAL_SESSION_STORAGE_KEYS = [
-  'lobstr-demo-session-email',
-  'lobstr-demo-session-network',
-];
-const ACTIVE_WALLET_STORAGE_PREFIX = 'privy-wallet-active-wallet-v1';
-const PREFERRED_NETWORK_STORAGE_KEY = 'privy-wallet-preferred-network';
-const RAMP_ORDER_STORAGE_PREFIX = 'privy-ramp-order';
-const SESSION_CACHE_STORAGE_PREFIX = 'privy-wallet-session-cache-v1';
-const SESSION_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-const MARKET_PRICE_REFRESH_MS = 60_000;
-const ASSETS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const TRANSACTIONS_CACHE_TTL_MS = 5 * 60 * 1000;
-const DEFAULT_NETWORK: StellarNetwork = 'mainnet';
-const DEFAULT_KYC: KycSummary = { status: 'not_started' };
-const TRUSTLINE_ENABLE_TIMEOUT_MS = 30_000;
-const TRUSTLINE_SIGN_TIMEOUT_MS = 15_000;
-const IMPORT_WALLET_TIMEOUT_MS = 8_000;
-const PRIVY_SECURITY_SESSION_TIMEOUT_MS = 8_000;
-
-type CachedWalletSession = {
-  network: StellarNetwork;
-  savedAt: number;
-  session: SessionResponse;
-  userKey: string;
-};
+import {
+  AssetIdentityInput,
+  applyReferenceMarketPrices,
+  getAssetIdentity,
+  hasMarketPrice,
+  mergeAssetMarketData,
+} from './wallet/assets';
+import {
+  ASSETS_CACHE_TTL_MS,
+  DEFAULT_KYC,
+  DEFAULT_NETWORK,
+  IMPORT_WALLET_TIMEOUT_MS,
+  LEGACY_LOCAL_SESSION_STORAGE_KEYS,
+  MARKET_PRICE_REFRESH_MS,
+  PREFERRED_NETWORK_STORAGE_KEY,
+  PRIVY_SECURITY_SESSION_TIMEOUT_MS,
+  RAMP_ORDER_STORAGE_PREFIX,
+  TRANSACTIONS_CACHE_TTL_MS,
+  TRUSTLINE_ENABLE_TIMEOUT_MS,
+  TRUSTLINE_SIGN_TIMEOUT_MS,
+} from './wallet/constants';
+import {
+  ClientStellarWalletPayload,
+  getEmailFromPrivyUser,
+  getPrivyUserKey,
+  getTokenWithRetry,
+  hasLinkedStellarEmbeddedWallet,
+  isPrivyHash,
+  walletRecordToClientPayload,
+  withTimeout,
+} from './wallet/privy';
+import {
+  clearCachedSessions,
+  getActiveWalletStorageKey,
+  getAssetsCacheKey,
+  getTransactionsCacheKey,
+  readCachedSession,
+  readStoredActiveWalletId,
+  rememberActiveWalletId,
+  writeCachedSession,
+} from './wallet/storage';
+import { isStellarNetwork, mergePopulatedFields } from './wallet/utils';
+import { useWalletErrors, type RunOptions } from './wallet/walletErrors';
 
 type ApplySessionOptions = {
   cache?: boolean;
@@ -111,13 +118,6 @@ type FinishPrivySessionOptions = {
   cache?: boolean;
   message?: string;
   privyUser?: unknown;
-};
-
-type ClientStellarWalletPayload = {
-  address: string;
-  chain_type: string;
-  id: string;
-  public_key: string;
 };
 
 type SessionStatusResponse = {
@@ -133,364 +133,12 @@ type SessionBootstrapWalletRequest = {
   promise: Promise<ClientStellarWalletPayload | undefined>;
 };
 
-type AssetIdentityInput = Pick<
-  AssetItem,
-  'assetCode' | 'assetIssuer' | 'isNative' | 'network'
->;
-
-function getAssetIdentity(asset: AssetIdentityInput) {
-  return asset.isNative
-    ? `${asset.network}:native`
-    : `${asset.network}:${asset.assetCode}:${asset.assetIssuer || ''}`;
-}
-
-function getActiveWalletStorageKey(accountEmail: string, targetNetwork: StellarNetwork) {
-  return `${ACTIVE_WALLET_STORAGE_PREFIX}:${accountEmail
-    .trim()
-    .toLowerCase()}:${targetNetwork}`;
-}
-
-async function readStoredActiveWalletId(
-  accountEmail: string,
-  targetNetwork: StellarNetwork,
-) {
-  if (!accountEmail) {
-    return null;
-  }
-
-  return AsyncStorage.getItem(
-    getActiveWalletStorageKey(accountEmail, targetNetwork),
-  );
-}
-
-async function rememberActiveWalletId(
-  accountEmail: string,
-  targetNetwork: StellarNetwork,
-  walletId: string,
-) {
-  if (!accountEmail || !walletId) {
-    return;
-  }
-
-  await AsyncStorage.setItem(
-    getActiveWalletStorageKey(accountEmail, targetNetwork),
-    walletId,
-  );
-}
-
-function hasMarketPrice(asset: AssetItem) {
-  return (
-    typeof asset.priceUsd === 'number' &&
-    Number.isFinite(asset.priceUsd) &&
-    asset.priceUsd > 0
-  );
-}
-
-function mergeAssetMarketData(
-  nextAssets: AssetItem[],
-  previousAssets: AssetItem[],
-) {
-  const previousByIdentity = new Map(
-    previousAssets.map(asset => [getAssetIdentity(asset), asset]),
-  );
-
-  return nextAssets.map(asset => {
-    const previous = previousByIdentity.get(getAssetIdentity(asset));
-
-    return {
-      ...asset,
-      image: asset.image || previous?.image || null,
-      priceUsd: hasMarketPrice(asset)
-        ? asset.priceUsd
-        : previous?.priceUsd ?? null,
-      rating: asset.rating ?? previous?.rating ?? null,
-      volume7d: asset.volume7d ?? previous?.volume7d ?? null,
-    };
-  });
-}
-
-function applyReferenceMarketPrices(
-  testnetAssets: AssetItem[],
-  mainnetAssets: AssetItem[],
-) {
-  const nativeReference = mainnetAssets.find(
-    asset => asset.isNative && hasMarketPrice(asset),
-  );
-  const referencesByCode = new Map<string, AssetItem>();
-
-  for (const asset of mainnetAssets) {
-    if (!hasMarketPrice(asset) || referencesByCode.has(asset.assetCode)) {
-      continue;
-    }
-
-    referencesByCode.set(asset.assetCode, asset);
-  }
-
-  return testnetAssets.map(asset => {
-    const reference = asset.isNative
-      ? nativeReference
-      : referencesByCode.get(asset.assetCode);
-
-    if (!reference) {
-      return asset;
-    }
-
-    return {
-      ...asset,
-      image: asset.image || reference.image || null,
-      priceUsd: reference.priceUsd ?? asset.priceUsd ?? null,
-      rating: asset.rating ?? reference.rating ?? null,
-      volume7d: reference.volume7d ?? asset.volume7d ?? null,
-    };
-  });
-}
-
-function mergePopulatedFields<T extends object>(
-  previous?: T,
-  next?: T,
-): T | undefined {
-  if (!previous && !next) {
-    return undefined;
-  }
-
-  const result = { ...(previous || {}) } as T;
-
-  for (const [key, value] of Object.entries(next || {})) {
-    if (value !== undefined && value !== null && value !== '') {
-      (result as Record<string, unknown>)[key] = value;
-    }
-  }
-
-  return result;
-}
-
-function isPrivyHash(value: unknown): value is `0x${string}` {
-  return typeof value === 'string' && /^0x[0-9a-fA-F]+$/.test(value);
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  timeoutMs: number,
-  message: string,
-) {
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-  }
-}
-
-type PrivyLinkedEmailAccount = {
-  type?: string;
-  address?: string;
-  chain_type?: string;
-  chainType?: string;
-  email?: string;
-  wallet_client_type?: string;
-  walletClientType?: string;
-};
-
-type PrivyUserLike = {
-  id?: string;
-  email?: string;
-  linked_accounts?: PrivyLinkedEmailAccount[];
-  linkedAccounts?: PrivyLinkedEmailAccount[];
-};
-
-function getPrivyUserKey(userValue: unknown) {
-  const currentUser = userValue as PrivyUserLike | null;
-
-  return currentUser?.id || null;
-}
-
-function getEmailFromPrivyUser(userValue: unknown) {
-  const currentUser = userValue as PrivyUserLike | null;
-
-  if (!currentUser) {
-    return '';
-  }
-
-  if (currentUser.email) {
-    return currentUser.email.trim().toLowerCase();
-  }
-
-  const linkedAccounts =
-    currentUser.linked_accounts || currentUser.linkedAccounts || [];
-  const emailAccount =
-    linkedAccounts.find(
-      account => account.type === 'email' && (account.address || account.email),
-    ) || linkedAccounts.find(account => account.address || account.email);
-
-  return (emailAccount?.address || emailAccount?.email || '')
-    .trim()
-    .toLowerCase();
-}
-
-function hasLinkedStellarEmbeddedWallet(userValue: unknown) {
-  const currentUser = userValue as PrivyUserLike | null;
-  const linkedAccounts =
-    currentUser?.linked_accounts || currentUser?.linkedAccounts || [];
-
-  return linkedAccounts.some(account => {
-    const type = String(account.type || '').toLowerCase();
-    const chainType = String(
-      account.chain_type || account.chainType || '',
-    ).toLowerCase();
-    const walletClientType = String(
-      account.wallet_client_type || account.walletClientType || '',
-    ).toLowerCase();
-    const address = String(account.address || '').trim();
-
-    return (
-      type === 'wallet' &&
-      (chainType === 'stellar' || address.startsWith('G')) &&
-      (!walletClientType || walletClientType === 'privy')
-    );
-  });
-}
-
-function walletRecordToClientPayload(
-  walletValue: Wallet | null | undefined,
-): ClientStellarWalletPayload | undefined {
-  if (
-    !walletValue ||
-    walletValue.kind !== 'privy' ||
-    !walletValue.id ||
-    !walletValue.address
-  ) {
-    return undefined;
-  }
-
-  return {
-    address: walletValue.address,
-    chain_type: walletValue.chainType || 'stellar',
-    id: walletValue.id,
-    public_key: walletValue.publicKey || walletValue.address,
-  };
-}
-
-function wait(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function getTokenWithRetry(getToken: () => Promise<string | null>) {
-  for (const delay of [0, 300, 700, 1200, 2000]) {
-    if (delay > 0) {
-      await wait(delay);
-    }
-
-    const token = await getToken().catch(() => null);
-
-    if (token) {
-      return token;
-    }
-  }
-
-  return null;
-}
-
-function getSessionCacheKey(userKey: string, network: StellarNetwork) {
-  return `${SESSION_CACHE_STORAGE_PREFIX}:${encodeURIComponent(
-    userKey,
-  )}:${network}`;
-}
-
-async function readCachedSession(
-  userKey: string,
-  network: StellarNetwork,
-): Promise<CachedWalletSession | null> {
-  const raw = await AsyncStorage.getItem(getSessionCacheKey(userKey, network));
-
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    const cached = JSON.parse(raw) as CachedWalletSession;
-
-    if (
-      cached.userKey !== userKey ||
-      cached.network !== network ||
-      !cached.session?.account ||
-      Date.now() - Number(cached.savedAt || 0) > SESSION_CACHE_MAX_AGE_MS
-    ) {
-      await AsyncStorage.removeItem(getSessionCacheKey(userKey, network));
-      return null;
-    }
-
-    return cached;
-  } catch {
-    await AsyncStorage.removeItem(getSessionCacheKey(userKey, network));
-    return null;
-  }
-}
-
-async function writeCachedSession(
-  session: SessionResponse,
-  userKeyHint: string | null,
-  network: StellarNetwork,
-) {
-  const cacheUserKey = userKeyHint || session.account.id;
-
-  if (!cacheUserKey) {
-    return;
-  }
-
-  const cached: CachedWalletSession = {
-    network,
-    savedAt: Date.now(),
-    session,
-    userKey: cacheUserKey,
-  };
-
-  await AsyncStorage.setItem(
-    getSessionCacheKey(cacheUserKey, network),
-    JSON.stringify(cached),
-  );
-}
-
-async function clearCachedSessions(userKey?: string | null) {
-  const keys = await AsyncStorage.getAllKeys();
-  const prefix = userKey
-    ? `${SESSION_CACHE_STORAGE_PREFIX}:${encodeURIComponent(userKey)}:`
-    : `${SESSION_CACHE_STORAGE_PREFIX}:`;
-  const sessionKeys = keys.filter(key => key.startsWith(prefix));
-
-  if (sessionKeys.length > 0) {
-    await AsyncStorage.multiRemove(sessionKeys);
-  }
-}
-
-function getAssetsCacheKey(targetNetwork: StellarNetwork) {
-  return `assets:${targetNetwork}`;
-}
-
-function getTransactionsCacheKey(
-  walletAddress: string,
-  targetNetwork: StellarNetwork,
-) {
-  return `transactions:${targetNetwork}:${walletAddress}`;
-}
-
 export function getBalanceForAsset(balances: BalanceItem[], assetCode: string) {
   return balances.find(balance => balance.assetCode === assetCode) || null;
 }
 
 export function getBalanceAmount(balances: BalanceItem[], assetCode: string) {
   return getBalanceForAsset(balances, assetCode)?.balance || '0';
-}
-
-function isStellarNetwork(value: unknown): value is StellarNetwork {
-  return value === 'mainnet' || value === 'testnet';
 }
 
 export function getTransactionTitle(transaction: TransactionItem) {
@@ -536,13 +184,16 @@ export function useWallet() {
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [errorDialog, setErrorDialog] = useState<ErrorDialogState | null>(
-    null,
-  );
-  const [message, setMessage] = useState(
-    'Enter your email to receive a Privy login code.',
-  );
+  const {
+    busy,
+    dismissErrorDialog,
+    errorDialog,
+    message,
+    run,
+    setErrorDialog,
+    setMessage,
+    showErrorDialog,
+  } = useWalletErrors('Enter your email to receive a Privy login code.');
   const [rampProviders, setRampProviders] = useState<RampProvider[]>([]);
   const [activeRampOrder, setActiveRampOrder] = useState<RampOrder | null>(
     null,
@@ -590,60 +241,6 @@ export function useWallet() {
       () => null,
     );
   }, []);
-
-  const dismissErrorDialog = useCallback(() => {
-    setErrorDialog(null);
-  }, []);
-
-  const showErrorDialog = useCallback((messageText: string, title = 'Error') => {
-    setErrorDialog({
-      message: messageText,
-      title,
-    });
-  }, []);
-
-  const run = useCallback(
-    async <T>(
-      label: string,
-      action: () => Promise<T>,
-      options: RunOptions = {},
-    ) => {
-      const showBusy = options.showBusy !== false;
-
-      try {
-        if (showBusy) {
-          setBusy(label);
-        }
-
-        if (options.showAlert !== false) {
-          setErrorDialog(null);
-        }
-
-        return await action();
-      } catch (error) {
-        const errorMessage = getErrorMessage(error);
-        setMessage(errorMessage);
-
-        if (options.showAlert !== false) {
-          if (showBusy) {
-            setBusy(null);
-          }
-
-          setErrorDialog({
-            message: errorMessage,
-            title: 'Error',
-          });
-        }
-
-        return null;
-      } finally {
-        if (showBusy) {
-          setBusy(null);
-        }
-      }
-    },
-    [],
-  );
 
   const checkServer = useCallback(async () => {
     try {

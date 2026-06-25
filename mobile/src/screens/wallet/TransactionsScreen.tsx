@@ -1,5 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  FlatList,
+  StyleSheet,
+  Text,
+  View,
+  type ListRenderItemInfo,
+} from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
   ModernScreenHeader,
@@ -17,6 +23,17 @@ import { formatTokenAmount } from '@utils/format';
 
 type TransactionFilter = 'all' | 'received' | 'sent';
 type HistoryKind = 'orders' | 'stellar';
+type ActivityListItem =
+  | {
+      id: string;
+      kind: 'transaction';
+      transaction: TransactionItem;
+    }
+  | {
+      id: string;
+      kind: 'order';
+      order: RampOrder;
+    };
 
 const filters: { label: string; value: TransactionFilter }[] = [
   { label: 'All', value: 'all' },
@@ -129,101 +146,141 @@ export function TransactionsScreen({
     () => filterTransactions(wallet.transactions, filter),
     [filter, wallet.transactions],
   );
+  const assetImagesByCode = useMemo(() => {
+    const byCode = new Map<string, string | null | undefined>();
 
-  return (
-    <ScrollView
-      style={{ backgroundColor: '#000000' }}
-      contentContainerStyle={screenInsetStyle}
-      showsVerticalScrollIndicator={false}
-    >
-      <ModernScreenHeader
-        subtitle="Review crypto transfers, swaps, buys, and bank withdrawals."
-        title="Activity"
-      />
+    for (const asset of [...wallet.visibleAssets, ...wallet.balances]) {
+      if (!byCode.has(asset.assetCode) || asset.image) {
+        byCode.set(asset.assetCode, asset.image);
+      }
+    }
 
-      <View style={modern.sectionCard}>
-        <SegmentedFilter
-          active={historyKind}
-          onChange={setHistoryKind}
-          options={historyKinds}
+    return byCode;
+  }, [wallet.balances, wallet.visibleAssets]);
+  const activityData = useMemo<ActivityListItem[]>(() => {
+    if (historyKind === 'stellar') {
+      return visibleTransactions.map(transaction => ({
+        id: transaction.id,
+        kind: 'transaction',
+        transaction,
+      }));
+    }
+
+    return wallet.rampOrderHistory.map(order => ({
+      id: `${order.code || order.id}:${order.state}:${order.processing_state}`,
+      kind: 'order',
+      order,
+    }));
+  }, [historyKind, visibleTransactions, wallet.rampOrderHistory]);
+
+  function renderHeader() {
+    return (
+      <>
+        <ModernScreenHeader
+          subtitle="Review crypto transfers, swaps, buys, and bank withdrawals."
+          title="Activity"
         />
-      </View>
 
-      <View style={modern.sectionCard}>
-        <SectionHeader
-          action={
-            <PressScale
-              onPress={
-                historyKind === 'stellar'
-                  ? wallet.refreshSession
-                  : wallet.refreshRampOrderHistory
-              }
-            >
-              <Text style={modern.sectionActionText}>↻</Text>
-            </PressScale>
-          }
-          title={historyKind === 'stellar' ? 'Transfers' : 'Cash orders'}
-        />
-        {historyKind === 'stellar' ? (
-          <>
+        <View style={modern.sectionCard}>
+          <SegmentedFilter
+            active={historyKind}
+            onChange={setHistoryKind}
+            options={historyKinds}
+          />
+        </View>
+
+        <View style={modern.sectionCard}>
+          <SectionHeader
+            action={
+              <PressScale
+                onPress={
+                  historyKind === 'stellar'
+                    ? wallet.refreshSession
+                    : wallet.refreshRampOrderHistory
+                }
+              >
+                <Text style={modern.sectionActionText}>↻</Text>
+              </PressScale>
+            }
+            title={historyKind === 'stellar' ? 'Transfers' : 'Cash orders'}
+          />
+          {historyKind === 'stellar' ? (
             <SegmentedFilter
               active={filter}
               onChange={setFilter}
               options={filters}
             />
-            {visibleTransactions.length > 0 ? (
-              visibleTransactions.map(transaction => {
-                const asset =
-                  wallet.balances.find(
-                    item => item.assetCode === transaction.assetCode,
-                  ) ||
-                  wallet.visibleAssets.find(
-                    item => item.assetCode === transaction.assetCode,
-                  );
-                return (
-                  <TransactionListItem
-                    key={transaction.id}
-                    onPress={() => onGoToTransaction(transaction.id)}
-                    transaction={transaction}
-                    imageUrl={asset?.image}
-                  />
-                );
-              })
-            ) : (
-              <View style={modern.emptyModern}>
-                <Text style={modern.emptyModernTitle}>No transactions yet</Text>
-                <Text style={modern.emptyModernText}>
-                  Deposits, sends, and swaps appear here after they are
-                  submitted to Stellar.
-                </Text>
-              </View>
-            )}
-          </>
-        ) : wallet.rampOrderHistory.length > 0 ? (
-          wallet.rampOrderHistory.map(order => (
-            <FiatOrderRow
-              key={`${order.code || order.id}:${order.state}:${
-                order.processing_state
-              }`}
-              onPress={() => onGoToRampOrder(order)}
-              order={order}
-            />
-          ))
-        ) : (
-          <View style={modern.emptyModern}>
-            <Text style={modern.emptyModernTitle}>No VND orders yet</Text>
-            <Text style={modern.emptyModernText}>
-              Buy and withdraw orders created for this wallet and network will
-              appear here.
-            </Text>
-          </View>
-        )}
+          ) : null}
+        </View>
+      </>
+    );
+  }
+
+  function renderEmpty() {
+    return historyKind === 'stellar' ? (
+      <View style={[modern.emptyModern, styles.emptyWrap]}>
+        <Text style={modern.emptyModernTitle}>No transactions yet</Text>
+        <Text style={modern.emptyModernText}>
+          Deposits, sends, and swaps appear here after they are submitted to
+          Stellar.
+        </Text>
       </View>
-    </ScrollView>
+    ) : (
+      <View style={[modern.emptyModern, styles.emptyWrap]}>
+        <Text style={modern.emptyModernTitle}>No VND orders yet</Text>
+        <Text style={modern.emptyModernText}>
+          Buy and withdraw orders created for this wallet and network will
+          appear here.
+        </Text>
+      </View>
+    );
+  }
+
+  function renderItem({ item }: ListRenderItemInfo<ActivityListItem>) {
+    if (item.kind === 'transaction') {
+      return (
+        <View style={styles.listRowWrap}>
+          <TransactionListItem
+            onPress={() => onGoToTransaction(item.transaction.id)}
+            transaction={item.transaction}
+            imageUrl={assetImagesByCode.get(item.transaction.assetCode)}
+          />
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.listRowWrap}>
+        <FiatOrderRow
+          onPress={() => onGoToRampOrder(item.order)}
+          order={item.order}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <FlatList
+      data={activityData}
+      style={{ backgroundColor: '#000000' }}
+      contentContainerStyle={screenInsetStyle}
+      keyExtractor={item => item.id}
+      ListEmptyComponent={renderEmpty}
+      ListHeaderComponent={renderHeader}
+      renderItem={renderItem}
+      showsVerticalScrollIndicator={false}
+    />
   );
 }
 
 const styles = StyleSheet.create({
+  emptyWrap: {
+    marginHorizontal: 36,
+    marginTop: 4,
+  },
+  listRowWrap: {
+    marginHorizontal: 36,
+  },
   orderBody: {
     flex: 1,
     gap: 4,

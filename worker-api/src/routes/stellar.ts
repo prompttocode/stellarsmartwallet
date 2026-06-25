@@ -27,6 +27,7 @@ import {
   requireAccountContext,
   shouldRequireMainnetAuth,
   submitPrivySignedTransaction,
+  tryFetchTransactionFeeFields,
   ensureTrustline,
   type StellarNetwork,
   type WorkerBindings,
@@ -373,9 +374,10 @@ async function handleTrustline(
     wallet: sourceWallet,
     walletId: sourceWalletId,
   });
-  const [balanceResult, transactions] = await Promise.all([
+  const [balanceResult, transactions, feeInfo] = await Promise.all([
     getAccountBalances(c.env, sourceAddress, network),
     getAccountHistory(c.env, sourceAddress, network),
+    tryFetchTransactionFeeFields(c.env, network, submitted.hash),
   ]);
 
   return c.json({
@@ -388,6 +390,7 @@ async function handleTrustline(
       assetIssuer: assetDefinition.assetIssuer,
       direction: 'trustline',
       env: c.env,
+      feeInfo,
       from: sourceAddress,
       network,
       operation: 'change_trust',
@@ -583,10 +586,16 @@ async function handleSend(
     sourceAddress: maskStellarAddress(sourceAddress),
   });
 
-  const [refreshedSource, refreshedDestination, transactions] = await Promise.all([
+  const [
+    refreshedSource,
+    refreshedDestination,
+    transactions,
+    feeInfo,
+  ] = await Promise.all([
     getAccountBalances(c.env, sourceAddress, network),
     getAccountBalances(c.env, destination, network),
     getAccountHistory(c.env, sourceAddress, network),
+    tryFetchTransactionFeeFields(c.env, network, submitted.hash),
   ]);
   const transactionItem = buildSubmittedTransactionItem({
     amount,
@@ -594,6 +603,7 @@ async function handleSend(
     assetIssuer: assetDefinition.assetIssuer,
     direction: 'sent',
     env: c.env,
+    feeInfo,
     from: sourceAddress,
     network,
     operation: operationType,
@@ -719,9 +729,10 @@ async function handleSwapExecute(c: Context<WorkerBindings>, fallbackNetwork?: S
     throw makeError('Swap was not submitted', 500);
   }
 
-  const [refreshedSource, transactions] = await Promise.all([
+  const [refreshedSource, transactions, feeInfo] = await Promise.all([
     getAccountBalances(c.env, sourceAddress, network),
     getAccountHistory(c.env, sourceAddress, network),
+    tryFetchTransactionFeeFields(c.env, network, result.submitted.hash),
   ]);
   const transactionItem = buildSubmittedTransactionItem({
     amount: result.fromAmount,
@@ -729,6 +740,7 @@ async function handleSwapExecute(c: Context<WorkerBindings>, fallbackNetwork?: S
     assetIssuer: result.fromAssetIssuer,
     direction: 'sent',
     env: c.env,
+    feeInfo,
     from: sourceAddress,
     network,
     operation: 'path_payment_strict_send',
