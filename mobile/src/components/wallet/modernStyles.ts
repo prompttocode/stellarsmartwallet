@@ -45,9 +45,41 @@ export const modern = StyleSheet.create({
   heroScrim: {
     backgroundColor: 'rgba(18, 42, 96, 0.12)',
     flex: 1,
+    overflow: 'hidden',
     paddingBottom: 30,
     paddingHorizontal: 18,
     paddingTop: 18,
+  },
+  heroContent: {
+    position: 'relative',
+    zIndex: 2,
+  },
+  heroMeteorLayer: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: 'hidden',
+    zIndex: 0,
+  },
+  heroMeteorStreak: {
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderRadius: 999,
+    height: 2,
+    position: 'absolute',
+    shadowColor: '#B8FF45',
+    shadowOffset: { height: 0, width: 0 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+  },
+  heroMeteorHead: {
+    backgroundColor: '#FFFFFF',
+    height: 4,
+    left: -2,
+    position: 'absolute',
+    shadowColor: '#B8FF45',
+    shadowOffset: { height: 0, width: 0 },
+    shadowOpacity: 0.48,
+    shadowRadius: 5,
+    top: -1,
+    width: 4,
   },
   heroTop: {
     alignItems: 'center',
@@ -222,13 +254,15 @@ export const modern = StyleSheet.create({
   },
   quickGrid: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: '#15171B',
     borderRadius: 36,
+    elevation: 2,
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 28,
     paddingHorizontal: 12,
     paddingVertical: 18,
+    zIndex: 3,
   },
   quickItem: {
     alignItems: 'center',
@@ -733,7 +767,7 @@ export const modern = StyleSheet.create({
     marginTop: 6,
   },
   assetPickerOverlay: {
-    backgroundColor: 'rgba(5,16,25,0.42)',
+    backgroundColor: 'transparent',
     flex: 1,
     justifyContent: 'flex-end',
   },
@@ -1085,7 +1119,6 @@ export const modern = StyleSheet.create({
     height: 50,
     justifyContent: 'center',
     width: 50,
-
   },
   swapMiddleText: {
     color: '#0F8EA3',
@@ -1450,7 +1483,7 @@ export const modern = StyleSheet.create({
     textAlign: 'center',
   },
   swapConfirmOverlay: {
-    backgroundColor: 'rgba(0,0,0,0.66)',
+    backgroundColor: 'transparent',
     flex: 1,
     justifyContent: 'flex-end',
   },

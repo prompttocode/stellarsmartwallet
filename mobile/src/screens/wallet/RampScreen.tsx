@@ -2493,7 +2493,7 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   bankSheetOverlay: {
-    backgroundColor: 'rgba(9, 14, 24, 0.42)',
+    backgroundColor: 'transparent',
     flex: 1,
     justifyContent: 'flex-end',
   },

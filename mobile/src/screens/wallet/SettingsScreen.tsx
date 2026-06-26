@@ -2241,7 +2241,7 @@ const styles = StyleSheet.create({
     paddingBottom: 2,
   },
   sheetOverlay: {
-    backgroundColor: 'rgba(5,16,25,0.42)',
+    backgroundColor: 'transparent',
     flex: 1,
     justifyContent: 'flex-end',
   },
