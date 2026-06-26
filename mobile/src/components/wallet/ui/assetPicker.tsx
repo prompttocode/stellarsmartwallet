@@ -7,6 +7,7 @@ import { formatTokenAmount } from '@utils/format';
 import { modern } from '../modernStyles';
 import { PressScale } from './primitives';
 import { TokenIcon } from './token';
+import { AppBottomSheet } from '../../ui/AppBottomSheet';
 
 type AssetFilter = 'all' | 'available' | 'needsTrustline';
 
@@ -252,19 +253,12 @@ export function AssetPickerModal({
   }, [activeFilter, assets, remoteAssets, trimmedQuery, useRemoteResults]);
 
   return (
-    <Modal
-      animationType="slide"
-      onRequestClose={onClose}
-      transparent
+    <AppBottomSheet
       visible={visible}
+      onClose={onClose}
+      contentContainerStyle={{ paddingHorizontal: 0, paddingBottom: Math.max(insets.bottom, 16) }}
+      snapPoints={['50%', '90%']}
     >
-      <View style={modern.assetPickerOverlay}>
-        <View
-          style={[
-            modern.assetPickerSheet,
-            { paddingBottom: Math.max(insets.bottom, 16) },
-          ]}
-        >
           <View style={modern.assetPickerHeader}>
             <View>
               <Text style={modern.assetPickerTitle}>{title}</Text>
@@ -418,8 +412,6 @@ export function AssetPickerModal({
             showsVerticalScrollIndicator={false}
             style={modern.assetPickerList}
           />
-        </View>
-      </View>
-    </Modal>
+    </AppBottomSheet>
   );
 }

@@ -17,6 +17,7 @@ import DraggableFlatList, {
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { PressScale } from './ui/primitives';
+import { AppBottomSheet } from '../ui/AppBottomSheet';
 import { shortAddress } from '@utils/format';
 import type { WalletState } from '@hooks/useWallet';
 import type { Wallet } from '@app-types';
@@ -227,21 +228,13 @@ export function WalletManagerModal({
   };
 
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      transparent={true}
-      onRequestClose={onClose}
-    >
-      <View style={styles.modalOverlay}>
-        <TouchableOpacity
-          style={StyleSheet.absoluteFill}
-          activeOpacity={1}
-          onPress={onClose}
-        />
-
-        <GestureHandlerRootView style={styles.sheetContainer}>
-          <View style={styles.header}>
+    <>
+      <AppBottomSheet
+        visible={visible}
+        onClose={onClose}
+        contentContainerStyle={{ paddingHorizontal: 0, paddingBottom: Platform.OS === 'ios' ? 40 : 20 }}
+      >
+        <View style={styles.header}>
             <TouchableOpacity
               onPress={() => setIsEditing(!isEditing)}
               style={styles.headerBtn}
@@ -300,8 +293,7 @@ export function WalletManagerModal({
               </Text>
             </PressScale>
           </View>
-        </GestureHandlerRootView>
-      </View>
+      </AppBottomSheet>
 
       {/* Custom Rename Prompt Modal for Android/iOS */}
       {renamingWallet && (
@@ -338,23 +330,12 @@ export function WalletManagerModal({
           </View>
         </Modal>
       )}
-    </Modal>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'transparent',
-    justifyContent: 'flex-end',
-  },
-  sheetContainer: {
-    backgroundColor: '#000000',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
-    maxHeight: Platform.OS === 'ios' ? 700 : 650,
-  },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',

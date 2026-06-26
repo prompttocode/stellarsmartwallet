@@ -24,6 +24,7 @@ import {
   useSafeScreenInsetStyle,
 } from '@components/wallet';
 import type { SwapResult } from '@app-types';
+import { AppBottomSheet } from '../../components/ui/AppBottomSheet';
 import type { WalletState } from '@hooks/useWallet';
 import {
   formatEstimatedStellarFee,
@@ -587,47 +588,25 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
         </View>
       </ScrollView>
 
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setReviewVisible(false)}
-        presentationStyle="overFullScreen"
-        statusBarTranslucent
-        transparent
+      <AppBottomSheet
         visible={reviewVisible && Boolean(quote)}
+        onClose={() => setReviewVisible(false)}
+        contentContainerStyle={{ paddingHorizontal: 10 }}
+        snapPoints={['50%', '90%']}
       >
-        <View style={modern.swapConfirmOverlay}>
-          <Pressable
-            onPress={() => setReviewVisible(false)}
-            style={modern.swapConfirmBackdrop}
-          />
-          <View
-            style={[
-              modern.swapConfirmSheet,
-              { paddingBottom: Math.max(insets.bottom, 14) + 14 },
-            ]}
-          >
-            <View style={modern.swapConfirmHandle} />
-            <View style={modern.swapConfirmHeader}>
-              <Text style={modern.swapConfirmTitle}>Confirm Swap</Text>
-              <View style={modern.swapConfirmCloseSlot}>
-                <PressScale
-                  onPress={() => setReviewVisible(false)}
-                  style={modern.swapConfirmClose}
-                >
-                  <Ionicons color="#FFFFFF" name="close" size={18} />
-                </PressScale>
-              </View>
-            </View>
+        <View style={modern.swapConfirmHeader}>
+          <Text style={modern.swapConfirmTitle}>Confirm Swap</Text>
+        </View>
 
-            <View style={modern.swapConfirmAmounts}>
-              <Text
-                adjustsFontSizeToFit
-                minimumFontScale={0.72}
-                numberOfLines={1}
-                style={modern.swapConfirmAmount}
-              >
-                {formatTokenAmount(sellAmount)}
-              </Text>
+        <View style={modern.swapConfirmAmounts}>
+          <Text
+            adjustsFontSizeToFit
+            minimumFontScale={0.72}
+            numberOfLines={1}
+            style={modern.swapConfirmAmount}
+          >
+            {formatTokenAmount(sellAmount)}
+          </Text>
               <View style={modern.swapConfirmTokenBadge}>
                 {sellAsset ? (
                   <TokenIcon
@@ -716,9 +695,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
                 {submitting ? 'SWAPPING...' : 'CONFIRM SWAP'}
               </Text>
             </PressScale>
-          </View>
-        </View>
-      </Modal>
+      </AppBottomSheet>
 
       <AssetPickerModal
         assets={assets}

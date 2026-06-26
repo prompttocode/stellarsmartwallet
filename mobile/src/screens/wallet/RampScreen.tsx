@@ -15,6 +15,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Clipboard from '@react-native-clipboard/clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppBottomSheet } from '../../components/ui/AppBottomSheet';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useAppPopup } from '@components/common/AppPopup';
 import { BANK_OPTIONS } from '@constants/banks';
@@ -1753,35 +1755,18 @@ export function RampScreen({
         </View>
       </ScrollView>
 
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setQuoteSheetVisible(false)}
-        presentationStyle="overFullScreen"
-        statusBarTranslucent
-        transparent
+      <AppBottomSheet
         visible={quoteSheetVisible && Boolean(quote)}
+        onClose={() => setQuoteSheetVisible(false)}
+        contentContainerStyle={{ paddingHorizontal: 10 }}
+        snapPoints={['50%', '90%']}
       >
-        <View style={modern.swapConfirmOverlay}>
-          <Pressable
-            onPress={() => setQuoteSheetVisible(false)}
-            style={modern.swapConfirmBackdrop}
-          />
-          <View style={[modern.swapConfirmSheet, styles.quoteSheet]}>
-            <View style={modern.swapConfirmHandle} />
-            <View style={modern.swapConfirmHeader}>
-              <Text style={modern.swapConfirmTitle}>
-                {direction === 'buy' ? 'Confirm buy' : 'Confirm withdrawal'}
-              </Text>
-              <View style={modern.swapConfirmCloseSlot}>
-                <PressScale
-                  onPress={() => setQuoteSheetVisible(false)}
-                  style={modern.swapConfirmClose}
-                >
-                  <Ionicons color="#FFFFFF" name="close" size={18} />
-                </PressScale>
-              </View>
-            </View>
-
+        <View style={styles.quoteSheet}>
+          <View style={modern.swapConfirmHeader}>
+            <Text style={modern.swapConfirmTitle}>
+              {direction === 'buy' ? 'Confirm buy' : 'Confirm withdrawal'}
+            </Text>
+          </View>
             {quote ? (
               <>
                 <View style={modern.swapConfirmAmounts}>
@@ -1960,25 +1945,16 @@ export function RampScreen({
                 </PressScale>
               </>
             ) : null}
-          </View>
         </View>
-      </Modal>
+      </AppBottomSheet>
 
-      <Modal
-        animationType="slide"
-        onRequestClose={closeBankPicker}
-        transparent
+      <AppBottomSheet
         visible={bankPickerVisible}
+        onClose={closeBankPicker}
+        contentContainerStyle={{ paddingHorizontal: 0 }}
       >
-        <View style={styles.bankSheetOverlay}>
-          <Pressable
-            accessibilityLabel="Close bank picker"
-            onPress={closeBankPicker}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.bankSheet}>
-            <View style={styles.bankSheetHandle} />
-            <View style={styles.bankSheetHeader}>
+        <View style={styles.bankSheet}>
+          <View style={styles.bankSheetHeader}>
               <View>
                 <Text style={styles.bankSheetTitle}>Select bank</Text>
                 <Text style={styles.bankSheetSubtitle}>
@@ -2075,24 +2051,15 @@ export function RampScreen({
               ) : null}
             </ScrollView>
           </View>
-        </View>
-      </Modal>
+      </AppBottomSheet>
 
-      <Modal
-        animationType="slide"
-        onRequestClose={closeSavedPaymentPicker}
-        transparent
+      <AppBottomSheet
         visible={savedPaymentPickerVisible}
+        onClose={closeSavedPaymentPicker}
+        contentContainerStyle={{ paddingHorizontal: 0 }}
       >
-        <View style={styles.bankSheetOverlay}>
-          <Pressable
-            accessibilityLabel="Close saved payment methods"
-            onPress={closeSavedPaymentPicker}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.bankSheet}>
-            <View style={styles.bankSheetHandle} />
-            <View style={styles.bankSheetHeader}>
+        <View style={styles.bankSheet}>
+          <View style={styles.bankSheetHeader}>
               <View>
                 <Text style={styles.bankSheetTitle}>Saved payment methods</Text>
                 <Text style={styles.bankSheetSubtitle}>
@@ -2175,8 +2142,7 @@ export function RampScreen({
               ) : null}
             </ScrollView>
           </View>
-        </View>
-      </Modal>
+      </AppBottomSheet>
     </>
   );
 }

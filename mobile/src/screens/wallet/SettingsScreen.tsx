@@ -22,6 +22,7 @@ import * as ExpoLinking from 'expo-linking';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppPopup } from '@components/common/AppPopup';
+import { AppBottomSheet } from '../../components/ui/AppBottomSheet';
 import { BANK_OPTIONS } from '@constants/banks';
 
 import {
@@ -109,49 +110,6 @@ async function checkHorizonAccountExists(
 
   throw new Error(
     `Horizon ${getNetworkLabel(network)} returned ${response.status}`,
-  );
-}
-
-function BottomSheet({
-  bottomInset,
-  children,
-  onClose,
-  title,
-  visible,
-}: {
-  bottomInset: number;
-  children: ReactNode;
-  onClose: () => void;
-  title: string;
-  visible: boolean;
-}) {
-  return (
-    <Modal
-      animationType="slide"
-      onRequestClose={onClose}
-      transparent
-      visible={visible}
-    >
-      <View style={styles.sheetOverlay}>
-        <TouchableOpacity
-          activeOpacity={1}
-          onPress={onClose}
-          style={StyleSheet.absoluteFill}
-        />
-        <View
-          style={[styles.sheet, { paddingBottom: Math.max(bottomInset, 18) }]}
-        >
-          <View style={styles.sheetHandle} />
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>{title}</Text>
-            <TouchableOpacity onPress={onClose} style={styles.sheetClose}>
-              <Ionicons color="#FFFFFF" name="close" size={20} />
-            </TouchableOpacity>
-          </View>
-          {children}
-        </View>
-      </View>
-    </Modal>
   );
 }
 
@@ -1146,7 +1104,7 @@ export function SettingsScreen({
         </View>
       </ScrollView>
 
-      <BottomSheet
+      <AppBottomSheet
         bottomInset={insets.bottom}
         onClose={() => setDetailSheet(null)}
         title="Wallet details"
@@ -1264,9 +1222,9 @@ export function SettingsScreen({
           </View>
           <Ionicons color="#A1B0C8" name="chevron-forward" size={20} />
         </TouchableOpacity>
-      </BottomSheet>
+      </AppBottomSheet>
 
-      <BottomSheet
+      <AppBottomSheet
         bottomInset={insets.bottom}
         onClose={() => setCurrencyVisible(false)}
         title="Display currency"
@@ -1304,9 +1262,9 @@ export function SettingsScreen({
             );
           })}
         </View>
-      </BottomSheet>
+      </AppBottomSheet>
 
-      <BottomSheet
+      <AppBottomSheet
         bottomInset={insets.bottom}
         onClose={() => setDetailSheet(null)}
         title="Payment methods"
@@ -1562,9 +1520,9 @@ export function SettingsScreen({
             </>
           )}
         </ScrollView>
-      </BottomSheet>
+      </AppBottomSheet>
 
-      <BottomSheet
+      <AppBottomSheet
         bottomInset={insets.bottom}
         onClose={() => setDetailSheet(null)}
         title="Security"
@@ -1613,9 +1571,9 @@ export function SettingsScreen({
             value="Public addresses can be tracked, but they cannot sign or send transactions."
           />
         </View>
-      </BottomSheet>
+      </AppBottomSheet>
 
-      <BottomSheet
+      <AppBottomSheet
         bottomInset={insets.bottom}
         onClose={() => setDetailSheet(null)}
         title="Advanced"
@@ -1648,7 +1606,7 @@ export function SettingsScreen({
             value="Backup recovery key opens Privy's secure export page in your browser for Privy-managed wallets. Restore later with Import wallet."
           />
         </View>
-      </BottomSheet>
+      </AppBottomSheet>
 
       <WalletManagerModal
         onClose={() => setWalletManagerVisible(false)}
@@ -2310,47 +2268,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     padding: 4,
   },
-  sheet: {
-    backgroundColor: '#111318',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    gap: 12,
-    maxHeight: '88%',
-    paddingHorizontal: 18,
-    paddingTop: 10,
-  },
-  sheetClose: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 17,
-    height: 34,
-    justifyContent: 'center',
-    width: 34,
-  },
-  sheetHandle: {
-    alignSelf: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 2,
-    height: 4,
-    width: 38,
-  },
-  sheetHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingBottom: 2,
-  },
-  sheetOverlay: {
-    backgroundColor: 'transparent',
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  sheetTitle: {
-    color: '#FFFFFF',
-    fontSize: 21,
-    fontWeight: '800',
-    letterSpacing: -0.4,
-  },
+
   signOutIcon: {
     alignItems: 'center',
     backgroundColor: 'rgba(255,82,82,0.15)',
