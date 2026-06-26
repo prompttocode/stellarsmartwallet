@@ -6,11 +6,9 @@ import {
   Modal,
   Pressable,
   ScrollView,
-  StyleProp,
   StyleSheet,
   Text,
   TextInput,
-  TextStyle,
   View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -90,43 +88,6 @@ function formatCountdown(expiredAt?: number | null) {
   return remaining > 0
     ? `${minutes}:${String(seconds).padStart(2, '0')} remaining`
     : 'Expired';
-}
-
-function CopyableTransferLine({
-  label,
-  onPress,
-  value,
-  valueNumberOfLines = 1,
-  valueStyle,
-}: {
-  label: string;
-  onPress: () => void;
-  value: string;
-  valueNumberOfLines?: number;
-  valueStyle?: StyleProp<TextStyle>;
-}) {
-  return (
-    <Pressable
-      accessibilityLabel={`Copy ${label}`}
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.transferCopyRow,
-        pressed ? styles.transferCopyRowPressed : null,
-      ]}
-    >
-      <Text style={styles.transferCopyLabel}>{label}</Text>
-      <Text
-        numberOfLines={valueNumberOfLines}
-        style={[styles.transferCopyValue, valueStyle]}
-      >
-        {value}
-      </Text>
-      <View style={styles.transferCopyIcon}>
-        <Ionicons color="#B8FF45" name="copy-outline" size={13} />
-      </View>
-    </Pressable>
-  );
 }
 
 function TransferPriorityCopyCard({
@@ -209,6 +170,10 @@ export function RampScreen({
   const [dismissedResultKey, setDismissedResultKey] = useState<string | null>(
     null,
   );
+  const [bankTransferMarkedReference, setBankTransferMarkedReference] =
+    useState<string | null>(null);
+  const [bankTransferCheckingReference, setBankTransferCheckingReference] =
+    useState<string | null>(null);
   const [clock, setClock] = useState(Date.now());
   const autoCreateAttemptedRef = useRef<string | null>(null);
   const appliedDefaultPaymentMethodRef = useRef<string | null>(null);
@@ -777,9 +742,7 @@ export function RampScreen({
 
     if (result) {
       setQuote(result);
-      if (direction === 'sell') {
-        setQuoteSheetVisible(true);
-      }
+      setQuoteSheetVisible(true);
     }
   }
 
@@ -959,6 +922,57 @@ export function RampScreen({
     }
   }
 
+  async function markBankTransferSubmitted(reference: string) {
+    if (!reference) {
+      return;
+    }
+
+    if (bankTransferCheckingReference === reference) {
+      return;
+    }
+
+    setBankTransferMarkedReference(reference);
+    setBankTransferCheckingReference(reference);
+
+    const latestOrder = await wallet
+      .refreshRampOrder(reference, {
+        silent: true,
+      })
+      .finally(() => {
+        setBankTransferCheckingReference(current =>
+          current === reference ? null : current,
+        );
+      });
+
+    if (!latestOrder) {
+      showPopup({
+        message:
+          'Your transfer is noted here, but the provider could not be checked right now. Keep this order open and try again in a moment.',
+        title: 'Transfer noted',
+        variant: 'warning',
+      });
+      return;
+    }
+
+    const latestCompleted = Number(latestOrder.state) === 3;
+    const latestPaymentConfirmed =
+      Number(latestOrder.processing_state) === 11 || latestCompleted;
+
+    showPopup({
+      message: latestCompleted
+        ? 'The provider confirmed this order. Your wallet balance will refresh automatically.'
+        : latestPaymentConfirmed
+        ? 'The provider has detected the VND payment and is processing the order.'
+        : 'The app checked the provider again. The order is still waiting for bank/provider confirmation.',
+      title: latestCompleted
+        ? 'Payment confirmed'
+        : latestPaymentConfirmed
+        ? 'Transfer confirmed'
+        : 'Transfer noted',
+      variant: latestPaymentConfirmed ? 'success' : 'info',
+    });
+  }
+
   if (order) {
     const bankInfo = order.body?.bankInfo;
     const isSell = order.order_type === 'sell';
@@ -973,6 +987,11 @@ export function RampScreen({
       Number(order.state) === 1 &&
       Number(order.processing_state) === 10;
     const canBypassTestSellPayment = !wallet.isMainnet && isSell && !terminal;
+    const canMarkBankTransfer = !isSell && !terminal && !canBypassTestPayment;
+    const bankTransferMarked =
+      canMarkBankTransfer && bankTransferMarkedReference === orderReference;
+    const bankTransferChecking =
+      canMarkBankTransfer && bankTransferCheckingReference === orderReference;
     const expiredAt = rampTimestampToMs(order.expired_at);
     const transactionHash =
       order.sell_transaction_hash || order.transaction_hash || '';
@@ -1126,24 +1145,70 @@ export function RampScreen({
                   }
                   value={transferContent}
                 />
-              </View>
-              <View style={styles.transferDetailsBox}>
-                <Text style={styles.transferDetailsTitle}>Bank details</Text>
-                <CopyableTransferLine
+                <TransferPriorityCopyCard
                   label="Bank"
                   onPress={() => copyTransferValue('Bank', transferBankName)}
-                  valueNumberOfLines={2}
                   value={transferBankName}
                 />
-                <CopyableTransferLine
+                <TransferPriorityCopyCard
                   label="Account name"
                   onPress={() =>
                     copyTransferValue('Account name', transferAccountName)
                   }
-                  valueNumberOfLines={2}
                   value={transferAccountName}
                 />
               </View>
+              {canMarkBankTransfer ? (
+                <View
+                  style={[
+                    styles.bankTransferConfirmBox,
+                    bankTransferMarked
+                      ? styles.bankTransferConfirmBoxMarked
+                      : null,
+                  ]}
+                >
+                  <View style={styles.bankTransferConfirmCopy}>
+                    <Text style={styles.bankTransferConfirmTitle}>
+                      {bankTransferMarked
+                        ? 'Transfer marked'
+                        : 'After sending VND'}
+                    </Text>
+                    <Text style={styles.bankTransferConfirmText}>
+                      {bankTransferMarked
+                        ? 'The app will keep checking provider confirmation for this order.'
+                        : 'Tap after you have sent the exact amount and content.'}
+                    </Text>
+                  </View>
+                  <PressScale
+                    disabled={wallet.isBusy || bankTransferChecking}
+                    onPress={() => markBankTransferSubmitted(orderReference)}
+                    style={styles.bankTransferConfirmButton}
+                  >
+                    <Ionicons
+                      color="#101400"
+                      name={
+                        bankTransferChecking
+                          ? 'time'
+                          : bankTransferMarked
+                          ? 'refresh'
+                          : 'checkmark-circle'
+                      }
+                      size={17}
+                    />
+                    <Text
+                      adjustsFontSizeToFit
+                      numberOfLines={1}
+                      style={styles.bankTransferConfirmButtonText}
+                    >
+                      {bankTransferChecking
+                        ? 'Checking...'
+                        : bankTransferMarked
+                        ? 'Check again'
+                        : "I've transferred"}
+                    </Text>
+                  </PressScale>
+                </View>
+              ) : null}
               {canBypassTestPayment ? (
                 <View style={styles.testPaymentBox}>
                   <View style={styles.testPaymentCopy}>
@@ -1393,6 +1458,9 @@ export function RampScreen({
     validSellForm &&
     Boolean(wallet.wallet) &&
     (direction === 'buy' || wallet.walletCanSign);
+  const quotedAssetAmount = formatTokenAmount(
+    amountValidation.valid ? amountValidation.normalized : amount,
+  );
 
   function handlePrimaryRampAction() {
     if (!quote) {
@@ -1400,12 +1468,7 @@ export function RampScreen({
       return;
     }
 
-    if (direction === 'sell') {
-      setQuoteSheetVisible(true);
-      return;
-    }
-
-    createOrder().catch(() => null);
+    setQuoteSheetVisible(true);
   }
 
   if (orderQueueVisible && !order) {
@@ -1650,34 +1713,6 @@ export function RampScreen({
             </>
           ) : null}
 
-          {quote && direction === 'buy' ? (
-            <View style={styles.quoteCard}>
-              <Text style={styles.quoteEyebrow}>
-                {direction === 'buy' ? 'ESTIMATED PAYMENT' : 'ESTIMATED PAYOUT'}
-              </Text>
-              <Text style={styles.quoteAmount}>
-                {formatVnd(quote.total_vnd)}
-              </Text>
-              <ModernInfoLine
-                label="Rate"
-                value={`${formatVnd(quote.rate)} / ${quote.asset_code}`}
-              />
-              <ModernInfoLine
-                label="Gross"
-                value={formatVnd(quote.gross_vnd)}
-              />
-              <ModernInfoLine label="Fee" value={formatVnd(quote.fee_vnd)} />
-              <ModernInfoLine
-                label="You transfer"
-                value={formatVnd(quote.total_vnd)}
-              />
-              <Text style={modern.reviewModernText}>
-                Final values come from the order response. This quote may
-                change.
-              </Text>
-            </View>
-          ) : null}
-
           {rampAmountWarning ? (
             <View style={styles.feeWarning}>
               <Ionicons color="#A25C00" name="warning-outline" size={18} />
@@ -1703,9 +1738,7 @@ export function RampScreen({
                 ? !wallet.serverSessionReady
                   ? 'Syncing wallet session'
                   : canCreate
-                  ? direction === 'buy'
-                    ? 'Create buy order'
-                    : 'Review VND quote'
+                  ? 'Review VND quote'
                   : exceedsWithdrawAvailable
                   ? 'Amount exceeds available balance'
                   : rampPayoutTooSmall ||
@@ -1726,7 +1759,7 @@ export function RampScreen({
         presentationStyle="overFullScreen"
         statusBarTranslucent
         transparent
-        visible={quoteSheetVisible && direction === 'sell' && Boolean(quote)}
+        visible={quoteSheetVisible && Boolean(quote)}
       >
         <View style={modern.swapConfirmOverlay}>
           <Pressable
@@ -1736,7 +1769,9 @@ export function RampScreen({
           <View style={[modern.swapConfirmSheet, styles.quoteSheet]}>
             <View style={modern.swapConfirmHandle} />
             <View style={modern.swapConfirmHeader}>
-              <Text style={modern.swapConfirmTitle}>Confirm withdrawal</Text>
+              <Text style={modern.swapConfirmTitle}>
+                {direction === 'buy' ? 'Confirm buy' : 'Confirm withdrawal'}
+              </Text>
               <View style={modern.swapConfirmCloseSlot}>
                 <PressScale
                   onPress={() => setQuoteSheetVisible(false)}
@@ -1750,26 +1785,44 @@ export function RampScreen({
             {quote ? (
               <>
                 <View style={modern.swapConfirmAmounts}>
-                  <Text
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.72}
-                    numberOfLines={1}
-                    style={modern.swapConfirmAmount}
-                  >
-                    {formatTokenAmount(
-                      amountValidation.valid
-                        ? amountValidation.normalized
-                        : amount,
-                    )}
-                  </Text>
-                  <View style={modern.swapConfirmTokenBadge}>
-                    <TokenIcon
-                      assetCode={assetCode}
-                      imageUrl={selectedAsset?.image}
-                      size={14}
-                    />
-                    <Text style={modern.swapConfirmTokenText}>{assetCode}</Text>
-                  </View>
+                  {direction === 'buy' ? (
+                    <>
+                      <Text
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.72}
+                        numberOfLines={1}
+                        style={modern.swapConfirmAmount}
+                      >
+                        {formatVnd(quote.total_vnd)}
+                      </Text>
+                      <View style={modern.swapConfirmTokenBadge}>
+                        <Text style={modern.swapConfirmTokenText}>
+                          VND PAYMENT
+                        </Text>
+                      </View>
+                    </>
+                  ) : (
+                    <>
+                      <Text
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.72}
+                        numberOfLines={1}
+                        style={modern.swapConfirmAmount}
+                      >
+                        {quotedAssetAmount}
+                      </Text>
+                      <View style={modern.swapConfirmTokenBadge}>
+                        <TokenIcon
+                          assetCode={assetCode}
+                          imageUrl={selectedAsset?.image}
+                          size={14}
+                        />
+                        <Text style={modern.swapConfirmTokenText}>
+                          {assetCode}
+                        </Text>
+                      </View>
+                    </>
+                  )}
 
                   <View style={modern.swapConfirmArrowCircle}>
                     <Ionicons color="#B8FF45" name="arrow-down" size={22} />
@@ -1781,10 +1834,25 @@ export function RampScreen({
                     numberOfLines={1}
                     style={modern.swapConfirmReceiveAmount}
                   >
-                    {formatVnd(quote.total_vnd)}
+                    {direction === 'buy'
+                      ? quotedAssetAmount
+                      : formatVnd(quote.total_vnd)}
                   </Text>
                   <View style={modern.swapConfirmTokenBadge}>
-                    <Text style={modern.swapConfirmTokenText}>VND PAYOUT</Text>
+                    {direction === 'buy' ? (
+                      <>
+                        <TokenIcon
+                          assetCode={assetCode}
+                          imageUrl={selectedAsset?.image}
+                          size={14}
+                        />
+                        <Text style={modern.swapConfirmTokenText}>
+                          {assetCode}
+                        </Text>
+                      </>
+                    ) : (
+                      <Text style={modern.swapConfirmTokenText}>VND PAYOUT</Text>
+                    )}
                   </View>
                 </View>
 
@@ -1807,24 +1875,39 @@ export function RampScreen({
                       {formatVnd(quote.fee_vnd)}
                     </Text>
                   </View>
-                  <View style={modern.swapConfirmDetailRow}>
-                    <Text style={modern.swapConfirmDetailLabel}>Bank</Text>
-                    <Text style={modern.swapConfirmDetailValue}>
-                      {selectedBank.name}
-                    </Text>
-                  </View>
-                  <View style={modern.swapConfirmDetailRow}>
-                    <Text style={modern.swapConfirmDetailLabel}>Account</Text>
-                    <Text style={modern.swapConfirmDetailValue}>
-                      {paymentInfo.accountNumber}
-                    </Text>
-                  </View>
-                  <View style={modern.swapConfirmDetailRow}>
-                    <Text style={modern.swapConfirmDetailLabel}>Name</Text>
-                    <Text style={modern.swapConfirmDetailValue}>
-                      {paymentInfo.fullName}
-                    </Text>
-                  </View>
+                  {direction === 'buy' ? (
+                    <View style={modern.swapConfirmDetailRow}>
+                      <Text style={modern.swapConfirmDetailLabel}>
+                        You transfer
+                      </Text>
+                      <Text style={modern.swapConfirmDetailValue}>
+                        {formatVnd(quote.total_vnd)}
+                      </Text>
+                    </View>
+                  ) : (
+                    <>
+                      <View style={modern.swapConfirmDetailRow}>
+                        <Text style={modern.swapConfirmDetailLabel}>Bank</Text>
+                        <Text style={modern.swapConfirmDetailValue}>
+                          {selectedBank.name}
+                        </Text>
+                      </View>
+                      <View style={modern.swapConfirmDetailRow}>
+                        <Text style={modern.swapConfirmDetailLabel}>
+                          Account
+                        </Text>
+                        <Text style={modern.swapConfirmDetailValue}>
+                          {paymentInfo.accountNumber}
+                        </Text>
+                      </View>
+                      <View style={modern.swapConfirmDetailRow}>
+                        <Text style={modern.swapConfirmDetailLabel}>Name</Text>
+                        <Text style={modern.swapConfirmDetailValue}>
+                          {paymentInfo.fullName}
+                        </Text>
+                      </View>
+                    </>
+                  )}
                 </View>
 
                 {quote.gross_vnd > 0 &&
@@ -1836,8 +1919,9 @@ export function RampScreen({
                       size={18}
                     />
                     <Text style={styles.feeWarningText}>
-                      The fee uses a large part of this withdrawal. Increase the
-                      crypto amount for a better payout.
+                      {direction === 'buy'
+                        ? 'The fee uses a large part of this buy. Increase the crypto amount for a better quote.'
+                        : 'The fee uses a large part of this withdrawal. Increase the crypto amount for a better payout.'}
                     </Text>
                   </View>
                 ) : null}
@@ -1856,8 +1940,9 @@ export function RampScreen({
                 ) : null}
 
                 <Text style={modern.swapConfirmNote}>
-                  Final values come from the order response. After you confirm,
-                  the app opens the crypto signing step automatically.
+                  {direction === 'buy'
+                    ? 'Final values come from the order response. After you create the order, transfer the exact VND amount and content shown.'
+                    : 'Final values come from the order response. After you confirm, the app opens the crypto signing step automatically.'}
                 </Text>
 
                 <PressScale
@@ -1866,7 +1951,11 @@ export function RampScreen({
                   style={modern.swapConfirmButton}
                 >
                   <Text style={modern.swapConfirmButtonText}>
-                    {wallet.isBusy ? 'CREATING...' : 'CREATE WITHDRAWAL'}
+                    {wallet.isBusy
+                      ? 'CREATING...'
+                      : direction === 'buy'
+                      ? 'CREATE BUY ORDER'
+                      : 'CREATE WITHDRAWAL'}
                   </Text>
                 </PressScale>
               </>
@@ -2239,29 +2328,58 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
     borderColor: '#0ABF73',
   },
-  transferDetailsBox: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 6,
-    padding: 9,
-  },
-  transferDetailsTitle: {
-    color: '#8A9099',
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-    paddingHorizontal: 6,
-    paddingTop: 2,
-    textTransform: 'uppercase',
-  },
   transferExactHint: {
     color: '#B8FF45',
     fontSize: 12,
     fontWeight: '800',
     lineHeight: 17,
     textAlign: 'center',
+  },
+  bankTransferConfirmBox: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    padding: 12,
+  },
+  bankTransferConfirmBoxMarked: {
+    backgroundColor: 'rgba(184,255,69,0.08)',
+    borderColor: 'rgba(184,255,69,0.22)',
+  },
+  bankTransferConfirmButton: {
+    alignItems: 'center',
+    backgroundColor: '#B8FF45',
+    borderRadius: 14,
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+    minHeight: 42,
+    minWidth: 138,
+    paddingHorizontal: 12,
+  },
+  bankTransferConfirmButtonText: {
+    color: '#101400',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  bankTransferConfirmCopy: {
+    flex: 1,
+    gap: 3,
+    minWidth: 0,
+  },
+  bankTransferConfirmText: {
+    color: '#8A9099',
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 15,
+  },
+  bankTransferConfirmTitle: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
   },
   transferPriorityStack: {
     gap: 7,
@@ -2310,46 +2428,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 7,
     width: 30,
-  },
-  transferCopyRow: {
-    alignItems: 'center',
-    borderRadius: 13,
-    flexDirection: 'row',
-    gap: 8,
-    minHeight: 38,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-  },
-  transferCopyRowPressed: {
-    backgroundColor: 'rgba(184,255,69,0.08)',
-  },
-  transferCopyLabel: {
-    color: '#A1B0C8',
-    flexShrink: 0,
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.25,
-    minWidth: 82,
-    textTransform: 'uppercase',
-  },
-  transferCopyValue: {
-    color: '#FFFFFF',
-    flex: 1,
-    fontSize: 11,
-    fontWeight: '900',
-    lineHeight: 15,
-    minWidth: 0,
-    textAlign: 'right',
-  },
-  transferCopyIcon: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(184,255,69,0.14)',
-    borderColor: 'rgba(184,255,69,0.22)',
-    borderRadius: 12,
-    borderWidth: 1,
-    height: 24,
-    justifyContent: 'center',
-    width: 24,
   },
   saveQrInlineButton: {
     alignItems: 'center',
@@ -2615,25 +2693,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '900',
-  },
-  quoteAmount: {
-    color: '#FFFFFF',
-    fontSize: 30,
-    fontWeight: '900',
-    letterSpacing: -0.7,
-    marginBottom: 4,
-  },
-  quoteCard: {
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 22,
-    gap: 9,
-    padding: 16,
-  },
-  quoteEyebrow: {
-    color: '#8A9099',
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.8,
   },
   quoteSheet: {
     paddingBottom: 28,
