@@ -1,5 +1,6 @@
-import React, { ReactNode, useEffect, useState } from 'react';
+import React, { ReactNode, useEffect, useState, useRef } from 'react';
 import {
+  Animated,
   AppState,
   Image,
   Keyboard,
@@ -51,6 +52,8 @@ const CURRENCIES: { code: SupportedCurrency; name: string; symbol: string }[] =
     { code: 'JPY', name: 'Japanese Yen', symbol: '¥' },
     { code: 'GBP', name: 'British Pound', symbol: '£' },
   ];
+
+const EGG_COLORS = ['#8B5CF6', '#F59E0B', '#10B981', '#EC4899', '#3B82F6', '#B8FF45', '#EF4444'];
 
 type DetailSheet = 'advanced' | 'payment' | 'security' | 'wallet' | null;
 type ToolMode = 'import' | 'watch' | null;
@@ -253,6 +256,50 @@ export function SettingsScreen({
   const [paymentDefault, setPaymentDefault] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentNotice, setPaymentNotice] = useState<string | null>(null);
+
+  const [avatarColor, setAvatarColor] = useState('#8B5CF6');
+  const bounceAnim = useRef(new Animated.Value(1)).current;
+
+  const [toastVisible, setToastVisible] = useState(false);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const toastTranslateY = useRef(new Animated.Value(0)).current;
+  const toastScale = useRef(new Animated.Value(0.5)).current;
+
+  function handleProfileEgg() {
+    Clipboard.setString(wallet.account?.email || '');
+    
+    setToastVisible(true);
+    toastOpacity.setValue(0);
+    toastTranslateY.setValue(0);
+    toastScale.setValue(0.5);
+
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(toastOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+        Animated.timing(toastScale, { toValue: 1, duration: 200, useNativeDriver: true }),
+        Animated.timing(toastTranslateY, { toValue: -30, duration: 200, useNativeDriver: true })
+      ]),
+      Animated.delay(1000),
+      Animated.parallel([
+        Animated.timing(toastOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+        Animated.timing(toastTranslateY, { toValue: 50, duration: 400, useNativeDriver: true })
+      ])
+    ]).start(({ finished }) => {
+      if (finished) setToastVisible(false);
+    });
+
+    const nextColors = EGG_COLORS.filter(c => c !== avatarColor);
+    const randomColor = nextColors[Math.floor(Math.random() * nextColors.length)];
+    setAvatarColor(randomColor);
+    
+    bounceAnim.setValue(0.9);
+    Animated.spring(bounceAnim, {
+      toValue: 1,
+      friction: 3,
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
+  }
 
   const activeWallet =
     wallet.wallets.find(item => item.id === wallet.activeWalletId) ||
@@ -878,23 +925,49 @@ export function SettingsScreen({
       >
         <ModernScreenHeader title="Settings" />
 
-        <View style={styles.profileCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{profileInitial}</Text>
-          </View>
-          <View style={styles.profileCopy}>
-            <Text numberOfLines={1} style={styles.profileEmail}>
-              {email}
-            </Text>
-            <View style={styles.profileMetaRow}>
-              <Ionicons
-                color="#717781"
-                name="shield-checkmark-outline"
-                size={14}
-              />
-              <Text style={styles.profileMeta}>Privy secured account</Text>
-            </View>
-          </View>
+        <View style={{ zIndex: 10, alignItems: 'center', justifyContent: 'center' }}>
+          <TouchableOpacity activeOpacity={0.9} onPress={handleProfileEgg} style={{ width: '100%' }}>
+            <Animated.View style={[styles.profileCard, { transform: [{ scale: bounceAnim }] }]}>
+              <Ionicons name="planet-outline" size={72} color="rgba(255,255,255,0.15)" style={styles.bgIcon1} />
+              <Ionicons name="cube-outline" size={54} color="rgba(255,255,255,0.15)" style={styles.bgIcon2} />
+              <Ionicons name="sparkles-outline" size={28} color="#FFFFFF" style={styles.bgIcon3} />
+              <Ionicons name="rocket-outline" size={36} color="rgba(255,255,255,0.12)" style={styles.bgIcon4} />
+              <Ionicons name="hardware-chip-outline" size={28} color="rgba(255,255,255,0.1)" style={styles.bgIcon5} />
+              <Ionicons name="star-outline" size={14} color="#FFFFFF" style={styles.bgIcon6} />
+              <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
+                <Text style={styles.avatarText}>{profileInitial}</Text>
+              </View>
+              <View style={styles.profileEmailRow}>
+                <Text numberOfLines={1} style={styles.profileEmail}>
+                  {email}
+                </Text>
+                <Ionicons
+                  color="#B8FF45"
+                  name="shield-checkmark"
+                  size={16}
+                />
+              </View>
+            </Animated.View>
+          </TouchableOpacity>
+
+          {toastVisible && (
+            <Animated.View 
+              pointerEvents="none"
+              style={[
+                styles.customToast, 
+                { 
+                  opacity: toastOpacity, 
+                  transform: [
+                    { scale: toastScale },
+                    { translateY: toastTranslateY }
+                  ] 
+                }
+              ]}
+            >
+              <Ionicons name="checkmark-circle" size={16} color="#B8FF45" />
+              <Text style={styles.customToastText}>Đã sao chép</Text>
+            </Animated.View>
+          )}
         </View>
 
         <Text style={styles.sectionLabel}>WALLET</Text>
@@ -1610,7 +1683,7 @@ const styles = StyleSheet.create({
   },
   avatar: {
     alignItems: 'center',
-    backgroundColor: '#1E222B',
+    backgroundColor: '#8B5CF6',
     borderRadius: 27,
     height: 54,
     justifyContent: 'center',
@@ -2016,34 +2089,61 @@ const styles = StyleSheet.create({
   profileCard: {
     alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255,255,255,0.08)',
     borderRadius: 24,
-    flexDirection: 'row',
-    gap: 14,
-    padding: 16,
+    borderWidth: 1,
+    gap: 12,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    padding: 24,
     shadowColor: '#1A1D22',
     shadowOffset: { height: 9, width: 0 },
     shadowOpacity: 0.05,
     shadowRadius: 20,
   },
-  profileCopy: {
-    flex: 1,
-    gap: 5,
-    minWidth: 0,
+  profileEmailRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
   },
   profileEmail: {
     color: '#FFFFFF',
     fontSize: 17,
     fontWeight: '800',
   },
-  profileMeta: {
-    color: '#A1B0C8',
-    fontSize: 12,
-    fontWeight: '600',
+  bgIcon1: {
+    position: 'absolute',
+    top: -15,
+    left: -10,
+    transform: [{ rotate: '-15deg' }],
   },
-  profileMetaRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 5,
+  bgIcon2: {
+    position: 'absolute',
+    bottom: -15,
+    right: -5,
+    transform: [{ rotate: '15deg' }],
+  },
+  bgIcon3: {
+    position: 'absolute',
+    top: 15,
+    right: 25,
+  },
+  bgIcon4: {
+    position: 'absolute',
+    bottom: -10,
+    left: 20,
+    transform: [{ rotate: '45deg' }],
+  },
+  bgIcon5: {
+    position: 'absolute',
+    top: -5,
+    right: 70,
+    transform: [{ rotate: '15deg' }],
+  },
+  bgIcon6: {
+    position: 'absolute',
+    top: 55,
+    left: 25,
   },
   recoveryAddress: {
     color: '#A1B0C8',
@@ -2380,5 +2480,27 @@ const styles = StyleSheet.create({
     color: '#717781',
     fontSize: 12,
     fontWeight: '600',
+  },
+  customToast: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: '#1E222B',
+    borderRadius: 30,
+    elevation: 5,
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    position: 'absolute',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    zIndex: 9999,
+  },
+  customToastText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });
