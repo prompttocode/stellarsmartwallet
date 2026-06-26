@@ -16,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
+import * as Application from 'expo-application';
 import * as ExpoLinking from 'expo-linking';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -808,7 +809,7 @@ export function SettingsScreen({
           >
             <View style={styles.toolModal}>
               <View style={styles.toolModalIcon}>
-                <Ionicons color="#FFFFFF" name="key-outline" size={24} />
+                <Ionicons color="#000000" name="key-outline" size={24} />
               </View>
               <Text style={styles.toolModalTitle}>Back up recovery key</Text>
               <Text style={styles.toolModalText}>
@@ -1064,6 +1065,12 @@ export function SettingsScreen({
           </View>
           <Text style={styles.signOutText}>Sign out</Text>
         </PressScale>
+
+        <View style={styles.versionContainer}>
+          <Text style={styles.versionText}>
+            Version {Application.nativeApplicationVersion} ({Application.nativeBuildVersion})
+          </Text>
+        </View>
       </ScrollView>
 
       <BottomSheet
@@ -2363,5 +2370,15 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 3,
     minWidth: 0,
+  },
+  versionContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+    marginTop: 24,
+  },
+  versionText: {
+    color: '#717781',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

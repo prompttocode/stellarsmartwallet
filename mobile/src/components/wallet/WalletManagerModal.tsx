@@ -22,6 +22,7 @@ import type { WalletState } from '@hooks/useWallet';
 import type { Wallet } from '@app-types';
 
 const WALLET_ORDER_STORAGE_PREFIX = 'privy-wallet-order';
+const WALLET_ACCENT = '#B8FF45';
 
 function getWalletOrderStorageKey(email: string | undefined, network: string) {
   return `${WALLET_ORDER_STORAGE_PREFIX}:${email || 'local'}:${network}`;
@@ -85,9 +86,7 @@ export function WalletManagerModal({
   const [data, setData] = useState<Wallet[]>([]);
   const [renamingWallet, setRenamingWallet] = useState<Wallet | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const isCreatingWallet = Boolean(
-    walletState.busy?.startsWith('Creating'),
-  );
+  const isCreatingWallet = Boolean(walletState.busy?.startsWith('Creating'));
   const networkLabel = walletState.isMainnet ? 'Mainnet' : 'Testnet';
   const orderStorageKey = getWalletOrderStorageKey(
     walletState.account?.email,
@@ -215,7 +214,11 @@ export function WalletManagerModal({
             </View>
           ) : (
             isSelected && (
-              <Ionicons name="checkmark-circle" size={24} color="#0F8EA3" />
+              <Ionicons
+                name="checkmark-circle"
+                size={24}
+                color={WALLET_ACCENT}
+              />
             )
           )}
         </TouchableOpacity>
@@ -288,10 +291,12 @@ export function WalletManagerModal({
               style={styles.addButton}
             >
               {isCreatingWallet ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
+                <ActivityIndicator color="#080B08" size="small" />
               ) : null}
               <Text style={styles.addButtonText}>
-                {isCreatingWallet ? 'Creating wallet...' : `Add ${networkLabel} Wallet`}
+                {isCreatingWallet
+                  ? 'Creating wallet...'
+                  : `Add ${networkLabel} Wallet`}
               </Text>
             </PressScale>
           </View>
@@ -304,7 +309,9 @@ export function WalletManagerModal({
           <View style={styles.promptOverlay}>
             <View style={styles.promptBox}>
               <Text style={styles.promptTitle}>Rename wallet</Text>
-              <Text style={styles.promptDesc}>Enter a new name for this wallet</Text>
+              <Text style={styles.promptDesc}>
+                Enter a new name for this wallet
+              </Text>
               <TextInput
                 style={styles.promptInput}
                 value={renameValue}
@@ -342,7 +349,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheetContainer: {
-    backgroundColor: '#131A22',
+    backgroundColor: '#000000',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingBottom: Platform.OS === 'ios' ? 40 : 20,
@@ -359,13 +366,13 @@ const styles = StyleSheet.create({
   headerBtn: { minWidth: 60, alignItems: 'flex-start' },
   headerBtnRight: { minWidth: 60, alignItems: 'flex-end' },
   doneBtn: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#161A16',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
   },
   closeBtn: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#161A16',
     width: 32,
     height: 32,
     borderRadius: 16,
@@ -396,17 +403,22 @@ const styles = StyleSheet.create({
   item: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E293B',
+    backgroundColor: '#141714',
     padding: 16,
     borderRadius: 16,
     marginBottom: 12,
+    borderColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
   },
-  itemSelected: { borderColor: '#0F8EA3', borderWidth: 1 },
+  itemSelected: {
+    backgroundColor: 'rgba(184,255,69,0.08)',
+    borderColor: WALLET_ACCENT,
+  },
   iconBox: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#334155',
+    backgroundColor: '#252A25',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -414,18 +426,18 @@ const styles = StyleSheet.create({
   itemTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   itemName: { color: '#FFF', fontSize: 16, fontWeight: '600' },
   tag: {
-    backgroundColor: '#0F8EA3',
+    backgroundColor: 'rgba(184,255,69,0.14)',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
   },
-  tagText: { color: '#FFF', fontSize: 10, fontWeight: '700' },
+  tagText: { color: WALLET_ACCENT, fontSize: 10, fontWeight: '700' },
   itemAddress: { color: '#8A9AA3', fontSize: 14, marginTop: 4 },
   editActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   actionBtn: { padding: 4 },
   footer: { paddingHorizontal: 24, paddingTop: 16 },
   addButton: {
-    backgroundColor: '#1E293B',
+    backgroundColor: WALLET_ACCENT,
     flexDirection: 'row',
     gap: 8,
     padding: 16,
@@ -433,7 +445,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  addButtonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
+  addButtonText: { color: '#080B08', fontSize: 16, fontWeight: '700' },
   promptOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
@@ -442,9 +454,11 @@ const styles = StyleSheet.create({
   },
   promptBox: {
     width: '80%',
-    backgroundColor: '#1E293B',
+    backgroundColor: '#101210',
     borderRadius: 16,
     padding: 20,
+    borderColor: 'rgba(184,255,69,0.18)',
+    borderWidth: 1,
   },
   promptTitle: {
     color: '#FFF',
@@ -454,23 +468,23 @@ const styles = StyleSheet.create({
   },
   promptDesc: { color: '#8A9AA3', fontSize: 14, marginBottom: 16 },
   promptInput: {
-    backgroundColor: '#0F172A',
+    backgroundColor: '#050605',
     color: '#FFF',
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: 'rgba(255,255,255,0.12)',
   },
   promptActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
   promptBtn: { paddingVertical: 10, paddingHorizontal: 16 },
   promptBtnText: { color: '#8A9AA3', fontSize: 16, fontWeight: '600' },
   promptBtnPrimary: {
-    backgroundColor: '#0F8EA3',
+    backgroundColor: WALLET_ACCENT,
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 8,
   },
-  promptBtnPrimaryText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
+  promptBtnPrimaryText: { color: '#080B08', fontSize: 16, fontWeight: '700' },
 });
