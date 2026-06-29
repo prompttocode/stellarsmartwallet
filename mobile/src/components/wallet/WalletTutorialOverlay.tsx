@@ -42,7 +42,9 @@ const guideLottieAnimations = {
   step1: require('@assets/lottie/step1.json') as AnimationObject,
   step2: require('@assets/lottie/step2.json') as AnimationObject,
   step4: require('@assets/lottie/step4.json') as AnimationObject,
+  step5: require('@assets/lottie/step5.json') as AnimationObject,
 };
+const guideMascotImage = require('@assets/images/mascot/mascot.png');
 
 const guideMascotSteps = [0, 1, 2, 3, 4];
 const guideMascotRotatePositions = [-8, 9, -13, 7, -4];
@@ -66,32 +68,44 @@ function LottieArt({ source }: { source: AnimationObject }) {
 
 function GuideMascot({
   activeIndex,
+  slide,
   topInset,
   width,
 }: {
   activeIndex: number;
+  slide: TutorialSlide;
   topInset: number;
   width: number;
 }) {
   const step = useSharedValue(activeIndex);
   const float = useSharedValue(0);
+  const bubbleWidth = Math.min(width - 112, 286);
+  const mascotOnRight = activeIndex % 2 === 1;
   const xPositions = useMemo(
-    () => [
-      width * 0.18,
-      width * 0.68,
-      width * 0.48,
-      width * 0.72,
-      width * 0.24,
-    ],
+    () => [10, width - 104, 10, width - 104, 10],
     [width],
+  );
+  const bubbleXPositions = useMemo(
+    () => [92, width - bubbleWidth - 92, 92, width - bubbleWidth - 92, 92],
+    [bubbleWidth, width],
   );
   const yPositions = useMemo(
     () => [
-      topInset + 150,
-      topInset + 118,
-      topInset + 120,
-      topInset + 136,
-      topInset + 156,
+      topInset + 126,
+      topInset + 126,
+      topInset + 126,
+      topInset + 126,
+      topInset + 126,
+    ],
+    [topInset],
+  );
+  const bubbleYPositions = useMemo(
+    () => [
+      topInset + 92,
+      topInset + 92,
+      topInset + 92,
+      topInset + 92,
+      topInset + 92,
     ],
     [topInset],
   );
@@ -137,20 +151,75 @@ function GuideMascot({
       ],
     };
   }, [xPositions, yPositions]);
+  const bubbleAnimatedStyle = useAnimatedStyle(
+    () => ({
+      transform: [
+        {
+          translateX: interpolate(
+            step.value,
+            guideMascotSteps,
+            bubbleXPositions,
+          ),
+        },
+        {
+          translateY: interpolate(
+            step.value,
+            guideMascotSteps,
+            bubbleYPositions,
+          ),
+        },
+      ],
+    }),
+    [bubbleXPositions, bubbleYPositions],
+  );
 
   return (
-    <Reanimated.View
-      pointerEvents="none"
-      style={[styles.guideMascot, animatedStyle]}
-    >
-      <View style={styles.guideMascotGlow} />
-      <Image
-        resizeMode="contain"
-        source={guideCoinImages.XLM}
-        style={styles.guideMascotImage}
-      />
-      <View style={styles.guideMascotDot} />
-    </Reanimated.View>
+    <>
+      <Reanimated.View
+        pointerEvents="none"
+        style={[
+          styles.guideChatBubble,
+          { width: bubbleWidth },
+          bubbleAnimatedStyle,
+        ]}
+      >
+        <View
+          style={[
+            styles.guideChatTail,
+            mascotOnRight
+              ? styles.guideChatTailRight
+              : styles.guideChatTailLeft,
+          ]}
+        />
+        <View
+          style={[
+            styles.guideChatTailInner,
+            mascotOnRight
+              ? styles.guideChatTailInnerRight
+              : styles.guideChatTailInnerLeft,
+          ]}
+        />
+        <Text style={styles.guideChatEyebrow}>{slide.eyebrow}</Text>
+        <Text numberOfLines={2} style={styles.guideChatTitle}>
+          {slide.title}
+        </Text>
+        <Text numberOfLines={4} style={styles.guideChatBody}>
+          {slide.body}
+        </Text>
+      </Reanimated.View>
+
+      <Reanimated.View
+        pointerEvents="none"
+        style={[styles.guideMascot, animatedStyle]}
+      >
+        <View style={styles.guideMascotGlow} />
+        <Image
+          resizeMode="contain"
+          source={guideMascotImage}
+          style={styles.guideMascotImage}
+        />
+      </Reanimated.View>
+    </>
   );
 }
 
@@ -215,15 +284,24 @@ function SendArt() {
 function TrackArt() {
   return (
     <View style={styles.artStage}>
-      <View style={styles.txCard}>
-        <View style={styles.txIcon}>
-          <Ionicons color="#07100B" name="checkmark" size={22} />
+      <View style={styles.trackArtStack}>
+        <LottieView
+          autoPlay
+          loop
+          resizeMode="contain"
+          source={guideLottieAnimations.step5}
+          style={styles.trackLottieArt}
+        />
+        <View style={styles.txCard}>
+          <View style={styles.txIcon}>
+            <Ionicons color="#07100B" name="checkmark" size={22} />
+          </View>
+          <View style={styles.txCopy}>
+            <View style={styles.txLineWide} />
+            <View style={styles.txLineShort} />
+          </View>
+          <Ionicons color="#B8FF45" name="open-outline" size={24} />
         </View>
-        <View style={styles.txCopy}>
-          <View style={styles.txLineWide} />
-          <View style={styles.txLineShort} />
-        </View>
-        <Ionicons color="#B8FF45" name="open-outline" size={24} />
       </View>
     </View>
   );
@@ -284,6 +362,8 @@ export function WalletTutorialOverlay({
   const slides = getTutorialSlides(network);
   const isLastSlide = activeIndex === slides.length - 1;
   const slideWidth = Math.max(1, width);
+  const activeSlide = slides[activeIndex] || slides[0];
+  const artTopPadding = Math.max(230, insets.top + 205);
 
   useEffect(() => {
     if (visible) {
@@ -340,6 +420,7 @@ export function WalletTutorialOverlay({
         </View>
         <GuideMascot
           activeIndex={activeIndex}
+          slide={activeSlide}
           topInset={insets.top}
           width={slideWidth}
         />
@@ -356,14 +437,15 @@ export function WalletTutorialOverlay({
           {slides.map(slide => (
             <View
               key={slide.title}
-              style={[styles.slide, { width: slideWidth }]}
+              style={[
+                styles.slide,
+                {
+                  paddingTop: artTopPadding,
+                  width: slideWidth,
+                },
+              ]}
             >
               {slide.renderArt()}
-              <View style={styles.copyBlock}>
-                <Text style={styles.slideEyebrow}>{slide.eyebrow}</Text>
-                <Text style={styles.slideTitle}>{slide.title}</Text>
-                <Text style={styles.slideBody}>{slide.body}</Text>
-              </View>
             </View>
           ))}
         </ScrollView>
@@ -523,10 +605,6 @@ const styles = StyleSheet.create({
     top: 70,
     width: 14,
   },
-  copyBlock: {
-    alignItems: 'center',
-    paddingHorizontal: 28,
-  },
   dot: {
     backgroundColor: 'rgba(255,255,255,0.22)',
     borderRadius: 5,
@@ -547,41 +625,103 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 22,
   },
-  guideMascot: {
-    alignItems: 'center',
-    height: 62,
-    justifyContent: 'center',
-    left: -31,
+  guideChatBody: {
+    color: '#B4BFCD',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 18,
+    marginTop: 7,
+  },
+  guideChatBubble: {
+    backgroundColor: '#11171D',
+    borderColor: 'rgba(184,255,69,0.28)',
+    borderRadius: 18,
+    borderWidth: 1,
+    left: 0,
+    paddingHorizontal: 15,
+    paddingVertical: 13,
     position: 'absolute',
+    shadowColor: '#000000',
+    shadowOffset: { height: 10, width: 0 },
+    shadowOpacity: 0.24,
+    shadowRadius: 20,
     top: 0,
-    width: 62,
     zIndex: 6,
   },
-  guideMascotDot: {
-    backgroundColor: '#B8FF45',
-    borderColor: '#07100B',
-    borderRadius: 5,
-    borderWidth: 1,
-    height: 10,
+  guideChatEyebrow: {
+    color: '#B8FF45',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+  },
+  guideChatTail: {
+    backgroundColor: '#11171D',
+    borderBottomColor: 'rgba(184,255,69,0.28)',
+    borderBottomWidth: 1,
+    borderRightColor: 'rgba(184,255,69,0.28)',
+    borderRightWidth: 1,
+    height: 15,
     position: 'absolute',
-    right: 5,
-    top: 7,
+    top: 42,
+    transform: [{ rotate: '45deg' }],
+    width: 15,
+  },
+  guideChatTailLeft: {
+    left: -8,
+  },
+  guideChatTailRight: {
+    right: -8,
+  },
+  guideChatTailInner: {
+    backgroundColor: '#B8FF45',
+    borderRadius: 2,
+    height: 10,
+    opacity: 0.95,
+    position: 'absolute',
+    top: 44,
+    transform: [{ rotate: '45deg' }],
     width: 10,
   },
+  guideChatTailInnerLeft: {
+    left: -5,
+  },
+  guideChatTailInnerRight: {
+    right: -5,
+  },
+  guideChatTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '900',
+    lineHeight: 21,
+    marginTop: 4,
+  },
+  guideMascot: {
+    alignItems: 'center',
+    height: 92,
+    justifyContent: 'center',
+    left: 0,
+    position: 'absolute',
+    top: 0,
+    width: 92,
+    zIndex: 7,
+  },
   guideMascotGlow: {
-    backgroundColor: 'rgba(184,255,69,0.14)',
-    borderRadius: 31,
-    height: 62,
+    backgroundColor: 'rgba(184,255,69,0.1)',
+    borderRadius: 37,
+    height: 74,
+    left: 9,
     position: 'absolute',
     shadowColor: '#B8FF45',
     shadowOffset: { height: 0, width: 0 },
-    shadowOpacity: 0.32,
-    shadowRadius: 12,
-    width: 62,
+    shadowOpacity: 0.2,
+    shadowRadius: 7,
+    top: 9,
+    width: 74,
   },
   guideMascotImage: {
-    height: 46,
-    width: 46,
+    height: 86,
+    width: 86,
   },
   header: {
     alignItems: 'center',
@@ -666,32 +806,20 @@ const styles = StyleSheet.create({
   slide: {
     alignItems: 'center',
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     paddingBottom: 22,
   },
-  slideBody: {
-    color: '#AAB3C2',
-    fontSize: 16,
-    fontWeight: '700',
-    lineHeight: 24,
-    marginTop: 12,
-    maxWidth: 330,
-    textAlign: 'center',
+  trackArtStack: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 238,
+    width: '100%',
   },
-  slideEyebrow: {
-    color: '#B8FF45',
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-  },
-  slideTitle: {
-    color: '#FFFFFF',
-    fontSize: 31,
-    fontWeight: '900',
-    lineHeight: 37,
-    marginTop: 8,
-    textAlign: 'center',
+  trackLottieArt: {
+    height: 200,
+    marginBottom: 0,
+    width: 200,
+    zIndex: 1,
   },
   txCard: {
     alignItems: 'center',
