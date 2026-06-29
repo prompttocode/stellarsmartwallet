@@ -23,85 +23,113 @@ import { modern } from '../modernStyles';
 import { PressScale } from './primitives';
 import { TokenIcon } from './token';
 
-type HeroMeteorStreak = {
+const heroCoinImages: ImageSourcePropType[] = [
+  require('@assets/images/coin/xlm.png'),
+  require('@assets/images/coin/usdc.png'),
+  require('@assets/images/coin/usdt.png'),
+  require('@assets/images/coin/eurc.png'),
+  require('@assets/images/coin/pyusd.png'),
+];
+
+type HeroCoinDriftConfig = {
   delay: number;
   duration: number;
   key: string;
   opacity: number;
+  rotateFrom: number;
+  rotateTo: number;
   right: number;
+  size: number;
+  source: ImageSourcePropType;
   top: number;
   travelX: number;
   travelY: number;
-  width: number;
 };
 
-function createHeroMeteorStreaks(): HeroMeteorStreak[] {
-  const count = 3 + Math.floor(Math.random() * 3);
+function createHeroCoinDrifts(): HeroCoinDriftConfig[] {
+  const count = 9 + Math.floor(Math.random() * 3);
 
   return Array.from({ length: count }, (_, index) => ({
-    delay: 450 + Math.random() * 5200 + index * 560,
-    duration: 2100 + Math.random() * 1300,
-    key: `hero-meteor-${index}`,
-    opacity: 0.18 + Math.random() * 0.16,
-    right: -80 + Math.random() * 170,
-    top: 62 + Math.random() * 285,
-    travelX: -(260 + Math.random() * 180),
-    travelY: 130 + Math.random() * 150,
-    width: 62 + Math.random() * 58,
+    delay: 120 + Math.random() * 900 + index * 280,
+    duration: 3600 + Math.random() * 1600,
+    key: `hero-coin-${index}`,
+    opacity: 0.2 + Math.random() * 0.18,
+    right: -36 + Math.random() * 140,
+    rotateFrom: -18 + Math.random() * 36,
+    rotateTo: 24 + Math.random() * 72,
+    size: 24 + Math.random() * 16,
+    source: heroCoinImages[index % heroCoinImages.length],
+    top: 46 + Math.random() * 320,
+    travelX: -(220 + Math.random() * 180),
+    travelY: 110 + Math.random() * 150,
   }));
 }
 
-function HeroMeteorField() {
-  const streaks = useMemo(createHeroMeteorStreaks, []);
+function HeroCoinField() {
+  const coins = useMemo(createHeroCoinDrifts, []);
 
   return (
     <View pointerEvents="none" style={modern.heroMeteorLayer}>
-      {streaks.map(streak => (
-        <HeroMeteorLine key={streak.key} streak={streak} />
+      {coins.map(coin => (
+        <HeroCoinDrift key={coin.key} coin={coin} />
       ))}
     </View>
   );
 }
 
-function HeroMeteorLine({ streak }: { streak: HeroMeteorStreak }) {
+function HeroCoinDrift({ coin }: { coin: HeroCoinDriftConfig }) {
   const progress = useSharedValue(0);
   const baseStyle = useMemo(
     () => ({
-      right: streak.right,
-      top: streak.top,
-      width: streak.width,
+      height: coin.size,
+      right: coin.right,
+      top: coin.top,
+      width: coin.size,
     }),
-    [streak.right, streak.top, streak.width],
+    [coin.right, coin.size, coin.top],
   );
   const animatedStyle = useAnimatedStyle(() => {
     const opacity = interpolate(
       progress.value,
-      [0, 0.1, 0.72, 1],
-      [0, streak.opacity, streak.opacity * 0.85, 0],
+      [0, 0.14, 0.74, 1],
+      [0, coin.opacity, coin.opacity * 0.76, 0],
     );
+    const rotate = interpolate(
+      progress.value,
+      [0, 1],
+      [coin.rotateFrom, coin.rotateTo],
+    );
+    const scale = interpolate(progress.value, [0, 0.4, 1], [0.88, 1, 0.94]);
 
     return {
       opacity,
       transform: [
         {
-          translateX: interpolate(progress.value, [0, 1], [0, streak.travelX]),
+          translateX: interpolate(progress.value, [0, 1], [0, coin.travelX]),
         },
         {
-          translateY: interpolate(progress.value, [0, 1], [0, streak.travelY]),
+          translateY: interpolate(progress.value, [0, 1], [0, coin.travelY]),
         },
-        { rotate: '-32deg' },
+        { rotate: `${rotate}deg` },
+        { scale },
       ],
     };
-  }, [streak.opacity, streak.travelX, streak.travelY]);
+  }, [
+    coin.opacity,
+    coin.rotateFrom,
+    coin.rotateTo,
+    coin.travelX,
+    coin.travelY,
+  ]);
 
   useEffect(() => {
     progress.value = 0;
     progress.value = withRepeat(
       withSequence(
         withDelay(
-          streak.delay,
+          coin.delay,
           withTiming(1, {
-            duration: streak.duration,
+            duration: coin.duration,
             easing: Easing.out(Easing.cubic),
           }),
         ),
@@ -110,11 +138,11 @@ function HeroMeteorLine({ streak }: { streak: HeroMeteorStreak }) {
       -1,
       false,
     );
-  }, [progress, streak.delay, streak.duration]);
+  }, [coin.delay, coin.duration, progress]);
 
   return (
-    <Animated.View style={[modern.heroMeteorStreak, baseStyle, animatedStyle]}>
-      <View style={modern.heroMeteorHead} />
+    <Animated.View style={[modern.heroCoinSprite, baseStyle, animatedStyle]}>
+      <Image source={coin.source} style={modern.heroCoinImage} />
     </Animated.View>
   );
 }
@@ -203,7 +231,7 @@ export function WalletHero({
       style={[modern.hero, network === 'mainnet' ? modern.heroMainnet : null]}
     >
       <View style={heroScrimStyle}>
-        <HeroMeteorField />
+        <HeroCoinField />
         <View style={modern.heroContent}>
           <View style={modern.heroTop}>
             <Pressable onPress={handleNetworkPress}>

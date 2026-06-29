@@ -1,6 +1,5 @@
 import React, { ReactNode, useEffect, useRef, useState } from 'react';
 import {
-  Animated,
   Image,
   Modal,
   Pressable,
@@ -37,75 +36,19 @@ const guideLottieAnimations = {
   step4: require('@assets/lottie/step4.json') as AnimationObject,
 };
 
-function AnimatedOrb({ children }: { children: ReactNode }) {
-  const scale = useRef(new Animated.Value(0.96)).current;
-  const opacity = useRef(new Animated.Value(0.58)).current;
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.parallel([
-        Animated.sequence([
-          Animated.timing(scale, {
-            duration: 1500,
-            toValue: 1.04,
-            useNativeDriver: true,
-          }),
-          Animated.timing(scale, {
-            duration: 1500,
-            toValue: 0.96,
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.sequence([
-          Animated.timing(opacity, {
-            duration: 1500,
-            toValue: 0.92,
-            useNativeDriver: true,
-          }),
-          Animated.timing(opacity, {
-            duration: 1500,
-            toValue: 0.58,
-            useNativeDriver: true,
-          }),
-        ]),
-      ]),
-    );
-
-    animation.start();
-
-    return () => animation.stop();
-  }, [opacity, scale]);
-
-  return (
-    <View style={styles.artStage}>
-      <Animated.View
-        style={[
-          styles.artGlow,
-          {
-            opacity,
-            transform: [{ scale }],
-          },
-        ]}
-      />
-      {children}
-    </View>
-  );
-}
-
 function LottieArt({ source }: { source: AnimationObject }) {
   return (
-    <AnimatedOrb>
+    <View style={styles.artStage}>
       <View style={styles.lottieArtFrame}>
         <LottieView
           autoPlay
           loop
           resizeMode="contain"
           source={source}
-          duration={5000}
           style={styles.lottieArt}
         />
       </View>
-    </AnimatedOrb>
+    </View>
   );
 }
 
@@ -119,7 +62,7 @@ function ReceiveArt() {
 
 function AssetArt() {
   return (
-    <AnimatedOrb>
+    <View style={styles.artStage}>
       <View style={styles.coinConstellation}>
         <View style={styles.coinOrbitRing} />
         <View style={[styles.coinImageBubble, styles.coinImageXlm]}>
@@ -159,7 +102,7 @@ function AssetArt() {
         </View>
         <View style={styles.coinPulseDot} />
       </View>
-    </AnimatedOrb>
+    </View>
   );
 }
 
@@ -169,7 +112,7 @@ function SendArt() {
 
 function TrackArt() {
   return (
-    <AnimatedOrb>
+    <View style={styles.artStage}>
       <View style={styles.txCard}>
         <View style={styles.txIcon}>
           <Ionicons color="#07100B" name="checkmark" size={22} />
@@ -180,7 +123,7 @@ function TrackArt() {
         </View>
         <Ionicons color="#B8FF45" name="open-outline" size={24} />
       </View>
-    </AnimatedOrb>
+    </View>
   );
 }
 
@@ -280,9 +223,6 @@ export function WalletTutorialOverlay({
       visible={visible}
     >
       <View style={styles.root}>
-        <View style={styles.backdropGlowTop} />
-        <View style={styles.backdropGlowBottom} />
-
         <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
           <View>
             <Text style={styles.headerEyebrow}>STELLAR SMART WALLET</Text>
@@ -391,37 +331,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     width: '100%',
   },
-  artGlow: {
-    backgroundColor: 'rgba(184,255,69,0.2)',
-    borderRadius: 115,
-    height: 230,
-    position: 'absolute',
-    width: 230,
-  },
   artStage: {
     alignItems: 'center',
     height: 250,
     justifyContent: 'center',
     marginBottom: 18,
     width: '100%',
-  },
-  backdropGlowBottom: {
-    backgroundColor: 'rgba(77,70,232,0.18)',
-    borderRadius: 180,
-    bottom: -130,
-    height: 300,
-    position: 'absolute',
-    right: -110,
-    width: 300,
-  },
-  backdropGlowTop: {
-    backgroundColor: 'rgba(184,255,69,0.12)',
-    borderRadius: 190,
-    height: 320,
-    left: -130,
-    position: 'absolute',
-    top: -140,
-    width: 320,
   },
   carousel: {
     flex: 1,
