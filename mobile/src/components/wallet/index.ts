@@ -9,4 +9,5 @@ export * from './WalletPrimitives';
 export * from './WalletManagerModal';
 export * from './WalletRows';
 export * from './SuccessLottie';
+export * from './WalletTutorialOverlay';
 export * from './ui/primitives';

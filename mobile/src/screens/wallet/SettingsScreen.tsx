@@ -222,10 +222,12 @@ function DetailRow({
 
 export function SettingsScreen({
   onOpenKyc,
+  onOpenTutorial,
   onOpenWalletConnect,
   wallet,
 }: {
   onOpenKyc: () => void;
+  onOpenTutorial: () => void;
   onOpenWalletConnect: () => void;
   wallet: WalletState;
 }) {
@@ -1129,6 +1131,16 @@ export function SettingsScreen({
             onPress={() => setDetailSheet('advanced')}
             subtitle="Wallet tools and app information"
             title="Advanced"
+          />
+        </View>
+
+        <Text style={styles.sectionLabel}>HELP</Text>
+        <View style={styles.groupCard}>
+          <SettingsRow
+            icon="help-circle-outline"
+            onPress={onOpenTutorial}
+            subtitle="Learn receive, fund, send, and safety basics"
+            title="App guide"
           />
         </View>
 

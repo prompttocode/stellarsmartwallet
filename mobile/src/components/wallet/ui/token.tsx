@@ -14,13 +14,7 @@ const assetColors: Record<string, { bg: string; fg: string }> = {
   yXLM: { bg: '#F2F6F8', fg: '#284653' },
 };
 
-const assetImages: Record<string, number> = {
-  EURC: require('@assets/images/coin/eurc.png'),
-  PYUSD: require('@assets/images/coin/pyusd.png'),
-  USDC: require('@assets/images/coin/usdc.png'),
-  USDT: require('@assets/images/coin/usdt.png'),
-  XLM: require('@assets/images/coin/xlm.png'),
-};
+const xlmImage = require('@assets/images/coin/xlm.png');
 
 export function SmartRemoteImage({
   uri,
@@ -109,11 +103,20 @@ export function TokenIcon({
   imageUrl?: string | null;
 }) {
   const colors = assetColors[assetCode] || { bg: '#EEF3F5', fg: '#24495A' };
-  const image = assetImages[assetCode];
+  const fallbackImage = assetCode === 'XLM' ? xlmImage : null;
   const placeholder = (
     <Text style={[modern.tokenIconText, { color: colors.fg }]}>
       {assetCode.slice(0, 1)}
     </Text>
+  );
+  const fallback = fallbackImage ? (
+    <Image
+      resizeMode="contain"
+      source={fallbackImage}
+      style={{ height: size * 0.7, width: size * 0.7 }}
+    />
+  ) : (
+    placeholder
   );
 
   return (
@@ -133,24 +136,10 @@ export function TokenIcon({
           width={size * 0.7}
           height={size * 0.7}
           borderRadius={size * 0.35}
-          fallback={
-            image ? (
-              <Image
-                resizeMode="contain"
-                source={image}
-                style={{ height: size * 0.7, width: size * 0.7 }}
-              />
-            ) : (
-              placeholder
-            )
-          }
+          fallback={fallback}
         />
-      ) : image ? (
-        <Image
-          resizeMode="contain"
-          source={image}
-          style={{ height: size * 0.7, width: size * 0.7 }}
-        />
+      ) : fallbackImage ? (
+        fallback
       ) : (
         placeholder
       )}
