@@ -1,4 +1,4 @@
-import React, { ReactNode, useEffect, useRef, useState } from 'react';
+import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
   Modal,
@@ -11,6 +11,14 @@ import {
 } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import LottieView, { type AnimationObject } from 'lottie-react-native';
+import Reanimated, {
+  Easing,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { StellarNetwork } from '@app-types';
 import { PressScale } from './ui/primitives';
@@ -36,6 +44,10 @@ const guideLottieAnimations = {
   step4: require('@assets/lottie/step4.json') as AnimationObject,
 };
 
+const guideMascotSteps = [0, 1, 2, 3, 4];
+const guideMascotRotatePositions = [-8, 9, -13, 7, -4];
+const guideMascotScalePositions = [0.92, 1, 0.86, 0.96, 0.9];
+
 function LottieArt({ source }: { source: AnimationObject }) {
   return (
     <View style={styles.artStage}>
@@ -49,6 +61,96 @@ function LottieArt({ source }: { source: AnimationObject }) {
         />
       </View>
     </View>
+  );
+}
+
+function GuideMascot({
+  activeIndex,
+  topInset,
+  width,
+}: {
+  activeIndex: number;
+  topInset: number;
+  width: number;
+}) {
+  const step = useSharedValue(activeIndex);
+  const float = useSharedValue(0);
+  const xPositions = useMemo(
+    () => [
+      width * 0.18,
+      width * 0.68,
+      width * 0.48,
+      width * 0.72,
+      width * 0.24,
+    ],
+    [width],
+  );
+  const yPositions = useMemo(
+    () => [
+      topInset + 150,
+      topInset + 118,
+      topInset + 120,
+      topInset + 136,
+      topInset + 156,
+    ],
+    [topInset],
+  );
+
+  useEffect(() => {
+    step.value = withTiming(activeIndex, {
+      duration: 520,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [activeIndex, step]);
+
+  useEffect(() => {
+    float.value = withRepeat(
+      withTiming(1, {
+        duration: 1500,
+        easing: Easing.inOut(Easing.quad),
+      }),
+      -1,
+      true,
+    );
+  }, [float]);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    const translateX = interpolate(step.value, guideMascotSteps, xPositions);
+    const translateY =
+      interpolate(step.value, guideMascotSteps, yPositions) +
+      interpolate(float.value, [0, 1], [0, -7]);
+    const rotate = interpolate(
+      step.value,
+      guideMascotSteps,
+      guideMascotRotatePositions,
+    );
+    const scale =
+      interpolate(step.value, guideMascotSteps, guideMascotScalePositions) +
+      interpolate(float.value, [0, 1], [0, 0.035]);
+
+    return {
+      transform: [
+        { translateX },
+        { translateY },
+        { rotate: `${rotate}deg` },
+        { scale },
+      ],
+    };
+  }, [xPositions, yPositions]);
+
+  return (
+    <Reanimated.View
+      pointerEvents="none"
+      style={[styles.guideMascot, animatedStyle]}
+    >
+      <View style={styles.guideMascotGlow} />
+      <Image
+        resizeMode="contain"
+        source={guideCoinImages.XLM}
+        style={styles.guideMascotImage}
+      />
+      <View style={styles.guideMascotDot} />
+    </Reanimated.View>
   );
 }
 
@@ -236,6 +338,11 @@ export function WalletTutorialOverlay({
             <Text style={styles.skipText}>Skip</Text>
           </Pressable>
         </View>
+        <GuideMascot
+          activeIndex={activeIndex}
+          topInset={insets.top}
+          width={slideWidth}
+        />
 
         <ScrollView
           horizontal
@@ -440,6 +547,42 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 22,
   },
+  guideMascot: {
+    alignItems: 'center',
+    height: 62,
+    justifyContent: 'center',
+    left: -31,
+    position: 'absolute',
+    top: 0,
+    width: 62,
+    zIndex: 6,
+  },
+  guideMascotDot: {
+    backgroundColor: '#B8FF45',
+    borderColor: '#07100B',
+    borderRadius: 5,
+    borderWidth: 1,
+    height: 10,
+    position: 'absolute',
+    right: 5,
+    top: 7,
+    width: 10,
+  },
+  guideMascotGlow: {
+    backgroundColor: 'rgba(184,255,69,0.14)',
+    borderRadius: 31,
+    height: 62,
+    position: 'absolute',
+    shadowColor: '#B8FF45',
+    shadowOffset: { height: 0, width: 0 },
+    shadowOpacity: 0.32,
+    shadowRadius: 12,
+    width: 62,
+  },
+  guideMascotImage: {
+    height: 46,
+    width: 46,
+  },
   header: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -489,6 +632,7 @@ const styles = StyleSheet.create({
   root: {
     backgroundColor: 'rgba(3,7,10,0.98)',
     flex: 1,
+    position: 'relative',
   },
   secondaryAction: {
     alignItems: 'center',
