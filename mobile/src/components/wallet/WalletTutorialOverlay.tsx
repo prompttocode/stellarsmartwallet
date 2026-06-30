@@ -228,7 +228,44 @@ function WalletReadyArt() {
 }
 
 function ReceiveArt() {
-  return <LottieArt source={guideLottieAnimations.step2} />;
+  return (
+    <View style={styles.artStage}>
+      <View style={styles.receiveArtStack}>
+        <View style={[styles.receiveMiniAction, styles.receiveCopyAction]}>
+          <Ionicons color="#B8FF45" name="copy-outline" size={18} />
+        </View>
+        <View style={[styles.receiveMiniAction, styles.receiveShareAction]}>
+          <Ionicons color="#B8FF45" name="share-social-outline" size={18} />
+        </View>
+        <View style={[styles.receiveMiniAction, styles.receiveAssetAction]}>
+          <Ionicons color="#B8FF45" name="shield-checkmark-outline" size={18} />
+        </View>
+        <View style={styles.receiveQrFrame}>
+          <LottieView
+            autoPlay
+            loop
+            resizeMode="contain"
+            source={guideLottieAnimations.step2}
+            style={styles.receiveLottieArt}
+          />
+        </View>
+        <View style={styles.receiveAddressPill}>
+          <View style={styles.receiveAddressIcon}>
+            <Ionicons color="#07100B" name="wallet-outline" size={16} />
+          </View>
+          <View style={styles.receiveAddressCopy}>
+            <Text style={styles.receiveAddressLabel}>Stellar address</Text>
+            <Text numberOfLines={1} style={styles.receiveAddressValue}>
+              GCDG...JR4A
+            </Text>
+          </View>
+          <View style={styles.receiveAddressAction}>
+            <Ionicons color="#B8FF45" name="copy-outline" size={17} />
+          </View>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 function AssetArt() {
@@ -278,7 +315,42 @@ function AssetArt() {
 }
 
 function SendArt() {
-  return <LottieArt source={guideLottieAnimations.step4} />;
+  return (
+    <View style={styles.artStage}>
+      <View style={styles.sendArtStack}>
+        <View style={[styles.sendMiniAction, styles.sendReviewAction]}>
+          <Ionicons color="#B8FF45" name="document-text-outline" size={18} />
+        </View>
+        <View style={[styles.sendMiniAction, styles.sendLockAction]}>
+          <Ionicons color="#B8FF45" name="lock-closed-outline" size={18} />
+        </View>
+        <View style={[styles.sendMiniAction, styles.sendCheckAction]}>
+          <Ionicons color="#B8FF45" name="checkmark-circle-outline" size={18} />
+        </View>
+        <View style={styles.sendFaceFrame}>
+          <LottieView
+            autoPlay
+            loop
+            resizeMode="contain"
+            source={guideLottieAnimations.step4}
+            style={styles.sendLottieArt}
+          />
+        </View>
+        <View style={styles.sendReviewCard}>
+          <View style={styles.sendReviewIcon}>
+            <Ionicons color="#07100B" name="arrow-up-outline" size={17} />
+          </View>
+          <View style={styles.sendReviewCopy}>
+            <View style={styles.sendReviewLineWide} />
+            <View style={styles.sendReviewLineShort} />
+          </View>
+          <View style={styles.sendApprovePill}>
+            <Text style={styles.sendApproveText}>Review</Text>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 function TrackArt() {
@@ -773,6 +845,200 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(3,7,10,0.98)',
     flex: 1,
     position: 'relative',
+  },
+  sendApprovePill: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(184,255,69,0.14)',
+    borderRadius: 13,
+    justifyContent: 'center',
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  sendApproveText: {
+    color: '#B8FF45',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  sendArtStack: {
+    alignItems: 'center',
+    height: 250,
+    justifyContent: 'center',
+    position: 'relative',
+    width: 300,
+  },
+  sendCheckAction: {
+    bottom: 56,
+    right: 30,
+  },
+  sendFaceFrame: {
+    alignItems: 'center',
+    height: 176,
+    justifyContent: 'center',
+    width: 220,
+  },
+  sendLockAction: {
+    right: 34,
+    top: 42,
+  },
+  sendLottieArt: {
+    height: 210,
+    width: 210,
+  },
+  sendMiniAction: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(17,23,29,0.92)',
+    borderColor: 'rgba(184,255,69,0.28)',
+    borderRadius: 19,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: 'center',
+    position: 'absolute',
+    shadowColor: '#B8FF45',
+    shadowOffset: { height: 0, width: 0 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    width: 38,
+    zIndex: 3,
+  },
+  sendReviewAction: {
+    left: 26,
+    top: 44,
+  },
+  sendReviewCard: {
+    alignItems: 'center',
+    backgroundColor: '#11171D',
+    borderColor: 'rgba(184,255,69,0.24)',
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: -4,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    shadowColor: '#000000',
+    shadowOffset: { height: 8, width: 0 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    width: 258,
+  },
+  sendReviewCopy: {
+    flex: 1,
+    gap: 7,
+  },
+  sendReviewIcon: {
+    alignItems: 'center',
+    backgroundColor: '#B8FF45',
+    borderRadius: 16,
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
+  },
+  sendReviewLineShort: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 5,
+    height: 9,
+    width: '58%',
+  },
+  sendReviewLineWide: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 5,
+    height: 11,
+    width: '86%',
+  },
+  receiveAddressAction: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(184,255,69,0.1)',
+    borderRadius: 16,
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
+  },
+  receiveAddressCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  receiveAddressIcon: {
+    alignItems: 'center',
+    backgroundColor: '#B8FF45',
+    borderRadius: 16,
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
+  },
+  receiveAddressLabel: {
+    color: '#8995A5',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  receiveAddressPill: {
+    alignItems: 'center',
+    backgroundColor: '#11171D',
+    borderColor: 'rgba(184,255,69,0.24)',
+    borderRadius: 19,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: -10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    shadowColor: '#000000',
+    shadowOffset: { height: 8, width: 0 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    width: 258,
+  },
+  receiveAddressValue: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  receiveArtStack: {
+    alignItems: 'center',
+    height: 250,
+    justifyContent: 'center',
+    position: 'relative',
+    width: 300,
+  },
+  receiveAssetAction: {
+    bottom: 56,
+    right: 24,
+  },
+  receiveCopyAction: {
+    left: 24,
+    top: 38,
+  },
+  receiveLottieArt: {
+    height: 210,
+    width: 210,
+  },
+  receiveMiniAction: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(17,23,29,0.92)',
+    borderColor: 'rgba(184,255,69,0.28)',
+    borderRadius: 19,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: 'center',
+    position: 'absolute',
+    shadowColor: '#B8FF45',
+    shadowOffset: { height: 0, width: 0 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    width: 38,
+    zIndex: 3,
+  },
+  receiveQrFrame: {
+    alignItems: 'center',
+    height: 184,
+    justifyContent: 'center',
+    width: 220,
+  },
+  receiveShareAction: {
+    right: 34,
+    top: 42,
   },
   secondaryAction: {
     alignItems: 'center',
