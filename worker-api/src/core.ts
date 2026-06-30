@@ -50,6 +50,7 @@ export type WalletRecord = {
   id: string;
   address: string;
   archived?: boolean;
+  archivedAt?: string;
   canSign: boolean;
   chainType?: string;
   displayName?: string;
@@ -977,6 +978,7 @@ export function normalizeWallet(
     network: overrides.network || 'testnet',
     publicKey: wallet.public_key || wallet.address || overrides.publicKey || '',
     ...(overrides.archived !== undefined ? { archived: overrides.archived } : null),
+    ...(overrides.archivedAt ? { archivedAt: overrides.archivedAt } : null),
     ...(encryptedSecret?.ciphertext && encryptedSecret.iv ? { encryptedSecret } : null),
   };
 }
@@ -1044,7 +1046,7 @@ export function getVisibleWallets(account: AccountRecord, network?: StellarNetwo
   );
 }
 
-function stripWalletSecret(wallet: WalletRecord): WalletRecord {
+export function stripWalletSecret(wallet: WalletRecord): WalletRecord {
   const { encryptedSecret: _encryptedSecret, ...publicWallet } = wallet;
 
   return publicWallet;

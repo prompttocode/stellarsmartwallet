@@ -15,6 +15,7 @@ import {
 import { api } from '@api/client';
 import { API_BASE_URL, PRIVY_WEB_EXPORT_CLIENT_ID } from '@config';
 import type {
+  ArchivedWalletsResponse,
   AssetItem,
   AssetsResponse,
   Balance,
@@ -172,6 +173,7 @@ export function useWallet() {
   const [account, setAccount] = useState<WalletAccount | null>(null);
   const [kyc, setKyc] = useState<KycSummary>(DEFAULT_KYC);
   const [wallets, setWallets] = useState<Wallet[]>([]);
+  const [archivedWallets, setArchivedWallets] = useState<Wallet[]>([]);
   const [activeWalletId, setActiveWalletId] = useState<string | null>(null);
   const [balances, setBalances] = useState<BalanceItem[]>([]);
   const [recipient, setRecipient] = useState('');
@@ -582,6 +584,7 @@ export function useWallet() {
     setAccount(null);
     setKyc(DEFAULT_KYC);
     setWallets([]);
+    setArchivedWallets([]);
     setActiveWalletId(null);
     setBalances([]);
     setCollectibles([]);
@@ -627,6 +630,7 @@ export function useWallet() {
       setAccount(session.account);
       setKyc(session.kyc || DEFAULT_KYC);
       setWallets(sessionWallets);
+      setArchivedWallets([]);
       setActiveWalletId(nextActiveWalletId);
       setBalances(session.balances || session.balance.balances || []);
       setTransactions(session.transactions || []);
@@ -1417,7 +1421,51 @@ export function useWallet() {
       });
 
       resetRecipientState();
-      applySession(session, 'Wallet archived from the list.');
+      applySession(session, 'Wallet archived. You can restore it anytime.');
+
+      return session;
+    });
+  }
+
+  async function loadArchivedWallets() {
+    if (!account) {
+      setArchivedWallets([]);
+      return [];
+    }
+
+    const headers = await getAuthHeaders(true);
+    const response = await api<ArchivedWalletsResponse>(
+      `/api/wallets/archived?network=${encodeURIComponent(network)}`,
+      {
+        headers,
+      },
+    );
+    const nextWallets = response.wallets || [];
+
+    setArchivedWallets(nextWallets);
+
+    return nextWallets;
+  }
+
+  async function restoreWallet(walletId: string) {
+    if (!account || !walletId) {
+      return null;
+    }
+
+    return run('Restoring wallet', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const session = await api<SessionResponse>('/api/wallets/restore', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ network, walletId }),
+      });
+
+      resetRecipientState();
+      applySession(session, 'Wallet restored to the list.');
+      setArchivedWallets(current =>
+        current.filter(item => item.id !== walletId),
+      );
 
       return session;
     });
@@ -3304,6 +3352,7 @@ export function useWallet() {
     addTrustline,
     amount,
     archiveWallet,
+    archivedWallets,
     assets,
     balances,
     bypassRampOrderPayment,
@@ -3337,6 +3386,7 @@ export function useWallet() {
     kyc,
     loginWithGoogle,
     loginState,
+    loadArchivedWallets,
     loadFavoriteAssets,
     loadPaymentMethods,
     logout,
@@ -3365,6 +3415,7 @@ export function useWallet() {
     refreshSession,
     renameWallet,
     resetLoginCode,
+    restoreWallet,
     savePaymentMethod,
     selectedAsset,
     selectedAssetCode,

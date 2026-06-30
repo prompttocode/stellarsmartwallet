@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import {
+  Alert,
   Modal,
   View,
   Text,
@@ -8,6 +9,7 @@ import {
   Platform,
   TextInput,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DraggableFlatList, {
@@ -17,7 +19,7 @@ import DraggableFlatList, {
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { PressScale } from './ui/primitives';
-import { shortAddress } from '@utils/format';
+import { getErrorMessage, shortAddress } from '@utils/format';
 import type { WalletState } from '@hooks/useWallet';
 import type { Wallet } from '@app-types';
 
@@ -84,10 +86,19 @@ export function WalletManagerModal({
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [data, setData] = useState<Wallet[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedLoading, setArchivedLoading] = useState(false);
+  const [restoringWalletId, setRestoringWalletId] = useState<string | null>(
+    null,
+  );
   const [renamingWallet, setRenamingWallet] = useState<Wallet | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const isCreatingWallet = Boolean(walletState.busy?.startsWith('Creating'));
   const networkLabel = walletState.isMainnet ? 'Mainnet' : 'Testnet';
+  const archivedWallets = (walletState.archivedWallets || []).filter(
+    item => item.network === walletState.network,
+  );
+  const canArchiveVisibleWallet = data.length > 1 && !walletState.isBusy;
   const orderStorageKey = getWalletOrderStorageKey(
     walletState.account?.email,
     walletState.network,
@@ -133,10 +144,38 @@ export function WalletManagerModal({
   useEffect(() => {
     if (!visible) {
       setIsEditing(false);
+      setShowArchived(false);
+      setArchivedLoading(false);
+      setRestoringWalletId(null);
     }
   }, [visible]);
 
+  useEffect(() => {
+    setShowArchived(false);
+    setArchivedLoading(false);
+    setRestoringWalletId(null);
+  }, [walletState.network]);
+
   const activeWalletId = walletState.activeWalletId;
+
+  const refreshArchivedWallets = useCallback(async () => {
+    if (!walletState.loadArchivedWallets) {
+      return;
+    }
+
+    setArchivedLoading(true);
+
+    try {
+      await walletState.loadArchivedWallets();
+    } catch (error) {
+      walletState.showErrorDialog(
+        getErrorMessage(error),
+        'Archived wallets',
+      );
+    } finally {
+      setArchivedLoading(false);
+    }
+  }, [walletState]);
 
   const handleRename = (item: Wallet) => {
     setRenamingWallet(item);
@@ -154,6 +193,138 @@ export function WalletManagerModal({
     if (!isCreatingWallet && walletState.createWallet) {
       walletState.createWallet();
     }
+  };
+
+  const archiveItem = async (item: Wallet) => {
+    if (!walletState.archiveWallet) {
+      return;
+    }
+
+    const session = await walletState.archiveWallet(item.id);
+
+    if (session && showArchived) {
+      await refreshArchivedWallets();
+    }
+  };
+
+  const confirmArchive = (item: Wallet) => {
+    if (!canArchiveVisibleWallet) {
+      return;
+    }
+
+    const displayName = item.displayName || 'this wallet';
+
+    Alert.alert(
+      'Archive wallet?',
+      `${displayName} will only be hidden from the main wallet list. Its funds stay on-chain and you can restore it anytime from Archived wallets.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Archive',
+          style: 'destructive',
+          onPress: () => {
+            archiveItem(item).catch(error => {
+              walletState.showErrorDialog(getErrorMessage(error));
+            });
+          },
+        },
+      ],
+    );
+  };
+
+  const toggleArchived = () => {
+    const nextVisible = !showArchived;
+    setShowArchived(nextVisible);
+
+    if (nextVisible) {
+      refreshArchivedWallets().catch(() => null);
+    }
+  };
+
+  const handleRestore = async (item: Wallet) => {
+    if (!walletState.restoreWallet) {
+      return;
+    }
+
+    setRestoringWalletId(item.id);
+
+    try {
+      const session = await walletState.restoreWallet(item.id);
+
+      if (session) {
+        await refreshArchivedWallets();
+      }
+    } finally {
+      setRestoringWalletId(null);
+    }
+  };
+
+  const renderArchivedWallets = () => {
+    if (archivedLoading && archivedWallets.length === 0) {
+      return (
+        <View style={styles.archivedEmpty}>
+          <ActivityIndicator color={WALLET_ACCENT} size="small" />
+          <Text style={styles.archivedEmptyText}>
+            Loading archived wallets...
+          </Text>
+        </View>
+      );
+    }
+
+    if (archivedWallets.length === 0) {
+      return (
+        <View style={styles.archivedEmpty}>
+          <Ionicons name="archive-outline" size={22} color="#6F7A72" />
+          <Text style={styles.archivedEmptyText}>
+            No archived {networkLabel} wallets.
+          </Text>
+        </View>
+      );
+    }
+
+    return (
+      <ScrollView
+        style={styles.archivedScroll}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator={false}
+      >
+        {archivedWallets.map(item => {
+          const isRestoring = restoringWalletId === item.id;
+          const displayName = item.displayName || `${networkLabel} wallet`;
+
+          return (
+            <View key={item.id} style={styles.archivedItem}>
+              <View style={styles.archivedIcon}>
+                <Ionicons name="wallet-outline" size={18} color="#FFFFFF" />
+              </View>
+              <View style={styles.archivedBody}>
+                <Text style={styles.archivedName} numberOfLines={1}>
+                  {displayName}
+                </Text>
+                <Text style={styles.archivedAddress} numberOfLines={1}>
+                  {shortAddress(item.address)} · {networkLabel}
+                </Text>
+              </View>
+              <TouchableOpacity
+                disabled={walletState.isBusy || isRestoring}
+                onPress={() => handleRestore(item)}
+                style={[
+                  styles.restoreButton,
+                  (walletState.isBusy || isRestoring) &&
+                    styles.restoreButtonDisabled,
+                ]}
+              >
+                {isRestoring ? (
+                  <ActivityIndicator color="#080B08" size="small" />
+                ) : (
+                  <Text style={styles.restoreButtonText}>Restore</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          );
+        })}
+      </ScrollView>
+    );
   };
 
   const renderItem = ({
@@ -202,6 +373,21 @@ export function WalletManagerModal({
 
           {isEditing ? (
             <View style={styles.editActions}>
+              <TouchableOpacity
+                disabled={!canArchiveVisibleWallet}
+                onPress={() => confirmArchive(item)}
+                style={[
+                  styles.actionBtn,
+                  styles.archiveActionBtn,
+                  !canArchiveVisibleWallet && styles.actionBtnDisabled,
+                ]}
+              >
+                <Ionicons
+                  name="archive-outline"
+                  size={20}
+                  color={canArchiveVisibleWallet ? '#FF7A7A' : '#4A4F56'}
+                />
+              </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => handleRename(item)}
                 style={styles.actionBtn}
@@ -260,7 +446,12 @@ export function WalletManagerModal({
             </TouchableOpacity>
           </View>
 
-          <View style={styles.listContainer}>
+          <View
+            style={[
+              styles.listContainer,
+              showArchived && styles.listContainerCompact,
+            ]}
+          >
             {data.length > 0 ? (
               <DraggableFlatList
                 data={data}
@@ -285,6 +476,39 @@ export function WalletManagerModal({
           </View>
 
           <View style={styles.footer}>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={toggleArchived}
+              style={styles.archivedToggle}
+            >
+              <View style={styles.archivedToggleIcon}>
+                <Ionicons
+                  name="archive-outline"
+                  size={18}
+                  color={WALLET_ACCENT}
+                />
+              </View>
+              <View style={styles.archivedToggleBody}>
+                <Text style={styles.archivedToggleTitle}>Archived wallets</Text>
+                <Text style={styles.archivedToggleText}>
+                  Restore hidden {networkLabel} wallets
+                </Text>
+              </View>
+              {archivedLoading ? (
+                <ActivityIndicator color={WALLET_ACCENT} size="small" />
+              ) : (
+                <Ionicons
+                  name={showArchived ? 'chevron-up' : 'chevron-down'}
+                  size={20}
+                  color="#8A9AA3"
+                />
+              )}
+            </TouchableOpacity>
+
+            {showArchived ? (
+              <View style={styles.archivedPanel}>{renderArchivedWallets()}</View>
+            ) : null}
+
             <PressScale
               disabled={isCreatingWallet}
               onPress={handleAdd}
@@ -382,6 +606,7 @@ const styles = StyleSheet.create({
   headerBtnText: { color: '#FFF', fontSize: 14, fontWeight: '600' },
   title: { color: '#FFF', fontSize: 20, fontWeight: '700' },
   listContainer: { maxHeight: 400 },
+  listContainerCompact: { maxHeight: 230 },
   list: { paddingHorizontal: 20 },
   emptyState: {
     alignItems: 'center',
@@ -435,7 +660,118 @@ const styles = StyleSheet.create({
   itemAddress: { color: '#8A9AA3', fontSize: 14, marginTop: 4 },
   editActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   actionBtn: { padding: 4 },
-  footer: { paddingHorizontal: 24, paddingTop: 16 },
+  archiveActionBtn: {
+    backgroundColor: 'rgba(255,122,122,0.1)',
+    borderRadius: 12,
+    padding: 8,
+  },
+  actionBtnDisabled: {
+    opacity: 0.45,
+  },
+  footer: { paddingHorizontal: 24, paddingTop: 16, gap: 12 },
+  archivedToggle: {
+    alignItems: 'center',
+    backgroundColor: '#101310',
+    borderColor: 'rgba(184,255,69,0.16)',
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  archivedToggleIcon: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(184,255,69,0.12)',
+    borderRadius: 16,
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
+  },
+  archivedToggleBody: {
+    flex: 1,
+  },
+  archivedToggleTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  archivedToggleText: {
+    color: '#8A9AA3',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  archivedPanel: {
+    backgroundColor: '#070907',
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  archivedScroll: {
+    maxHeight: 190,
+  },
+  archivedEmpty: {
+    alignItems: 'center',
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 92,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+  },
+  archivedEmptyText: {
+    color: '#8A9AA3',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  archivedItem: {
+    alignItems: 'center',
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  archivedIcon: {
+    alignItems: 'center',
+    backgroundColor: '#1B201B',
+    borderRadius: 16,
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
+  },
+  archivedBody: {
+    flex: 1,
+  },
+  archivedName: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  archivedAddress: {
+    color: '#8A9AA3',
+    fontSize: 12,
+    marginTop: 3,
+  },
+  restoreButton: {
+    alignItems: 'center',
+    backgroundColor: WALLET_ACCENT,
+    borderRadius: 14,
+    justifyContent: 'center',
+    minHeight: 36,
+    minWidth: 84,
+    paddingHorizontal: 12,
+  },
+  restoreButtonDisabled: {
+    opacity: 0.6,
+  },
+  restoreButtonText: {
+    color: '#080B08',
+    fontSize: 12,
+    fontWeight: '800',
+  },
   addButton: {
     backgroundColor: WALLET_ACCENT,
     flexDirection: 'row',
