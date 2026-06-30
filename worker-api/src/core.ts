@@ -10,6 +10,7 @@ import {
   Memo,
   Networks,
   Operation,
+  StrKey,
   TransactionBuilder,
 } from '@stellar/stellar-sdk';
 
@@ -2936,6 +2937,56 @@ const WALLETCONNECT_CLASSIC_OPERATION_TYPES = new Set([
   'payment',
 ]);
 
+function getXdrSwitchName(value: any) {
+  try {
+    return String(value?.switch?.()?.name || '');
+  } catch {
+    return '';
+  }
+}
+
+function summarizeSorobanAddress(address: any) {
+  const type = getXdrSwitchName(address);
+
+  try {
+    if (type === 'scAddressTypeContract') {
+      return StrKey.encodeContract(address.contractId());
+    }
+  } catch {
+    return null;
+  }
+
+  return type || null;
+}
+
+function summarizeSorobanHostFunction(func: any) {
+  const hostFunctionType = getXdrSwitchName(func) || 'hostFunctionTypeUnknown';
+  const summary: Record<string, any> = {
+    hostFunctionType,
+  };
+
+  try {
+    if (hostFunctionType === 'hostFunctionTypeInvokeContract') {
+      const invokeContract = func.invokeContract();
+      const contractAddress = invokeContract.contractAddress();
+
+      summary.contractId = summarizeSorobanAddress(contractAddress);
+      summary.functionName = String(invokeContract.functionName?.() || '');
+      summary.argCount = Number(invokeContract.args?.()?.length || 0);
+    } else if (hostFunctionType === 'hostFunctionTypeCreateContract') {
+      summary.functionName = 'Create contract';
+    } else if (hostFunctionType === 'hostFunctionTypeCreateContractV2') {
+      summary.functionName = 'Create contract';
+    } else if (hostFunctionType === 'hostFunctionTypeUploadContractWasm') {
+      summary.functionName = 'Upload contract WASM';
+    }
+  } catch {
+    summary.functionName = summary.functionName || 'Soroban contract call';
+  }
+
+  return summary;
+}
+
 function summarizeStellarAsset(asset: Record<string, any> | undefined) {
   if (!asset) {
     return null;
@@ -2948,19 +2999,25 @@ function summarizeStellarAsset(asset: Record<string, any> | undefined) {
 }
 
 export function summarizeOperation(operation: Record<string, any>) {
-  if (!WALLETCONNECT_CLASSIC_OPERATION_TYPES.has(operation.type)) {
-    const label =
-      operation.type === 'invokeHostFunction'
-        ? 'Soroban contract calls'
-        : `Operation ${operation.type || 'unknown'}`;
-
-    throw makeError(`${label} are not supported by this WalletConnect signer`, 400);
-  }
-
   const base = {
     source: operation.source ? String(operation.source) : null,
     type: String(operation.type),
   };
+
+  if (operation.type === 'invokeHostFunction') {
+    return {
+      ...base,
+      ...summarizeSorobanHostFunction(operation.func),
+      authCount: Array.isArray(operation.auth) ? operation.auth.length : 0,
+    };
+  }
+
+  if (!WALLETCONNECT_CLASSIC_OPERATION_TYPES.has(operation.type)) {
+    throw makeError(
+      `Operation ${operation.type || 'unknown'} is not supported by this WalletConnect signer`,
+      400,
+    );
+  }
 
   switch (operation.type) {
     case 'payment':
@@ -3051,6 +3108,12 @@ export function reviewStellarXdr({
 
   if (operations.length > 1) {
     warnings.push(`This transaction contains ${operations.length} operations.`);
+  }
+
+  if (operations.some(operation => operation.type === 'invokeHostFunction')) {
+    warnings.push(
+      'This is a Soroban smart contract request. Only approve if you trust this dApp and understand the contract action.',
+    );
   }
 
   if (Number(transaction.fee) > Number(BASE_FEE) * Math.max(1, operations.length) * 10) {

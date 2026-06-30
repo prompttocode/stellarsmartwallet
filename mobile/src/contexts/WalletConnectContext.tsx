@@ -55,6 +55,9 @@ export type WalletConnectOperationReview = {
   asset?: WalletConnectAssetReview | null;
   buyAmount?: string;
   buying?: WalletConnectAssetReview | null;
+  argCount?: number;
+  authCount?: number;
+  contractId?: string | null;
   destination?: string;
   destinationAmount?: string;
   destinationAsset?: WalletConnectAssetReview | null;
@@ -69,6 +72,8 @@ export type WalletConnectOperationReview = {
   sendMaximum?: string;
   source?: string | null;
   startingBalance?: string;
+  functionName?: string;
+  hostFunctionType?: string;
   type: string;
 };
 

@@ -58,6 +58,8 @@ function operationTitle(operation: WalletConnectOperationReview) {
       return 'Manage sell offer';
     case 'createPassiveSellOffer':
       return 'Create passive sell offer';
+    case 'invokeHostFunction':
+      return 'Soroban contract call';
     default:
       return operation.type;
   }
@@ -119,6 +121,13 @@ function operationRows(operation: WalletConnectOperationReview) {
         ['Buy asset', assetLabel(operation.buying)],
         ['Price', operation.price || '-'],
         ['Offer ID', operation.offerId || 'New offer'],
+      ];
+    case 'invokeHostFunction':
+      return [
+        ['Action', operation.functionName || 'Contract call'],
+        ['Contract', shortAddress(operation.contractId || undefined)],
+        ['Arguments', String(operation.argCount ?? 0)],
+        ['Authorizations', String(operation.authCount ?? 0)],
       ];
     default:
       return [];
