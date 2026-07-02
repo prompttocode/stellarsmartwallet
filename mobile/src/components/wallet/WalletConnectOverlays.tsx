@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   Linking,
   Modal,
@@ -58,6 +59,8 @@ function operationTitle(operation: WalletConnectOperationReview) {
       return 'Manage sell offer';
     case 'createPassiveSellOffer':
       return 'Create passive sell offer';
+    case 'invokeHostFunction':
+      return 'Soroban contract call';
     default:
       return operation.type;
   }
@@ -119,6 +122,13 @@ function operationRows(operation: WalletConnectOperationReview) {
         ['Buy asset', assetLabel(operation.buying)],
         ['Price', operation.price || '-'],
         ['Offer ID', operation.offerId || 'New offer'],
+      ];
+    case 'invokeHostFunction':
+      return [
+        ['Action', operation.functionName || 'Contract call'],
+        ['Contract', shortAddress(operation.contractId || undefined)],
+        ['Arguments', String(operation.argCount ?? 0)],
+        ['Authorizations', String(operation.authCount ?? 0)],
       ];
     default:
       return [];
@@ -297,33 +307,55 @@ function DappIdentity({
 function ActionButtons({
   approveDisabled,
   approveLabel,
+  approveLoading,
+  disabled,
+  rejectLoading,
   onApprove,
   onReject,
 }: {
   approveDisabled?: boolean;
+  approveLoading?: boolean;
   approveLabel: string;
-  onApprove: () => void;
-  onReject: () => void;
+  disabled?: boolean;
+  rejectLoading?: boolean;
+  onApprove: () => Promise<void> | void;
+  onReject: () => Promise<void> | void;
 }) {
+  const rejectDisabled = disabled || approveLoading || rejectLoading;
+  const nextApproveDisabled =
+    disabled || approveDisabled || approveLoading || rejectLoading;
+
   return (
     <View style={styles.actions}>
       <TouchableOpacity
         activeOpacity={0.75}
+        disabled={rejectDisabled}
         onPress={onReject}
-        style={styles.secondaryButton}
+        style={[
+          styles.secondaryButton,
+          rejectDisabled ? styles.buttonDisabled : null,
+        ]}
       >
-        <Text style={styles.secondaryButtonText}>Reject</Text>
+        {rejectLoading ? (
+          <ActivityIndicator color="#30353C" />
+        ) : (
+          <Text style={styles.secondaryButtonText}>Reject</Text>
+        )}
       </TouchableOpacity>
       <TouchableOpacity
         activeOpacity={0.8}
-        disabled={approveDisabled}
+        disabled={nextApproveDisabled}
         onPress={onApprove}
         style={[
           styles.primaryButton,
-          approveDisabled ? styles.buttonDisabled : null,
+          nextApproveDisabled ? styles.buttonDisabled : null,
         ]}
       >
-        <Text style={styles.primaryButtonText}>{approveLabel}</Text>
+        {approveLoading ? (
+          <ActivityIndicator color="#FFFFFF" />
+        ) : (
+          <Text style={styles.primaryButtonText}>{approveLabel}</Text>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -332,6 +364,12 @@ function ActionButtons({
 export function WalletConnectOverlays({ wallet }: { wallet: WalletState }) {
   const insets = useSafeAreaInsets();
   const walletConnect = useWalletConnect();
+  const [proposalAction, setProposalAction] = useState<
+    'approve' | 'reject' | null
+  >(null);
+  const [requestAction, setRequestAction] = useState<
+    'approve' | 'reject' | null
+  >(null);
   const proposal = walletConnect.proposal;
   const request = walletConnect.request;
   const result = walletConnect.result;
@@ -341,11 +379,73 @@ export function WalletConnectOverlays({ wallet }: { wallet: WalletState }) {
   const requestApproveDisabled =
     !request?.review || requestBalanceWarnings.length > 0;
 
+  useEffect(() => {
+    setProposalAction(null);
+  }, [proposal?.id]);
+
+  useEffect(() => {
+    setRequestAction(null);
+  }, [request?.id]);
+
+  async function handleProposalApprove() {
+    if (proposalAction) {
+      return;
+    }
+
+    setProposalAction('approve');
+    try {
+      await walletConnect.approveProposal();
+    } finally {
+      setProposalAction(null);
+    }
+  }
+
+  async function handleProposalReject() {
+    if (proposalAction) {
+      return;
+    }
+
+    setProposalAction('reject');
+    try {
+      await walletConnect.rejectProposal();
+    } finally {
+      setProposalAction(null);
+    }
+  }
+
+  async function handleRequestApprove() {
+    if (requestAction || requestApproveDisabled) {
+      return;
+    }
+
+    setRequestAction('approve');
+    try {
+      await walletConnect.approveRequest();
+    } finally {
+      setRequestAction(null);
+    }
+  }
+
+  async function handleRequestReject() {
+    if (requestAction) {
+      return;
+    }
+
+    setRequestAction('reject');
+    try {
+      await walletConnect.rejectRequest();
+    } finally {
+      setRequestAction(null);
+    }
+  }
+
   return (
     <>
       <Modal
         animationType="fade"
-        onRequestClose={() => walletConnect.rejectProposal()}
+        onRequestClose={() => {
+          handleProposalReject();
+        }}
         transparent
         visible={Boolean(proposal)}
       >
@@ -387,9 +487,11 @@ export function WalletConnectOverlays({ wallet }: { wallet: WalletState }) {
                   itself.
                 </Text>
                 <ActionButtons
+                  approveLoading={proposalAction === 'approve'}
                   approveLabel="Connect"
-                  onApprove={() => walletConnect.approveProposal()}
-                  onReject={() => walletConnect.rejectProposal()}
+                  rejectLoading={proposalAction === 'reject'}
+                  onApprove={handleProposalApprove}
+                  onReject={handleProposalReject}
                 />
               </>
             ) : null}
@@ -399,7 +501,9 @@ export function WalletConnectOverlays({ wallet }: { wallet: WalletState }) {
 
       <Modal
         animationType="slide"
-        onRequestClose={() => walletConnect.rejectRequest()}
+        onRequestClose={() => {
+          handleRequestReject();
+        }}
         visible={Boolean(request)}
       >
         <View style={styles.requestScreen}>
@@ -410,8 +514,14 @@ export function WalletConnectOverlays({ wallet }: { wallet: WalletState }) {
             ]}
           >
             <TouchableOpacity
-              onPress={() => walletConnect.rejectRequest()}
-              style={styles.closeButton}
+              disabled={Boolean(requestAction)}
+              onPress={() => {
+                handleRequestReject();
+              }}
+              style={[
+                styles.closeButton,
+                requestAction ? styles.buttonDisabled : null,
+              ]}
             >
               <Ionicons color="#FFFFFF" name="close" size={22} />
             </TouchableOpacity>
@@ -585,10 +695,12 @@ export function WalletConnectOverlays({ wallet }: { wallet: WalletState }) {
             ]}
           >
             <ActionButtons
+              approveLoading={requestAction === 'approve'}
               approveDisabled={requestApproveDisabled}
               approveLabel={wallet.isMainnet ? 'Approve' : 'Approve'}
-              onApprove={() => walletConnect.approveRequest()}
-              onReject={() => walletConnect.rejectRequest()}
+              rejectLoading={requestAction === 'reject'}
+              onApprove={handleRequestApprove}
+              onReject={handleRequestReject}
             />
           </View>
         </View>

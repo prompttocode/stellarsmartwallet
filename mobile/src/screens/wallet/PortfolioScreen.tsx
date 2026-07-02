@@ -116,7 +116,7 @@ export function PortfolioScreen({
       })}`;
   const portfolioValue =
     valuation.positiveAssetCount > 0 && valuation.pricedAssetCount === 0
-      ? 'Price unavailable'
+      ? '***'
       : formattedPortfolioValue;
   const portfolioNote = !wallet.isMainnet
     ? valuation.pricedAssetCount > 0

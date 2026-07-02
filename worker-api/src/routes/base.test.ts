@@ -58,10 +58,22 @@ vi.mock("../core", () => {
     saveAccount: vi.fn(),
     saveContact: vi.fn(),
     shouldRequireMainnetAuth: (network: string) => network === "mainnet",
+    stripWalletSecret: vi.fn((wallet: Record<string, unknown>) => {
+      const { encryptedSecret: _encryptedSecret, ...publicWallet } = wallet;
+
+      return publicWallet;
+    }),
   };
 });
 
-import { requireAccountContext } from "../core";
+import {
+  buildAccountSession,
+  getVisibleWallets,
+  normalizeAccountWallets,
+  requireAccountContext,
+  saveAccount,
+  stripWalletSecret,
+} from "../core";
 import { registerBaseRoutes } from "./base";
 
 type TestEnv = {
@@ -403,5 +415,294 @@ describe("favorite asset routes", () => {
     );
 
     expect(response.status).toBe(400);
+  });
+});
+
+type TestWallet = {
+  id: string;
+  address: string;
+  archived?: boolean;
+  archivedAt?: string;
+  canSign: boolean;
+  encryptedSecret?: { ciphertext: string; iv: string };
+  kind: "privy";
+  network: "mainnet" | "testnet";
+  publicKey: string;
+};
+
+function makeWallet(
+  id: string,
+  network: "mainnet" | "testnet" = "testnet",
+  overrides: Partial<TestWallet> = {}
+): TestWallet {
+  return {
+    id,
+    address: `G${id.toUpperCase().replace(/[^A-Z0-9]/g, "")}`,
+    canSign: true,
+    kind: "privy",
+    network,
+    publicKey: `G${id.toUpperCase().replace(/[^A-Z0-9]/g, "")}`,
+    ...overrides,
+  };
+}
+
+function setupWalletRouteMocks(account: {
+  activeWalletId?: string | null;
+  email: string;
+  id: string;
+  wallet?: TestWallet | null;
+  wallets: TestWallet[];
+}) {
+  vi.mocked(requireAccountContext).mockResolvedValue(account as never);
+  vi.mocked(normalizeAccountWallets).mockImplementation(
+    nextAccount => nextAccount as never
+  );
+  vi.mocked(getVisibleWallets).mockImplementation((nextAccount, network) =>
+    ((nextAccount as typeof account).wallets || []).filter(
+      wallet => !wallet.archived && (!network || wallet.network === network)
+    ) as never
+  );
+  vi.mocked(stripWalletSecret).mockImplementation(
+    (wallet: Record<string, unknown>) => {
+      const { encryptedSecret: _encryptedSecret, ...publicWallet } = wallet;
+
+      return publicWallet as never;
+    }
+  );
+  vi.mocked(saveAccount).mockImplementation(async (_env, nextAccount) =>
+    nextAccount as never
+  );
+  vi.mocked(buildAccountSession).mockImplementation(
+    async (_env, nextAccount, network) => ({
+      account: nextAccount,
+      activeWalletId: (nextAccount as typeof account).activeWalletId,
+      balance: { address: "", balances: [], exists: false, xlm: "0" },
+      balances: [],
+      kyc: { status: "not_started" },
+      network,
+      transactions: [],
+      wallets: ((nextAccount as typeof account).wallets || []).filter(
+        wallet => !wallet.archived
+      ),
+    }) as never
+  );
+}
+
+describe("wallet archive routes", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("archives a non-active wallet without switching the active wallet", async () => {
+    const activeWallet = makeWallet("testnet-1");
+    const archiveTarget = makeWallet("testnet-2");
+    const account = {
+      activeWalletId: activeWallet.id,
+      email: "user@example.com",
+      id: "account-1",
+      wallet: activeWallet,
+      wallets: [activeWallet, archiveTarget, makeWallet("mainnet-1", "mainnet")],
+    };
+    setupWalletRouteMocks(account);
+
+    const response = await createApp().request(
+      "/api/wallets/archive",
+      {
+        body: JSON.stringify({
+          network: "testnet",
+          walletId: archiveTarget.id,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+      { DB: createFavoriteDb() }
+    );
+    const body = (await response.json()) as {
+      activeWalletId: string;
+      wallets: TestWallet[];
+    };
+    const savedAccount = vi.mocked(saveAccount).mock.calls[0][1] as typeof account;
+    const archivedWallet = savedAccount.wallets.find(
+      wallet => wallet.id === archiveTarget.id
+    );
+
+    expect(response.status).toBe(200);
+    expect(savedAccount.activeWalletId).toBe(activeWallet.id);
+    expect(archivedWallet).toMatchObject({ archived: true });
+    expect(archivedWallet?.archivedAt).toBeTruthy();
+    expect(body.wallets.some(wallet => wallet.id === archiveTarget.id)).toBe(
+      false
+    );
+  });
+
+  it("switches to another visible wallet when archiving the active wallet", async () => {
+    const activeWallet = makeWallet("testnet-1");
+    const replacementWallet = makeWallet("testnet-2");
+    const account = {
+      activeWalletId: activeWallet.id,
+      email: "user@example.com",
+      id: "account-1",
+      wallet: activeWallet,
+      wallets: [activeWallet, replacementWallet],
+    };
+    setupWalletRouteMocks(account);
+
+    const response = await createApp().request(
+      "/api/wallets/archive",
+      {
+        body: JSON.stringify({
+          network: "testnet",
+          walletId: activeWallet.id,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+      { DB: createFavoriteDb() }
+    );
+    const savedAccount = vi.mocked(saveAccount).mock.calls[0][1] as typeof account;
+
+    expect(response.status).toBe(200);
+    expect(savedAccount.activeWalletId).toBe(replacementWallet.id);
+    expect(savedAccount.wallet?.id).toBe(replacementWallet.id);
+  });
+
+  it("does not archive the last visible wallet for the current network", async () => {
+    const testnetWallet = makeWallet("testnet-1");
+    const account = {
+      activeWalletId: testnetWallet.id,
+      email: "user@example.com",
+      id: "account-1",
+      wallet: testnetWallet,
+      wallets: [testnetWallet, makeWallet("mainnet-1", "mainnet")],
+    };
+    setupWalletRouteMocks(account);
+
+    const response = await createApp().request(
+      "/api/wallets/archive",
+      {
+        body: JSON.stringify({
+          network: "testnet",
+          walletId: testnetWallet.id,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+      { DB: createFavoriteDb() }
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: "Cannot archive the last testnet wallet",
+    });
+    expect(saveAccount).not.toHaveBeenCalled();
+  });
+
+  it("lists archived wallets without encrypted secrets", async () => {
+    const activeWallet = makeWallet("testnet-1");
+    const archivedWallet = makeWallet("testnet-2", "testnet", {
+      archived: true,
+      archivedAt: "2026-01-01T00:00:00.000Z",
+      encryptedSecret: { ciphertext: "secret", iv: "iv" },
+    });
+    setupWalletRouteMocks({
+      activeWalletId: activeWallet.id,
+      email: "user@example.com",
+      id: "account-1",
+      wallet: activeWallet,
+      wallets: [
+        activeWallet,
+        archivedWallet,
+        makeWallet("mainnet-hidden", "mainnet", { archived: true }),
+      ],
+    });
+
+    const response = await createApp().request(
+      "/api/wallets/archived?network=testnet",
+      undefined,
+      { DB: createFavoriteDb() }
+    );
+    const body = (await response.json()) as { wallets: Array<TestWallet> };
+
+    expect(response.status).toBe(200);
+    expect(body.wallets).toEqual([
+      expect.objectContaining({
+        archived: true,
+        id: archivedWallet.id,
+        network: "testnet",
+      }),
+    ]);
+    expect(body.wallets[0]).not.toHaveProperty("encryptedSecret");
+    expect(stripWalletSecret).toHaveBeenCalled();
+  });
+
+  it("restores an archived wallet to the visible wallet list", async () => {
+    const activeWallet = makeWallet("testnet-1");
+    const archivedWallet = makeWallet("testnet-2", "testnet", {
+      archived: true,
+      archivedAt: "2026-01-01T00:00:00.000Z",
+    });
+    setupWalletRouteMocks({
+      activeWalletId: activeWallet.id,
+      email: "user@example.com",
+      id: "account-1",
+      wallet: activeWallet,
+      wallets: [activeWallet, archivedWallet],
+    });
+
+    const response = await createApp().request(
+      "/api/wallets/restore",
+      {
+        body: JSON.stringify({
+          network: "testnet",
+          walletId: archivedWallet.id,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+      { DB: createFavoriteDb() }
+    );
+    const body = (await response.json()) as { wallets: TestWallet[] };
+    const savedAccount = vi.mocked(saveAccount).mock.calls[0][1] as {
+      wallets: TestWallet[];
+    };
+    const restoredWallet = savedAccount.wallets.find(
+      wallet => wallet.id === archivedWallet.id
+    );
+
+    expect(response.status).toBe(200);
+    expect(restoredWallet).toMatchObject({ archived: false });
+    expect(restoredWallet).not.toHaveProperty("archivedAt");
+    expect(body.wallets.some(wallet => wallet.id === archivedWallet.id)).toBe(
+      true
+    );
+  });
+
+  it("does not allow selecting an archived wallet", async () => {
+    const activeWallet = makeWallet("testnet-1");
+    const archivedWallet = makeWallet("testnet-2", "testnet", {
+      archived: true,
+    });
+    setupWalletRouteMocks({
+      activeWalletId: activeWallet.id,
+      email: "user@example.com",
+      id: "account-1",
+      wallet: activeWallet,
+      wallets: [activeWallet, archivedWallet],
+    });
+
+    const response = await createApp().request(
+      "/api/wallets/select",
+      {
+        body: JSON.stringify({
+          network: "testnet",
+          walletId: archivedWallet.id,
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+      { DB: createFavoriteDb() }
+    );
+
+    expect(response.status).toBe(404);
   });
 });

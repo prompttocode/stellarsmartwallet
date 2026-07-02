@@ -15,6 +15,7 @@ import {
 import { api } from '@api/client';
 import { API_BASE_URL, PRIVY_WEB_EXPORT_CLIENT_ID } from '@config';
 import type {
+  ArchivedWalletsResponse,
   AssetItem,
   AssetsResponse,
   Balance,
@@ -61,6 +62,7 @@ import {
   getImportSecretPublicAddress,
   getXlmTrustlineReserveWarning,
   isLikelyStellarPublicKey,
+  sanitizeStellarAmountInput,
   validateImportSecret,
   validateStellarAmount,
   validateWatchOnlyAddress,
@@ -110,7 +112,9 @@ import { isStellarNetwork, mergePopulatedFields } from './wallet/utils';
 import { useWalletErrors, type RunOptions } from './wallet/walletErrors';
 
 type ApplySessionOptions = {
+  activeWalletId?: string | null;
   cache?: boolean;
+  clearPortfolioOnActiveWalletMismatch?: boolean;
   source?: 'cache' | 'server';
 };
 
@@ -132,6 +136,37 @@ type SessionBootstrapWalletRequest = {
   key: string;
   promise: Promise<ClientStellarWalletPayload | undefined>;
 };
+
+function getSessionWallets(session: SessionResponse) {
+  return (
+    session.wallets ||
+    session.account.wallets ||
+    (session.account.wallet ? [session.account.wallet] : [])
+  );
+}
+
+function getSessionActiveWalletId(session: SessionResponse) {
+  return (
+    session.activeWalletId ||
+    session.account.activeWalletId ||
+    session.account.wallet?.id ||
+    null
+  );
+}
+
+function sessionHasWalletId(
+  session: SessionResponse,
+  walletId: string | null | undefined,
+  targetNetwork: StellarNetwork,
+) {
+  if (!walletId) {
+    return false;
+  }
+
+  return getSessionWallets(session).some(
+    item => item.id === walletId && item.network === targetNetwork,
+  );
+}
 
 export function getBalanceForAsset(balances: BalanceItem[], assetCode: string) {
   return balances.find(balance => balance.assetCode === assetCode) || null;
@@ -172,6 +207,7 @@ export function useWallet() {
   const [account, setAccount] = useState<WalletAccount | null>(null);
   const [kyc, setKyc] = useState<KycSummary>(DEFAULT_KYC);
   const [wallets, setWallets] = useState<Wallet[]>([]);
+  const [archivedWallets, setArchivedWallets] = useState<Wallet[]>([]);
   const [activeWalletId, setActiveWalletId] = useState<string | null>(null);
   const [balances, setBalances] = useState<BalanceItem[]>([]);
   const [recipient, setRecipient] = useState('');
@@ -207,9 +243,7 @@ export function useWallet() {
   const [privySessionReady, setPrivySessionReady] = useState(false);
   const [serverSessionReady, setServerSessionReady] = useState(false);
   const [sessionSyncing, setSessionSyncing] = useState(false);
-  const [restoreAttemptedForUser, setRestoreAttemptedForUser] = useState<
-    string | null
-  >(null);
+  const restoreAttemptedForUserRef = useRef<string | null>(null);
   const {
     user,
     isReady,
@@ -584,6 +618,7 @@ export function useWallet() {
     setAccount(null);
     setKyc(DEFAULT_KYC);
     setWallets([]);
+    setArchivedWallets([]);
     setActiveWalletId(null);
     setBalances([]);
     setCollectibles([]);
@@ -598,7 +633,7 @@ export function useWallet() {
     setServerSessionReady(false);
     setSessionSyncing(false);
     sessionBootstrapWalletRef.current = null;
-    setRestoreAttemptedForUser(null);
+    restoreAttemptedForUserRef.current = null;
 
     if (nextMessage) {
       setMessage(nextMessage);
@@ -611,15 +646,15 @@ export function useWallet() {
       nextMessage = 'Your Stellar wallet is ready.',
       options: ApplySessionOptions = {},
     ) => {
-      const sessionWallets =
-        session.wallets ||
-        session.account.wallets ||
-        (session.account.wallet ? [session.account.wallet] : []);
+      const sessionWallets = getSessionWallets(session);
+      const sessionActiveWalletId = getSessionActiveWalletId(session);
+      const requestedActiveWalletId = options.activeWalletId || null;
       const nextActiveWalletId =
-        session.activeWalletId ||
-        session.account.activeWalletId ||
-        session.account.wallet?.id ||
-        null;
+        requestedActiveWalletId || sessionActiveWalletId;
+      const clearPortfolio =
+        Boolean(options.clearPortfolioOnActiveWalletMismatch) &&
+        Boolean(requestedActiveWalletId) &&
+        requestedActiveWalletId !== sessionActiveWalletId;
 
       const sessionNetwork =
         session.network || session.account.wallet?.network || network;
@@ -629,9 +664,15 @@ export function useWallet() {
       setAccount(session.account);
       setKyc(session.kyc || DEFAULT_KYC);
       setWallets(sessionWallets);
+      setArchivedWallets([]);
       setActiveWalletId(nextActiveWalletId);
-      setBalances(session.balances || session.balance.balances || []);
-      setTransactions(session.transactions || []);
+      setBalances(
+        clearPortfolio ? [] : session.balances || session.balance.balances || [],
+      );
+      setTransactions(clearPortfolio ? [] : session.transactions || []);
+      if (clearPortfolio) {
+        setCollectibles([]);
+      }
       setServerSessionReady(options.source !== 'cache');
       setMessage(nextMessage);
 
@@ -1034,7 +1075,12 @@ export function useWallet() {
       options: FinishPrivySessionOptions = {},
     ) => {
       const identityToken =
-        existingIdentityToken || (await getTokenWithRetry(getIdentityToken));
+        existingIdentityToken ||
+        (await withTimeout(
+          getTokenWithRetry(getIdentityToken),
+          PRIVY_SECURITY_SESSION_TIMEOUT_MS,
+          'Privy session check timed out.',
+        ).catch(() => null));
       const sessionEmail = String(fallbackEmail || '')
         .trim()
         .toLowerCase();
@@ -1044,6 +1090,12 @@ export function useWallet() {
           'Privy session is not ready or has expired. Please sign out and sign in again.',
         );
       }
+
+      const requestedActiveWalletId = isEmailLike(sessionEmail)
+        ? await readStoredActiveWalletId(sessionEmail, sessionNetwork).catch(
+            () => null,
+          )
+        : null;
 
       const bootstrapWallet = identityToken
         ? await getSessionBootstrapWallet(
@@ -1056,6 +1108,7 @@ export function useWallet() {
         ? await api<SessionResponse>('/api/session', {
             method: 'POST',
             body: JSON.stringify({
+              activeWalletId: requestedActiveWalletId || undefined,
               identityToken,
               network: sessionNetwork,
               wallet: bootstrapWallet,
@@ -1064,6 +1117,7 @@ export function useWallet() {
         : await api<SessionResponse>('/api/session', {
             method: 'POST',
             body: JSON.stringify({
+              activeWalletId: requestedActiveWalletId || undefined,
               email: sessionEmail,
               network: sessionNetwork,
             }),
@@ -1078,35 +1132,59 @@ export function useWallet() {
   );
 
   useEffect(() => {
+    const restoreAttemptKey = userKey ? `${userKey}:${network}` : null;
+
     if (
       isReady &&
       user &&
       userKey &&
       !account &&
-      restoreAttemptedForUser !== userKey
+      restoreAttemptedForUserRef.current !== restoreAttemptKey
     ) {
       const restoreUserKey = userKey;
+      const restoreNetwork = network;
 
-      setRestoreAttemptedForUser(restoreUserKey);
+      restoreAttemptedForUserRef.current = restoreAttemptKey;
       let cancelled = false;
 
       async function restoreSession() {
         setSessionSyncing(true);
 
-        const cached = await readCachedSession(restoreUserKey, network).catch(
-          () => null,
-        );
+        const cached = await readCachedSession(
+          restoreUserKey,
+          restoreNetwork,
+        ).catch(() => null);
 
         if (cancelled) {
           return;
         }
 
         if (cached) {
+          const cachedStoredWalletId = await readStoredActiveWalletId(
+            cached.session.account.email,
+            restoreNetwork,
+          ).catch(() => null);
+
+          if (cancelled) {
+            return;
+          }
+
+          const cachedActiveWalletId =
+            sessionHasWalletId(
+              cached.session,
+              cachedStoredWalletId,
+              restoreNetwork,
+            )
+              ? cachedStoredWalletId
+              : null;
+
           applySession(
             cached.session,
             'Wallet restored from this device. Syncing latest balances...',
             {
+              activeWalletId: cachedActiveWalletId,
               cache: false,
+              clearPortfolioOnActiveWalletMismatch: true,
               source: 'cache',
             },
           );
@@ -1118,7 +1196,7 @@ export function useWallet() {
           await finishPrivySession(
             undefined,
             getEmailFromPrivyUser(user),
-            network,
+            restoreNetwork,
             { privyUser: user },
           );
         } catch (error) {
@@ -1141,6 +1219,10 @@ export function useWallet() {
 
       return () => {
         cancelled = true;
+        if (restoreAttemptedForUserRef.current === restoreAttemptKey) {
+          restoreAttemptedForUserRef.current = null;
+        }
+        setSessionSyncing(false);
       };
     }
   }, [
@@ -1148,7 +1230,6 @@ export function useWallet() {
     applySession,
     isReady,
     network,
-    restoreAttemptedForUser,
     user,
     userKey,
   ]);
@@ -1407,7 +1488,51 @@ export function useWallet() {
       });
 
       resetRecipientState();
-      applySession(session, 'Wallet archived from the list.');
+      applySession(session, 'Wallet archived. You can restore it anytime.');
+
+      return session;
+    });
+  }
+
+  async function loadArchivedWallets() {
+    if (!account) {
+      setArchivedWallets([]);
+      return [];
+    }
+
+    const headers = await getAuthHeaders(true);
+    const response = await api<ArchivedWalletsResponse>(
+      `/api/wallets/archived?network=${encodeURIComponent(network)}`,
+      {
+        headers,
+      },
+    );
+    const nextWallets = response.wallets || [];
+
+    setArchivedWallets(nextWallets);
+
+    return nextWallets;
+  }
+
+  async function restoreWallet(walletId: string) {
+    if (!account || !walletId) {
+      return null;
+    }
+
+    return run('Restoring wallet', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const session = await api<SessionResponse>('/api/wallets/restore', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ network, walletId }),
+      });
+
+      resetRecipientState();
+      applySession(session, 'Wallet restored to the list.');
+      setArchivedWallets(current =>
+        current.filter(item => item.id !== walletId),
+      );
 
       return session;
     });
@@ -3285,6 +3410,10 @@ export function useWallet() {
     }
   }
 
+  function setWalletAmount(value: string) {
+    setAmount(sanitizeStellarAmountInput(value));
+  }
+
   return {
     account,
     activeRampOrder,
@@ -3294,6 +3423,7 @@ export function useWallet() {
     addTrustline,
     amount,
     archiveWallet,
+    archivedWallets,
     assets,
     balances,
     bypassRampOrderPayment,
@@ -3327,6 +3457,7 @@ export function useWallet() {
     kyc,
     loginWithGoogle,
     loginState,
+    loadArchivedWallets,
     loadFavoriteAssets,
     loadPaymentMethods,
     logout,
@@ -3355,6 +3486,7 @@ export function useWallet() {
     refreshSession,
     renameWallet,
     resetLoginCode,
+    restoreWallet,
     savePaymentMethod,
     selectedAsset,
     selectedAssetCode,
@@ -3365,7 +3497,7 @@ export function useWallet() {
     sendEmailCode,
     submitKycIdCard,
     selectWallet,
-    setAmount,
+    setAmount: setWalletAmount,
     setCode,
     setDefaultPaymentMethod,
     setEmail,

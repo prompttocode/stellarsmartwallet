@@ -2,10 +2,13 @@ import {
   Account,
   Asset,
   BASE_FEE,
+  Contract,
   Keypair,
   Networks,
   Operation,
+  StrKey,
   TransactionBuilder,
+  nativeToScVal,
 } from '@stellar/stellar-sdk';
 import { describe, expect, it } from 'vitest';
 import {
@@ -222,6 +225,29 @@ describe('WalletConnect XDR review', () => {
     };
   }
 
+  function buildSorobanXdr() {
+    const source = Keypair.random();
+    const contractId = StrKey.encodeContract(new Uint8Array(32).fill(1));
+    const transaction = new TransactionBuilder(
+      new Account(source.publicKey(), '1'),
+      {
+        fee: BASE_FEE,
+        networkPassphrase: Networks.TESTNET,
+      },
+    )
+      .addOperation(
+        new Contract(contractId).call('hello', nativeToScVal('world')),
+      )
+      .setTimeout(60)
+      .build();
+
+    return {
+      contractId,
+      source: source.publicKey(),
+      xdr: transaction.toEnvelope().toXDR('base64'),
+    };
+  }
+
   it('returns structured payment details', () => {
     const destination = Keypair.random().publicKey();
     const { source, xdr } = buildXdr(
@@ -264,5 +290,29 @@ describe('WalletConnect XDR review', () => {
         xdr,
       }),
     ).toThrow('Operation manageData');
+  });
+
+  it('returns a guarded Soroban contract call review', () => {
+    const { contractId, source, xdr } = buildSorobanXdr();
+    const review = reviewStellarXdr({
+      env: walletConnectEnv,
+      network: 'testnet',
+      sourceAddress: source,
+      xdr,
+    });
+
+    expect(review.operations).toEqual([
+      expect.objectContaining({
+        argCount: 1,
+        authCount: 0,
+        contractId,
+        functionName: 'hello',
+        hostFunctionType: 'hostFunctionTypeInvokeContract',
+        type: 'invokeHostFunction',
+      }),
+    ]);
+    expect(review.warnings).toContain(
+      'This is a Soroban smart contract request. Only approve if you trust this dApp and understand the contract action.',
+    );
   });
 });

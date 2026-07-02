@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -19,6 +20,7 @@ import { NonBlockingProgressBanner } from '@components/common/NonBlockingProgres
 import { CurrencyProvider } from '@contexts/CurrencyContext';
 import { WalletConnectProvider } from '@contexts/WalletConnectContext';
 import { WalletConnectOverlays } from '@components/wallet/WalletConnectOverlays';
+import { WalletTutorialOverlay } from '@components/wallet/WalletTutorialOverlay';
 import type { WalletState } from '@hooks/useWallet';
 import { isRampOrderTerminal } from '@utils/ramp';
 
@@ -45,6 +47,11 @@ import type {
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+const WALLET_TUTORIAL_STORAGE_VERSION = 'v1';
+
+function getWalletTutorialStorageKey(accountKey: string) {
+  return `wallet-tutorial-seen:${WALLET_TUTORIAL_STORAGE_VERSION}:${accountKey}`;
+}
 
 async function clearClosedRampOrder(wallet: WalletState) {
   if (isRampOrderTerminal(wallet.activeRampOrder)) {
@@ -140,7 +147,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
       damping: 200,
       stiffness: 160,
     });
-  }, [state.index, tabWidth]);
+  }, [indicatorX, state.index, tabWidth]);
 
   const indicatorStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: indicatorX.value }],
@@ -221,7 +228,13 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   );
 }
 
-function MainTabs({ wallet }: { wallet: WalletState }) {
+function MainTabs({
+  onOpenTutorial,
+  wallet,
+}: {
+  onOpenTutorial: () => void;
+  wallet: WalletState;
+}) {
   function getAssetParams(asset: BalanceItem) {
     return {
       asset,
@@ -333,6 +346,7 @@ function MainTabs({ wallet }: { wallet: WalletState }) {
         {({ navigation }: any) => (
           <SettingsScreen
             onOpenKyc={() => navigation.navigate('Kyc')}
+            onOpenTutorial={onOpenTutorial}
             onOpenWalletConnect={() => navigation.navigate('WalletConnect')}
             wallet={wallet}
           />
@@ -347,13 +361,41 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
   const [completedStatusText, setCompletedStatusText] = useState<string | null>(
     null,
   );
+  const [tutorialVisible, setTutorialVisible] = useState(false);
   const previousGlobalBusyRef = useRef<string | null>(null);
+  const checkedTutorialKeyRef = useRef<string | null>(null);
+  const tutorialAccountKey =
+    wallet.account?.id || wallet.account?.email || null;
+  const tutorialStorageKey = tutorialAccountKey
+    ? getWalletTutorialStorageKey(tutorialAccountKey)
+    : null;
   const shouldShowLoadingBanner =
     shouldUseGlobalLoadingBanner(wallet.busy) &&
     !wallet.errorDialog &&
     !isRampOrderTerminal(wallet.activeRampOrder);
   const shouldShowSuccessBanner =
     !shouldShowLoadingBanner && Boolean(completedStatusText);
+  const tutorialCanOpen =
+    Boolean(wallet.account && wallet.wallet) &&
+    !wallet.busy &&
+    !wallet.errorDialog &&
+    !wallet.sessionSyncing &&
+    !shouldShowLoadingBanner &&
+    !shouldShowSuccessBanner &&
+    !isRampOrderTerminal(wallet.activeRampOrder);
+  const shouldShowTutorial = tutorialVisible && tutorialCanOpen;
+
+  function openTutorial() {
+    setTutorialVisible(true);
+  }
+
+  function closeTutorial() {
+    setTutorialVisible(false);
+
+    if (tutorialStorageKey) {
+      AsyncStorage.setItem(tutorialStorageKey, '1').catch(() => null);
+    }
+  }
 
   useEffect(() => {
     const activeGlobalBusy = shouldUseGlobalLoadingBanner(wallet.busy)
@@ -380,6 +422,31 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
     return () => clearTimeout(timer);
   }, [wallet.busy, wallet.errorDialog]);
 
+  useEffect(() => {
+    if (!tutorialCanOpen || !tutorialStorageKey) {
+      return undefined;
+    }
+
+    if (checkedTutorialKeyRef.current === tutorialStorageKey) {
+      return undefined;
+    }
+
+    checkedTutorialKeyRef.current = tutorialStorageKey;
+    let cancelled = false;
+
+    AsyncStorage.getItem(tutorialStorageKey)
+      .then(value => {
+        if (!cancelled && value !== '1') {
+          setTutorialVisible(true);
+        }
+      })
+      .catch(() => null);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tutorialCanOpen, tutorialStorageKey]);
+
   return (
     <CurrencyProvider>
       <WalletConnectProvider wallet={wallet}>
@@ -389,7 +456,13 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
               screenOptions={{ headerShown: false, animation: 'default' }}
             >
               <Stack.Screen name="MainTabs">
-                {props => <MainTabs {...props} wallet={wallet} />}
+                {props => (
+                  <MainTabs
+                    {...props}
+                    onOpenTutorial={openTutorial}
+                    wallet={wallet}
+                  />
+                )}
               </Stack.Screen>
               <Stack.Screen name="Send">
                 {({ route, navigation }: any) => (
@@ -515,6 +588,11 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
             }
             variant={shouldShowLoadingBanner ? 'loading' : 'success'}
             visible={shouldShowLoadingBanner || shouldShowSuccessBanner}
+          />
+          <WalletTutorialOverlay
+            network={wallet.network}
+            onClose={closeTutorial}
+            visible={shouldShowTutorial}
           />
           <WalletConnectOverlays wallet={wallet} />
         </View>

@@ -55,6 +55,9 @@ export type WalletConnectOperationReview = {
   asset?: WalletConnectAssetReview | null;
   buyAmount?: string;
   buying?: WalletConnectAssetReview | null;
+  argCount?: number;
+  authCount?: number;
+  contractId?: string | null;
   destination?: string;
   destinationAmount?: string;
   destinationAsset?: WalletConnectAssetReview | null;
@@ -69,6 +72,8 @@ export type WalletConnectOperationReview = {
   sendMaximum?: string;
   source?: string | null;
   startingBalance?: string;
+  functionName?: string;
+  hostFunctionType?: string;
   type: string;
 };
 
@@ -483,8 +488,23 @@ export function WalletConnectProvider({
         const proposals = Object.values(
           nextClient.getPendingSessionProposals(),
         );
+        const pendingRequests = nextClient.getPendingSessionRequests();
+        const validPendingRequests: SessionRequestEvent[] = [];
+
+        for (const pendingRequest of pendingRequests) {
+          if (cancelled) {
+            return;
+          }
+
+          const valid = await validateRequest(nextClient, pendingRequest);
+
+          if (valid) {
+            validPendingRequests.push(pendingRequest);
+          }
+        }
+
         setProposalData(proposals[0] || null);
-        setRequestQueue(nextClient.getPendingSessionRequests());
+        setRequestQueue(validPendingRequests);
 
         if (pendingPairUriRef.current) {
           const uri = pendingPairUriRef.current;
@@ -978,6 +998,12 @@ export function WalletConnectProvider({
     }
 
     const method = event.params.request.method;
+    const valid = await validateRequest(nextClient, event);
+
+    if (!valid) {
+      removeActiveRequest();
+      return;
+    }
 
     if (!isSupportedMethod(method)) {
       await respondWithError(
@@ -1115,6 +1141,7 @@ export function WalletConnectProvider({
     respondWithError,
     showPopup,
     signRawHash,
+    validateRequest,
   ]);
 
   const disconnectSession = useCallback(

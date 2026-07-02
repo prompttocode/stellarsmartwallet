@@ -38,15 +38,15 @@ function formatUsd(value?: number | null) {
   })}`;
 }
 
-function formatCompact(value?: number | null) {
-  if (typeof value !== 'number' || Number.isNaN(value)) {
-    return null;
-  }
+function formatChartPrice({
+  formatted,
+}: {
+  formatted: string;
+  value: string;
+}) {
+  'worklet';
 
-  return value.toLocaleString('en-US', {
-    maximumFractionDigits: 2,
-    notation: 'compact',
-  });
+  return formatted ? `$${formatted}` : '';
 }
 
 function getAssetExplorerUrl(asset: AssetItem | BalanceItem) {
@@ -146,9 +146,7 @@ function mergeRouteAsset(
 
 export function AssetDetailScreen({
   onBack,
-  onGoToReceive,
   onGoToRamp,
-  onGoToSend,
   route,
   wallet,
 }: {
@@ -165,7 +163,7 @@ export function AssetDetailScreen({
     [route.params, wallet],
   );
 
-  const [timeframe, setTimeframe] = useState<Timeframe>('7D');
+  const timeframe: Timeframe = '7D';
   const { data: chartData, loading: chartLoading } = useHistoricalPrice(
     asset,
     timeframe,
@@ -317,7 +315,41 @@ export function AssetDetailScreen({
                 <LineChart.Path color="#B8FF45">
                   <LineChart.Gradient color="#B8FF45" />
                 </LineChart.Path>
-                <LineChart.CursorCrosshair color="#B8FF45" />
+                <LineChart.CursorCrosshair color="#B8FF45">
+                  <LineChart.Tooltip
+                    cursorGutter={28}
+                    position="top"
+                    style={styles.chartPriceTooltip}
+                    withHorizontalFloating
+                    xGutter={12}
+                    yGutter={8}
+                  >
+                    <LineChart.PriceText
+                      format={formatChartPrice}
+                      precision={6}
+                      style={styles.chartTooltipPrice}
+                    />
+                  </LineChart.Tooltip>
+                  <LineChart.Tooltip
+                    cursorGutter={20}
+                    position="bottom"
+                    style={styles.chartDateTooltip}
+                    withHorizontalFloating
+                    xGutter={12}
+                    yGutter={8}
+                  >
+                    <LineChart.DatetimeText
+                      locale="en-US"
+                      options={{
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        month: 'short',
+                      }}
+                      style={styles.chartTooltipDate}
+                    />
+                  </LineChart.Tooltip>
+                </LineChart.CursorCrosshair>
               </LineChart>
             </LineChart.Provider>
           ) : (
@@ -436,6 +468,34 @@ const styles = StyleSheet.create({
     marginTop: 30,
     height: 200,
     width: '100%',
+  },
+  chartPriceTooltip: {
+    backgroundColor: '#B8FF45',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    shadowColor: '#B8FF45',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+  },
+  chartDateTooltip: {
+    backgroundColor: '#1C1C1E',
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  chartTooltipPrice: {
+    color: '#101400',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  chartTooltipDate: {
+    color: '#D8DEE8',
+    fontSize: 10,
+    fontWeight: '800',
   },
   timeframeRow: {
     flexDirection: 'row',

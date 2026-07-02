@@ -66,6 +66,7 @@ export function formatTokenAmount(
     return new Intl.NumberFormat('en-US', {
       maximumFractionDigits: 2,
       notation: 'compact',
+      useGrouping: false,
     }).format(amount);
   }
 
@@ -73,6 +74,7 @@ export function formatTokenAmount(
     maximumFractionDigits:
       options.maxFractionDigits ?? (absAmount >= 1_000 ? 2 : 7),
     minimumFractionDigits: 0,
+    useGrouping: false,
   }).format(amount);
 }
 

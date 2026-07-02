@@ -24,6 +24,7 @@ export type Wallet = {
   id: string;
   address: string;
   archived?: boolean;
+  archivedAt?: string;
   canSign: boolean;
   publicKey: string;
   chainType: string;
@@ -163,6 +164,11 @@ export type SessionResponse = {
   network?: StellarNetwork;
   transactions: TransactionItem[];
   wallets?: Wallet[];
+};
+
+export type ArchivedWalletsResponse = {
+  network?: StellarNetwork;
+  wallets: Wallet[];
 };
 
 export type TransactionHistoryResponse = {

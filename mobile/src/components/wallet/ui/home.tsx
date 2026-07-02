@@ -6,8 +6,13 @@ import type {
   NativeSyntheticEvent,
 } from 'react-native';
 import Animated, {
+  Easing,
+  interpolate,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -17,6 +22,130 @@ import { shortAddress } from '@utils/format';
 import { modern } from '../modernStyles';
 import { PressScale } from './primitives';
 import { TokenIcon } from './token';
+
+const heroCoinImages: ImageSourcePropType[] = [
+  require('@assets/images/coin/xlm.png'),
+  require('@assets/images/coin/usdc.png'),
+  require('@assets/images/coin/usdt.png'),
+  require('@assets/images/coin/eurc.png'),
+  require('@assets/images/coin/pyusd.png'),
+];
+
+type HeroCoinDriftConfig = {
+  delay: number;
+  duration: number;
+  key: string;
+  opacity: number;
+  rotateFrom: number;
+  rotateTo: number;
+  right: number;
+  size: number;
+  source: ImageSourcePropType;
+  top: number;
+  travelX: number;
+  travelY: number;
+};
+
+function createHeroCoinDrifts(): HeroCoinDriftConfig[] {
+  const count = 9 + Math.floor(Math.random() * 3);
+
+  return Array.from({ length: count }, (_, index) => ({
+    delay: 120 + Math.random() * 900 + index * 280,
+    duration: 3600 + Math.random() * 1600,
+    key: `hero-coin-${index}`,
+    opacity: 0.2 + Math.random() * 0.18,
+    right: -36 + Math.random() * 140,
+    rotateFrom: -18 + Math.random() * 36,
+    rotateTo: 24 + Math.random() * 72,
+    size: 24 + Math.random() * 16,
+    source: heroCoinImages[index % heroCoinImages.length],
+    top: 46 + Math.random() * 320,
+    travelX: -(220 + Math.random() * 180),
+    travelY: 110 + Math.random() * 150,
+  }));
+}
+
+function HeroCoinField() {
+  const coins = useMemo(createHeroCoinDrifts, []);
+
+  return (
+    <View pointerEvents="none" style={modern.heroMeteorLayer}>
+      {coins.map(coin => (
+        <HeroCoinDrift key={coin.key} coin={coin} />
+      ))}
+    </View>
+  );
+}
+
+function HeroCoinDrift({ coin }: { coin: HeroCoinDriftConfig }) {
+  const progress = useSharedValue(0);
+  const baseStyle = useMemo(
+    () => ({
+      height: coin.size,
+      right: coin.right,
+      top: coin.top,
+      width: coin.size,
+    }),
+    [coin.right, coin.size, coin.top],
+  );
+  const animatedStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      progress.value,
+      [0, 0.14, 0.74, 1],
+      [0, coin.opacity, coin.opacity * 0.76, 0],
+    );
+    const rotate = interpolate(
+      progress.value,
+      [0, 1],
+      [coin.rotateFrom, coin.rotateTo],
+    );
+    const scale = interpolate(progress.value, [0, 0.4, 1], [0.88, 1, 0.94]);
+
+    return {
+      opacity,
+      transform: [
+        {
+          translateX: interpolate(progress.value, [0, 1], [0, coin.travelX]),
+        },
+        {
+          translateY: interpolate(progress.value, [0, 1], [0, coin.travelY]),
+        },
+        { rotate: `${rotate}deg` },
+        { scale },
+      ],
+    };
+  }, [
+    coin.opacity,
+    coin.rotateFrom,
+    coin.rotateTo,
+    coin.travelX,
+    coin.travelY,
+  ]);
+
+  useEffect(() => {
+    progress.value = 0;
+    progress.value = withRepeat(
+      withSequence(
+        withDelay(
+          coin.delay,
+          withTiming(1, {
+            duration: coin.duration,
+            easing: Easing.out(Easing.cubic),
+          }),
+        ),
+        withTiming(0, { duration: 0 }),
+      ),
+      -1,
+      false,
+    );
+  }, [coin.delay, coin.duration, progress]);
+
+  return (
+    <Animated.View style={[modern.heroCoinSprite, baseStyle, animatedStyle]}>
+      <Image source={coin.source} style={modern.heroCoinImage} />
+    </Animated.View>
+  );
+}
 
 export function WalletHero({
   address,
@@ -102,66 +231,73 @@ export function WalletHero({
       style={[modern.hero, network === 'mainnet' ? modern.heroMainnet : null]}
     >
       <View style={heroScrimStyle}>
-        <View style={modern.heroTop}>
-          <Pressable onPress={handleNetworkPress}>
-            <Animated.View
-              style={[modern.networkPill, networkPillAnimatedStyle]}
-            >
-              <TokenIcon assetCode="XLM" size={25} />
-              {networkPillExpanded ? (
-                <Text numberOfLines={1} style={modern.networkPillText}>
-                  {network === 'mainnet' ? 'Mainnet' : 'Testnet'}
-                </Text>
-              ) : null}
-              <MaterialCommunityIcons
-                color="rgba(255,255,255,0.88)"
-                name="autorenew"
-                size={17}
+        <HeroCoinField />
+        <View style={modern.heroContent}>
+          <View style={modern.heroTop}>
+            <Pressable onPress={handleNetworkPress}>
+              <Animated.View
+                style={[modern.networkPill, networkPillAnimatedStyle]}
+              >
+                <TokenIcon assetCode="XLM" size={25} />
+                {networkPillExpanded ? (
+                  <Text numberOfLines={1} style={modern.networkPillText}>
+                    {network === 'mainnet' ? 'Mainnet' : 'Testnet'}
+                  </Text>
+                ) : null}
+                <MaterialCommunityIcons
+                  color="rgba(255,255,255,0.88)"
+                  name="autorenew"
+                  size={17}
+                />
+              </Animated.View>
+            </Pressable>
+            <Pressable onPress={onWalletPress} style={modern.addressPill}>
+              <Ionicons
+                color="rgba(255,255,255,0.9)"
+                name="wallet-outline"
+                size={15}
               />
-            </Animated.View>
-          </Pressable>
-          <Pressable onPress={onWalletPress} style={modern.addressPill}>
-            <Ionicons
-              color="rgba(255,255,255,0.9)"
-              name="wallet-outline"
-              size={15}
-            />
-            <Text numberOfLines={1} style={modern.addressPillText}>
-              {walletName || shortAddress(address)}
-            </Text>
-          </Pressable>
-          <View style={modern.heroActions}>
-            <PressScale onPress={onSearch} style={modern.heroIconButton}>
-              <Ionicons color="#FFFFFF" name="search" size={21} />
-            </PressScale>
-            <PressScale onPress={onScan} style={modern.heroIconButton}>
-              <Ionicons color="#FFFFFF" name="scan-outline" size={21} />
-            </PressScale>
-          </View>
-        </View>
-
-        <View style={modern.heroCard}>
-          <View style={modern.heroCardHeader}>
-            <View>
-              <Text style={modern.heroLabel}>
-                {network === 'mainnet'
-                  ? 'Estimated portfolio value'
-                  : 'Testnet portfolio'}
+              <Text numberOfLines={1} style={modern.addressPillText}>
+                {walletName || shortAddress(address)}
               </Text>
-              <Text style={modern.heroNetworkMeta}>
-                {network === 'mainnet' ? '' : 'Stellar Testnet · demo assets'}
-              </Text>
+            </Pressable>
+            <View style={modern.heroActions}>
+              <PressScale onPress={onSearch} style={modern.heroIconButton}>
+                <Ionicons color="#FFFFFF" name="search" size={21} />
+              </PressScale>
+              <PressScale onPress={onScan} style={modern.heroIconButton}>
+                <Ionicons color="#FFFFFF" name="scan-outline" size={21} />
+              </PressScale>
             </View>
           </View>
 
-          <Text numberOfLines={1} adjustsFontSizeToFit style={modern.heroAmount}>
-            {portfolioValue}
-          </Text>
-          {portfolioNote ? (
-            <Text style={modern.heroPriceNote}>{portfolioNote}</Text>
-          ) : null}
+          <View style={modern.heroCard}>
+            <View style={modern.heroCardHeader}>
+              <View>
+                <Text style={modern.heroLabel}>
+                  {network === 'mainnet'
+                    ? 'Estimated portfolio value'
+                    : 'Testnet portfolio'}
+                </Text>
+                <Text style={modern.heroNetworkMeta}>
+                  {network === 'mainnet' ? '' : 'Stellar Testnet · demo assets'}
+                </Text>
+              </View>
+            </View>
 
-          {children}
+            <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              style={modern.heroAmount}
+            >
+              {portfolioValue}
+            </Text>
+            {portfolioNote ? (
+              <Text style={modern.heroPriceNote}>{portfolioNote}</Text>
+            ) : null}
+
+            {children}
+          </View>
         </View>
       </View>
     </View>
@@ -244,9 +380,7 @@ export function HomeBannerCarousel({
     return () => clearInterval(interval);
   }, [bannerWidth, banners.length]);
 
-  function handleMomentumEnd(
-    event: NativeSyntheticEvent<NativeScrollEvent>,
-  ) {
+  function handleMomentumEnd(event: NativeSyntheticEvent<NativeScrollEvent>) {
     if (bannerWidth <= 0) {
       return;
     }
