@@ -15,6 +15,7 @@ const assetColors: Record<string, { bg: string; fg: string }> = {
 };
 
 const xlmImage = require('@assets/images/coin/xlm.png');
+const usdcImage = require('@assets/images/coin/usdc.png');
 
 export function SmartRemoteImage({
   uri,
@@ -103,7 +104,8 @@ export function TokenIcon({
   imageUrl?: string | null;
 }) {
   const colors = assetColors[assetCode] || { bg: '#EEF3F5', fg: '#24495A' };
-  const fallbackImage = assetCode === 'XLM' ? xlmImage : null;
+  const fallbackImage =
+    assetCode === 'XLM' ? xlmImage : assetCode === 'USDC' ? usdcImage : null;
   const placeholder = (
     <Text style={[modern.tokenIconText, { color: colors.fg }]}>
       {assetCode.slice(0, 1)}
