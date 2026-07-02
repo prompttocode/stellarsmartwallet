@@ -62,6 +62,7 @@ import {
   getImportSecretPublicAddress,
   getXlmTrustlineReserveWarning,
   isLikelyStellarPublicKey,
+  sanitizeStellarAmountInput,
   validateImportSecret,
   validateStellarAmount,
   validateWatchOnlyAddress,
@@ -3409,6 +3410,10 @@ export function useWallet() {
     }
   }
 
+  function setWalletAmount(value: string) {
+    setAmount(sanitizeStellarAmountInput(value));
+  }
+
   return {
     account,
     activeRampOrder,
@@ -3492,7 +3497,7 @@ export function useWallet() {
     sendEmailCode,
     submitKycIdCard,
     selectWallet,
-    setAmount,
+    setAmount: setWalletAmount,
     setCode,
     setDefaultPaymentMethod,
     setEmail,

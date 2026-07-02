@@ -46,7 +46,10 @@ import {
   rampTimestampToMs,
 } from '@utils/ramp';
 import { formatTokenAmount, shortAddress } from '@utils/format';
-import { validateStellarAmount } from '@utils/walletValidation';
+import {
+  sanitizeStellarAmountInput,
+  validateStellarAmount,
+} from '@utils/walletValidation';
 
 const MIN_RAMP_PAYOUT_VND = 2000;
 const WITHDRAW_AUTO_SEND_DELAY_MS = 10000;
@@ -149,7 +152,9 @@ export function RampScreen({
   const [assetCode, setAssetCode] = useState<RampAssetCode>(
     route?.params?.assetCode || 'XLM',
   );
-  const [amount, setAmount] = useState(route?.params?.amount || '10');
+  const [amount, setAmount] = useState(
+    sanitizeStellarAmountInput(route?.params?.amount || ''),
+  );
   const [quote, setQuote] = useState<RampQuote | null>(null);
   const [quoteSheetVisible, setQuoteSheetVisible] = useState(false);
   const [orderQueueVisible, setOrderQueueVisible] = useState(false);
@@ -428,7 +433,7 @@ export function RampScreen({
       }
 
       if (route.params.amount) {
-        setAmount(route.params.amount);
+        setAmount(sanitizeStellarAmountInput(route.params.amount));
       }
 
       clearQuote();
@@ -828,7 +833,9 @@ export function RampScreen({
       return;
     }
 
-    const orderAmount = route.params.amount || amount;
+    const orderAmount = sanitizeStellarAmountInput(
+      route.params.amount || amount,
+    );
     const orderAssetCode = route.params.assetCode || assetCode;
     const orderDirection = route.params.direction || direction;
     const autoCreateKey = `${orderDirection}:${orderAssetCode}:${orderAmount}`;
@@ -1602,7 +1609,7 @@ export function RampScreen({
           <TextInput
             keyboardType="decimal-pad"
             onChangeText={value => {
-              setAmount(value);
+              setAmount(sanitizeStellarAmountInput(value));
               clearQuote();
             }}
             placeholder="Crypto amount"

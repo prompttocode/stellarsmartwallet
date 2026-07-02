@@ -20,7 +20,45 @@ export type AmountValidation = {
 };
 
 export function normalizeStellarAmountInput(value: unknown) {
-  return String(value || '').trim().replace(',', '.');
+  const cleaned = String(value || '')
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/[^\d.,]/g, '');
+
+  if (!cleaned) {
+    return '';
+  }
+
+  const commaIndex = cleaned.lastIndexOf(',');
+  const dotIndex = cleaned.lastIndexOf('.');
+
+  if (commaIndex === -1 && dotIndex === -1) {
+    return cleaned;
+  }
+
+  if (commaIndex !== -1 && dotIndex !== -1) {
+    const decimalIndex = Math.max(commaIndex, dotIndex);
+    const whole =
+      cleaned.slice(0, decimalIndex).replace(/[.,]/g, '') || '0';
+    const fraction = cleaned.slice(decimalIndex + 1).replace(/[.,]/g, '');
+
+    return `${whole}.${fraction}`;
+  }
+
+  const separator = commaIndex !== -1 ? ',' : '.';
+  const separatorCount = cleaned.split(separator).length - 1;
+
+  if (separatorCount > 1) {
+    return cleaned.replace(/,/g, '.');
+  }
+
+  const [whole = '', fraction = ''] = cleaned.split(separator);
+
+  return `${whole || '0'}.${fraction}`;
+}
+
+export function sanitizeStellarAmountInput(value: unknown) {
+  return normalizeStellarAmountInput(value);
 }
 
 export function validateStellarAmount(

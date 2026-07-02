@@ -33,6 +33,7 @@ import {
 } from '@utils/format';
 import {
   getAvailableAmount,
+  sanitizeStellarAmountInput,
   validateStellarAmount,
 } from '@utils/walletValidation';
 
@@ -44,7 +45,7 @@ function formatSwapBalance(value?: string | null) {
 }
 
 function formatMaxSwapAmount(value?: number | string | null) {
-  const raw = String(value ?? '0').trim().replace(',', '.');
+  const raw = sanitizeStellarAmountInput(value ?? '0');
   const match = raw.match(/^(\d+)(?:\.(\d+))?$/);
 
   if (match) {
@@ -126,7 +127,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
     )?.assetCode || 'USDC';
   const [sellCode, setSellCode] = useState(wallet.selectedAssetCode);
   const [buyCode, setBuyCode] = useState(initialBuy);
-  const [sellAmount, setSellAmount] = useState('10');
+  const [sellAmount, setSellAmount] = useState('');
   const [pickerMode, setPickerMode] = useState<'sell' | 'buy' | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [reviewVisible, setReviewVisible] = useState(false);
@@ -505,7 +506,7 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
                 <TextInput
                   keyboardType="decimal-pad"
                   onChangeText={value => {
-                    setSellAmount(value);
+                    setSellAmount(sanitizeStellarAmountInput(value));
                     resetQuote();
                   }}
                   placeholder="0"
