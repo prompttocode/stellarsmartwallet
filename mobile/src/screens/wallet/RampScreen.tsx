@@ -1053,7 +1053,10 @@ export function RampScreen({
           <View style={modern.sectionCard}>
             <View style={styles.statusHeader}>
               {isCompleted ? (
-                <SuccessLottie size={52} style={styles.statusSuccessAnimation} />
+                <SuccessLottie
+                  size={52}
+                  style={styles.statusSuccessAnimation}
+                />
               ) : (
                 <View style={styles.statusIcon}>
                   <Ionicons
@@ -1536,11 +1539,6 @@ export function RampScreen({
             ) : null
           }
           onBack={onBack}
-          subtitle={
-            wallet.isMainnet
-              ? 'Buy crypto with VND or withdraw VND to your bank account.'
-              : 'Test the same buy and withdrawal flow with Testnet assets.'
-          }
           title="Buy & withdraw"
         />
 
@@ -1858,7 +1856,9 @@ export function RampScreen({
                         </Text>
                       </>
                     ) : (
-                      <Text style={modern.swapConfirmTokenText}>VND PAYOUT</Text>
+                      <Text style={modern.swapConfirmTokenText}>
+                        VND PAYOUT
+                      </Text>
                     )}
                   </View>
                 </View>
