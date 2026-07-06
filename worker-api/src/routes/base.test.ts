@@ -82,6 +82,7 @@ type TestEnv = {
 
 function createFavoriteDb() {
   const favorites = new Map<string, Record<string, unknown>>();
+  const feedbackRows: Record<string, unknown>[] = [];
 
   return {
     prepare(sql: string) {
@@ -93,6 +94,19 @@ function createFavoriteDb() {
           return this;
         },
         async all() {
+          if (sql.includes("FROM account_feedback")) {
+            const limit = Number(values[0]) || 100;
+            const results = [...feedbackRows]
+              .sort((a, b) =>
+                String(b.created_at || "").localeCompare(
+                  String(a.created_at || "")
+                )
+              )
+              .slice(0, limit);
+
+            return { results };
+          }
+
           if (sql.includes("FROM account_favorite_assets")) {
             const [accountEmail, network] = values;
             const results = [...favorites.values()]
@@ -139,6 +153,38 @@ function createFavoriteDb() {
           return null;
         },
         async run() {
+          if (sql.includes("INSERT INTO account_feedback")) {
+            const [
+              id,
+              accountEmail,
+              walletId,
+              walletAddress,
+              network,
+              rating,
+              category,
+              message,
+              appVersion,
+              source,
+              createdAt,
+            ] = values;
+
+            feedbackRows.push({
+              account_email: accountEmail,
+              app_version: appVersion,
+              category,
+              created_at: createdAt,
+              id,
+              message,
+              network,
+              rating,
+              source,
+              wallet_address: walletAddress,
+              wallet_id: walletId,
+            });
+
+            return { success: true };
+          }
+
           if (sql.includes("INSERT INTO account_favorite_assets")) {
             const [
               id,
@@ -409,6 +455,88 @@ describe("favorite asset routes", () => {
           network: "testnet",
         }),
         headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+      { DB: createFavoriteDb() }
+    );
+
+    expect(response.status).toBe(400);
+  });
+});
+
+describe("feedback routes", () => {
+  const wallet = {
+    address: "GUSERWALLET",
+    canSign: true,
+    id: "wallet-1",
+    kind: "privy",
+    network: "testnet",
+    publicKey: "GUSERWALLET",
+  };
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.mocked(requireAccountContext).mockResolvedValue({
+      email: "user@example.com",
+      id: "account-1",
+      wallet,
+      wallets: [wallet],
+    } as never);
+    vi.mocked(getVisibleWallets).mockReturnValue([wallet] as never);
+  });
+
+  it("stores authenticated user feedback", async () => {
+    const response = await createApp().request(
+      "/api/feedback",
+      {
+        body: JSON.stringify({
+          appVersion: "1.0.0",
+          category: "onboarding",
+          message: "The first wallet flow was clear.",
+          network: "testnet",
+          rating: 5,
+          sourceAddress: "GUSERWALLET",
+          sourceWalletId: "wallet-1",
+        }),
+        headers: {
+          Authorization: "Bearer identity-token",
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+      },
+      { DB: createFavoriteDb() }
+    );
+    const body = (await response.json()) as {
+      data: { feedback: { accountEmail: string; category: string; rating: number } };
+    };
+
+    expect(response.status).toBe(201);
+    expect(body.data.feedback).toMatchObject({
+      accountEmail: "user@example.com",
+      category: "onboarding",
+      rating: 5,
+    });
+    expect(requireAccountContext).toHaveBeenCalledWith(
+      expect.anything(),
+      "Bearer identity-token",
+      expect.any(Object),
+      { network: "testnet", requireAuth: true }
+    );
+  });
+
+  it("rejects empty feedback messages", async () => {
+    const response = await createApp().request(
+      "/api/feedback",
+      {
+        body: JSON.stringify({
+          message: "",
+          network: "testnet",
+          rating: 4,
+        }),
+        headers: {
+          Authorization: "Bearer identity-token",
+          "Content-Type": "application/json",
+        },
         method: "POST",
       },
       { DB: createFavoriteDb() }

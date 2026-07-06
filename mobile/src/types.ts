@@ -52,6 +52,31 @@ export type KycSummary = {
   verifiedAt?: string;
 };
 
+export type FeedbackCategory =
+  | 'bug'
+  | 'feature_request'
+  | 'general'
+  | 'onboarding'
+  | 'send_receive';
+
+export type FeedbackItem = {
+  accountEmail: string;
+  appVersion: string | null;
+  category: FeedbackCategory;
+  createdAt: string;
+  id: string;
+  message: string;
+  network: StellarNetwork;
+  rating: number | null;
+  source: string;
+  walletAddress: string | null;
+  walletId: string | null;
+};
+
+export type FeedbackApiResponse = RampApiResponse<{
+  feedback: FeedbackItem;
+}>;
+
 export type AssetItem = {
   assetCode: string;
   assetIssuer: string | null;

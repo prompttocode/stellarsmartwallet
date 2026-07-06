@@ -77,6 +77,37 @@ type FavoriteAssetInput = {
   network: StellarNetwork;
 };
 
+type StoredFeedbackRow = {
+  account_email: string;
+  app_version: string | null;
+  category: string;
+  created_at: string;
+  id: string;
+  message: string;
+  network: StellarNetwork;
+  rating: number | null;
+  source: string;
+  wallet_address: string | null;
+  wallet_id: string | null;
+};
+
+type FeedbackInput = {
+  appVersion: string | null;
+  category: string;
+  message: string;
+  network: StellarNetwork;
+  rating: number | null;
+  source: string;
+};
+
+const FEEDBACK_CATEGORIES = new Set([
+  'bug',
+  'feature_request',
+  'general',
+  'onboarding',
+  'send_receive',
+]);
+
 function getPartnerApiKey(c: Context<WorkerBindings>) {
   const authorization = String(c.req.header('authorization') || '');
   const bearer = authorization.match(/^Bearer\s+(.+)$/i)?.[1] || '';
@@ -110,9 +141,51 @@ function requireFavoriteAssetsDb(env: Env) {
   return env.DB;
 }
 
+function requireFeedbackDb(env: Env) {
+  if (!env.DB) {
+    throw makeError('Feedback storage is not configured', 500);
+  }
+
+  return env.DB;
+}
+
 function optionalText(value: unknown) {
   const text = String(value || '').trim();
   return text || null;
+}
+
+function normalizeFeedbackInput(value: Record<string, unknown>): FeedbackInput {
+  const network = normalizeNetwork(value.network);
+  const rawRating = value.rating === null || value.rating === undefined ? null : Number(value.rating);
+  const rating = Number.isFinite(rawRating)
+    ? Math.min(5, Math.max(1, Math.round(rawRating as number)))
+    : null;
+  const categoryValue = String(value.category || 'general')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z_]/g, '_')
+    .slice(0, 40);
+  const category = FEEDBACK_CATEGORIES.has(categoryValue)
+    ? categoryValue
+    : 'general';
+  const message = String(value.message || '')
+    .trim()
+    .slice(0, 2000);
+
+  if (message.length < 3) {
+    throw makeError('Feedback message is required', 400);
+  }
+
+  return {
+    appVersion: optionalText(value.appVersion ?? value.app_version)?.slice(0, 80) || null,
+    category,
+    message,
+    network,
+    rating,
+    source:
+      optionalText(value.source)?.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60) ||
+      'settings',
+  };
 }
 
 function normalizeFavoriteAssetInput(value: Record<string, unknown>): FavoriteAssetInput {
@@ -165,6 +238,22 @@ function serializeFavoriteAsset(row: StoredFavoriteAssetRow) {
   };
 }
 
+function serializeFeedback(row: StoredFeedbackRow) {
+  return {
+    accountEmail: row.account_email,
+    appVersion: row.app_version || null,
+    category: row.category,
+    createdAt: row.created_at,
+    id: row.id,
+    message: row.message,
+    network: row.network,
+    rating: row.rating,
+    source: row.source,
+    walletAddress: row.wallet_address || null,
+    walletId: row.wallet_id || null,
+  };
+}
+
 async function getFavoriteAssetAccount(
   c: Context<WorkerBindings>,
   value: Record<string, unknown>,
@@ -176,6 +265,91 @@ async function getFavoriteAssetAccount(
   });
 
   return { account, network };
+}
+
+function getFeedbackWallet(
+  account: Awaited<ReturnType<typeof requireAccountContext>>,
+  network: StellarNetwork,
+  value: Record<string, unknown>,
+) {
+  const sourceWalletId = String(value.sourceWalletId || value.walletId || '').trim();
+  const sourceAddress = String(value.sourceAddress || value.walletAddress || '')
+    .trim()
+    .toUpperCase();
+  const visibleWallets = getVisibleWallets(account, network);
+
+  return (
+    visibleWallets.find(
+      wallet =>
+        (!sourceWalletId || wallet.id === sourceWalletId) &&
+        (!sourceAddress || wallet.address.toUpperCase() === sourceAddress),
+    ) ||
+    visibleWallets[0] ||
+    account.wallet ||
+    null
+  );
+}
+
+async function saveFeedback(
+  env: Env,
+  accountEmail: string,
+  input: FeedbackInput,
+  wallet: ReturnType<typeof getFeedbackWallet>,
+) {
+  const id = crypto.randomUUID();
+  const createdAt = nowIso();
+
+  await requireFeedbackDb(env)
+    .prepare(
+      `INSERT INTO account_feedback (
+        id, account_email, wallet_id, wallet_address, network, rating,
+        category, message, app_version, source, created_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      id,
+      accountEmail,
+      wallet?.id || null,
+      wallet?.address || null,
+      input.network,
+      input.rating,
+      input.category,
+      input.message,
+      input.appVersion,
+      input.source,
+      createdAt,
+    )
+    .run();
+
+  return serializeFeedback({
+    account_email: accountEmail,
+    app_version: input.appVersion,
+    category: input.category,
+    created_at: createdAt,
+    id,
+    message: input.message,
+    network: input.network,
+    rating: input.rating,
+    source: input.source,
+    wallet_address: wallet?.address || null,
+    wallet_id: wallet?.id || null,
+  });
+}
+
+async function listFeedback(env: Env, limitValue: unknown) {
+  const limit = Math.min(200, Math.max(1, Number(limitValue) || 100));
+  const { results } = await requireFeedbackDb(env)
+    .prepare(
+      `SELECT *
+       FROM account_feedback
+       ORDER BY created_at DESC
+       LIMIT ?`,
+    )
+    .bind(limit)
+    .all<StoredFeedbackRow>();
+
+  return (results || []).map(serializeFeedback);
 }
 
 async function listFavoriteAssets(env: Env, accountEmail: string, network: StellarNetwork) {
@@ -458,6 +632,40 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     return c.json({
       success: true,
       data: { deleted: true },
+    });
+  });
+
+  app.post('/api/feedback', async c => {
+    const body = await readJsonBody(c);
+    const input = normalizeFeedbackInput(body);
+    const account = await requireAccountContext(c.env, c.req.header('authorization'), body, {
+      network: input.network,
+      requireAuth: true,
+    });
+    const feedback = await saveFeedback(
+      c.env,
+      account.email,
+      input,
+      getFeedbackWallet(account, input.network, body),
+    );
+
+    return c.json(
+      {
+        success: true,
+        data: { feedback },
+      },
+      201,
+    );
+  });
+
+  app.get('/api/admin/feedback', async c => {
+    requirePartnerAccess(c);
+
+    return c.json({
+      success: true,
+      data: {
+        feedback: await listFeedback(c.env, c.req.query('limit')),
+      },
     });
   });
 
