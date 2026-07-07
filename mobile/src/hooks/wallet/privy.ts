@@ -77,6 +77,28 @@ export function getPrivyUserKey(userValue: unknown) {
   return currentUser?.id || null;
 }
 
+function isEmailLike(value: unknown) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+    String(value || '')
+      .trim()
+      .toLowerCase(),
+  );
+}
+
+function getValidEmailCandidate(...values: unknown[]) {
+  for (const value of values) {
+    const email = String(value || '')
+      .trim()
+      .toLowerCase();
+
+    if (isEmailLike(email)) {
+      return email;
+    }
+  }
+
+  return '';
+}
+
 export function getEmailFromPrivyUser(userValue: unknown) {
   const currentUser = userValue as PrivyUserLike | null;
 
@@ -84,20 +106,28 @@ export function getEmailFromPrivyUser(userValue: unknown) {
     return '';
   }
 
-  if (currentUser.email) {
-    return currentUser.email.trim().toLowerCase();
+  const directEmail = getValidEmailCandidate(currentUser.email);
+
+  if (directEmail) {
+    return directEmail;
   }
 
   const linkedAccounts =
     currentUser.linked_accounts || currentUser.linkedAccounts || [];
-  const emailAccount =
-    linkedAccounts.find(
-      account => account.type === 'email' && (account.address || account.email),
-    ) || linkedAccounts.find(account => account.address || account.email);
+  const emailLinkedAccount = linkedAccounts.find(account => {
+    const type = String(account.type || '').toLowerCase();
 
-  return (emailAccount?.address || emailAccount?.email || '')
-    .trim()
-    .toLowerCase();
+    return (
+      ['email', 'google', 'google_oauth', 'oauth'].includes(type) &&
+      getValidEmailCandidate(account.email, account.address)
+    );
+  });
+  const anyEmailLinkedAccount = linkedAccounts.find(account =>
+    getValidEmailCandidate(account.email, account.address),
+  );
+  const emailAccount = emailLinkedAccount || anyEmailLinkedAccount;
+
+  return getValidEmailCandidate(emailAccount?.email, emailAccount?.address);
 }
 
 export function hasLinkedStellarEmbeddedWallet(userValue: unknown) {

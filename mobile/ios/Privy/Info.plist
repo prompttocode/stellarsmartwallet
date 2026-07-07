@@ -51,7 +51,7 @@
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Ứng dụng cần quyền lưu mã QR thanh toán vào thư viện ảnh.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Ứng dụng cần quyền truy cập thư viện ảnh để lưu mã QR thanh toán.</string>
+	<string>Ứng dụng cần quyền truy cập thư viện ảnh để chọn ảnh QR và lưu mã QR thanh toán.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIAppFonts</key>

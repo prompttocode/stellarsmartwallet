@@ -98,7 +98,6 @@ import {
   getTokenWithRetry,
   hasLinkedStellarEmbeddedWallet,
   isPrivyHash,
-  walletRecordToClientPayload,
   withTimeout,
 } from './wallet/privy';
 import {
@@ -229,6 +228,7 @@ export function useWallet() {
     errorDialog,
     message,
     run,
+    setBusy,
     setErrorDialog,
     setMessage,
     showErrorDialog,
@@ -3246,10 +3246,17 @@ export function useWallet() {
         )
           ? storedTargetWalletId
           : undefined;
+
+      if (!hasTargetNetworkWallet) {
+        setBusy(
+          nextNetwork === 'mainnet'
+            ? 'Creating Mainnet wallet'
+            : 'Creating Testnet wallet',
+        );
+      }
+
       const bootstrapWallet = hasTargetNetworkWallet
         ? undefined
-        : hasLinkedStellarEmbeddedWallet(user)
-        ? walletRecordToClientPayload(wallet)
         : await createClientStellarWalletPayload();
       const identityToken = bootstrapWallet
         ? await getTokenWithRetry(getIdentityToken)

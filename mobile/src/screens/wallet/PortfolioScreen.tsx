@@ -6,12 +6,18 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppPopup } from '@components/common/AppPopup';
 import {
+  SkeletonBlock,
+  SkeletonCircle,
+  SkeletonLine,
+} from '@components/common/Skeleton';
+import {
   ActivateWalletNotice,
   AssetListItem,
   HomeBannerCarousel,
   QuickActionGrid,
   SectionHeader,
   WalletHero,
+  WalletSetupNotice,
   calculatePortfolioValuation,
   getWalletAssets,
   modern,
@@ -94,7 +100,29 @@ export function PortfolioScreen({
   const valuation = calculatePortfolioValuation(assets);
   const baseUsdValue = valuation.totalUsd;
   const convertedValue = convertFromUSD(baseUsdValue);
-  const showActivateWalletNotice = wallet.isMainnet && !wallet.walletActive;
+  const isPortfolioBootstrapping =
+    wallet.isRestoringSession || wallet.sessionSyncing;
+  const showAssetSkeleton =
+    isPortfolioBootstrapping &&
+    activeAssetTab === 'crypto' &&
+    assets.length === 0;
+  const showActivitySkeleton =
+    isPortfolioBootstrapping && wallet.transactions.length === 0;
+  const isCreatingNetworkWallet = Boolean(
+    wallet.busy?.startsWith('Creating Mainnet wallet') ||
+      wallet.busy?.startsWith('Creating Testnet wallet'),
+  );
+  const isSwitchingNetwork = wallet.busy === 'Switching network';
+  const showWalletSetupLoading =
+    isCreatingNetworkWallet || (isSwitchingNetwork && !wallet.wallet);
+  const networkLabel = wallet.isMainnet ? 'Mainnet' : 'Testnet';
+  const walletLoadingLabel = isCreatingNetworkWallet
+    ? `Creating ${networkLabel} wallet`
+    : isSwitchingNetwork
+    ? `Loading ${networkLabel}`
+    : undefined;
+  const showActivateWalletNotice =
+    wallet.isMainnet && !wallet.walletActive && !showWalletSetupLoading;
 
   // Format based on currency
   const currencySymbols: Record<string, string> = {
@@ -106,14 +134,13 @@ export function PortfolioScreen({
   };
   const symbol = currencySymbols[selectedCurrency] || '$';
 
-  const formattedPortfolioValue = loading
-    ? '...'
-    : selectedCurrency === 'VND' || selectedCurrency === 'JPY'
-    ? `${Math.round(convertedValue).toLocaleString('en-US')} ${symbol}`
-    : `${symbol}${convertedValue.toLocaleString('en-US', {
-        maximumFractionDigits: 2,
-        minimumFractionDigits: 2,
-      })}`;
+  const formattedPortfolioValue =
+    selectedCurrency === 'VND' || selectedCurrency === 'JPY'
+      ? `${Math.round(convertedValue).toLocaleString('en-US')} ${symbol}`
+      : `${symbol}${convertedValue.toLocaleString('en-US', {
+          maximumFractionDigits: 2,
+          minimumFractionDigits: 2,
+        })}`;
   const portfolioValue =
     valuation.positiveAssetCount > 0 && valuation.pricedAssetCount === 0
       ? '***'
@@ -246,55 +273,66 @@ export function PortfolioScreen({
           network={wallet.network}
           portfolioNote={portfolioNote}
           portfolioValue={portfolioValue}
+          portfolioValueLoading={loading}
+          walletLoading={showWalletSetupLoading}
+          walletLoadingLabel={walletLoadingLabel}
           walletName={wallet.wallet?.displayName}
         >
-          <QuickActionGrid
-            actions={[
-              {
-                icon: (
-                  <MaterialCommunityIcons
-                    color="#FFFFFF"
-                    name="arrow-top-right"
-                    size={25}
-                  />
-                ),
-                key: 'send',
-                label: 'Send',
-                onPress: () => onGoToSend(),
-              },
-              {
-                icon: (
-                  <MaterialCommunityIcons
-                    color="#FFFFFF"
-                    name="arrow-bottom-left"
-                    size={25}
-                  />
-                ),
-                key: 'receive',
-                label: 'Receive',
-                onPress: onGoToReceive,
-              },
-              {
-                icon: <Ionicons color="#FFFFFF" name="card" size={24} />,
-                key: 'faucet',
-                label: wallet.isMainnet ? 'Deposit' : 'Faucet',
-                onPress: onGoToFaucet,
-              },
-              {
-                icon: (
-                  <MaterialCommunityIcons
-                    color="#FFFFFF"
-                    name="bank-transfer-out"
-                    size={25}
-                  />
-                ),
-                key: 'withdraw',
-                label: 'Withdraw',
-                onPress: onGoToWithdraw,
-              },
-            ]}
-          />
-          <HomeBannerCarousel banners={homeBanners} />
+          {showWalletSetupLoading ? (
+            <WalletSetupNotice
+              message="Balances and actions will appear automatically when the wallet is ready."
+              network={wallet.network}
+              title={walletLoadingLabel}
+            />
+          ) : (
+            <QuickActionGrid
+              actions={[
+                {
+                  icon: (
+                    <MaterialCommunityIcons
+                      color="#FFFFFF"
+                      name="arrow-top-right"
+                      size={25}
+                    />
+                  ),
+                  key: 'send',
+                  label: 'Send',
+                  onPress: () => onGoToSend(),
+                },
+                {
+                  icon: (
+                    <MaterialCommunityIcons
+                      color="#FFFFFF"
+                      name="arrow-bottom-left"
+                      size={25}
+                    />
+                  ),
+                  key: 'receive',
+                  label: 'Receive',
+                  onPress: onGoToReceive,
+                },
+                {
+                  icon: <Ionicons color="#FFFFFF" name="card" size={24} />,
+                  key: 'faucet',
+                  label: wallet.isMainnet ? 'Deposit' : 'Faucet',
+                  onPress: onGoToFaucet,
+                },
+                {
+                  icon: (
+                    <MaterialCommunityIcons
+                      color="#FFFFFF"
+                      name="bank-transfer-out"
+                      size={25}
+                    />
+                  ),
+                  key: 'withdraw',
+                  label: 'Withdraw',
+                  onPress: onGoToWithdraw,
+                },
+              ]}
+            />
+          )}
+          {/* <HomeBannerCarousel banners={homeBanners} /> */}
         </WalletHero>
 
         <View style={modern.belowHero}>
@@ -356,23 +394,27 @@ export function PortfolioScreen({
               <View style={modern.assetTabPanel}>
                 {activeAssetTab === 'crypto' ? (
                   <>
-                    {visibleCryptoAssets.map((asset, index) => (
-                      <AssetListItem
-                        asset={asset}
-                        disabled={wallet.isBusy}
-                        index={index}
-                        isFavorite={wallet.isFavoriteAsset(asset)}
-                        key={`${asset.assetCode}:${
-                          asset.assetIssuer || 'native'
-                        }`}
-                        onAdd={wallet.addTrustline}
-                        onSend={onGoToSend}
-                        onFaucet={faucetAsset}
-                        onPress={onGoToAssetDetail}
-                        showAction={false}
-                      />
-                    ))}
-                    {canToggleCryptoAssets ? (
+                    {showAssetSkeleton ? (
+                      <PortfolioAssetSkeletonList />
+                    ) : (
+                      visibleCryptoAssets.map((asset, index) => (
+                        <AssetListItem
+                          asset={asset}
+                          disabled={wallet.isBusy}
+                          index={index}
+                          isFavorite={wallet.isFavoriteAsset(asset)}
+                          key={`${asset.assetCode}:${
+                            asset.assetIssuer || 'native'
+                          }`}
+                          onAdd={wallet.addTrustline}
+                          onSend={onGoToSend}
+                          onFaucet={faucetAsset}
+                          onPress={onGoToAssetDetail}
+                          showAction={false}
+                        />
+                      ))
+                    )}
+                    {!showAssetSkeleton && canToggleCryptoAssets ? (
                       <PressScale
                         onPress={() => setShowAllCryptoAssets(value => !value)}
                         style={modern.assetShowMoreButton}
@@ -466,20 +508,24 @@ export function PortfolioScreen({
               }
               title="Recent activity"
             />
-            {wallet.transactions.slice(0, 5).map(transaction => {
-              const assetItem = assets.find(
-                item => item.assetCode === transaction.assetCode,
-              );
-              return (
-                <TransactionListItem
-                  key={transaction.id}
-                  onPress={() => onGoToTransaction(transaction.id)}
-                  transaction={transaction}
-                  imageUrl={assetItem?.image}
-                />
-              );
-            })}
-            {wallet.transactions.length === 0 && (
+            {showActivitySkeleton ? (
+              <ActivitySkeletonList />
+            ) : (
+              wallet.transactions.slice(0, 5).map(transaction => {
+                const assetItem = assets.find(
+                  item => item.assetCode === transaction.assetCode,
+                );
+                return (
+                  <TransactionListItem
+                    key={transaction.id}
+                    onPress={() => onGoToTransaction(transaction.id)}
+                    transaction={transaction}
+                    imageUrl={assetItem?.image}
+                  />
+                );
+              })
+            )}
+            {!showActivitySkeleton && wallet.transactions.length === 0 && (
               <Text style={modern.emptyModernText}>No transactions yet.</Text>
             )}
           </View>
@@ -492,5 +538,44 @@ export function PortfolioScreen({
         walletState={wallet}
       />
     </View>
+  );
+}
+
+function PortfolioAssetSkeletonList() {
+  return (
+    <>
+      {[0, 1, 2].map(index => (
+        <View key={index} style={modern.assetModernRow}>
+          <View style={modern.assetPressArea}>
+            <SkeletonCircle size={42} />
+            <View style={modern.assetModernBody}>
+              <SkeletonLine height={16} width="48%" />
+              <SkeletonLine height={12} width="76%" />
+            </View>
+            <View style={modern.assetModernRight}>
+              <SkeletonLine height={14} width={72} />
+              <SkeletonLine height={10} width={44} />
+            </View>
+          </View>
+        </View>
+      ))}
+    </>
+  );
+}
+
+function ActivitySkeletonList() {
+  return (
+    <>
+      {[0, 1, 2].map(index => (
+        <View key={index} style={modern.txModernRow}>
+          <SkeletonCircle size={42} />
+          <View style={modern.txModernBody}>
+            <SkeletonLine height={15} width="62%" />
+            <SkeletonLine height={12} width="84%" />
+          </View>
+          <SkeletonBlock height={16} radius={8} width={76} />
+        </View>
+      ))}
+    </>
   );
 }

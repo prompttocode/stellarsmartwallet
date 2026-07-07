@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Alert, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { scanFromURLAsync } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import {
-  Camera,
+  Camera as VisionCamera,
   useCameraDevice,
   useCameraPermission,
   useCodeScanner,
@@ -42,7 +44,10 @@ export function ScanScreen({ navigation }: any) {
   const device = useCameraDevice('back');
   const { hasPermission, requestPermission } = useCameraPermission();
   const [scanned, setScanned] = useState(false);
+  const [galleryScanning, setGalleryScanning] = useState(false);
+  const [torchEnabled, setTorchEnabled] = useState(false);
   const walletConnect = useWalletConnect();
+  const torchAvailable = Boolean(device?.hasTorch);
 
   useEffect(() => {
     if (!hasPermission) {
@@ -50,31 +55,97 @@ export function ScanScreen({ navigation }: any) {
     }
   }, [hasPermission, requestPermission]);
 
+  function handleFlashPress() {
+    if (!torchAvailable) {
+      Alert.alert(
+        'Flash unavailable',
+        'This device camera does not report torch support.',
+      );
+      return;
+    }
+
+    setTorchEnabled(value => !value);
+  }
+
+  async function handleScannedValue(value: string) {
+    const parsed = parseScannedValue(value);
+
+    if (parsed.type === 'walletconnect') {
+      const paired = await walletConnect.pair(parsed.value);
+
+      if (paired) {
+        navigation.goBack();
+      } else {
+        setScanned(false);
+      }
+      return;
+    }
+
+    navigation.replace('Send', { prefilledAddress: parsed.value });
+  }
+
+  async function handleSelectFromGallery() {
+    if (galleryScanning) {
+      return;
+    }
+
+    setGalleryScanning(true);
+    setScanned(true);
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: false,
+        allowsMultipleSelection: false,
+        mediaTypes: ['images'],
+        quality: 1,
+      });
+
+      if (result.canceled) {
+        setScanned(false);
+        return;
+      }
+
+      const imageUri = result.assets?.[0]?.uri;
+
+      if (!imageUri) {
+        throw new Error('No image was selected.');
+      }
+
+      const qrResults = await scanFromURLAsync(imageUri, ['qr']);
+      const value = qrResults.find(item => item.data)?.data;
+
+      if (!value) {
+        Alert.alert(
+          'No QR code found',
+          'Choose a clear image that contains a valid QR code.',
+        );
+        setScanned(false);
+        return;
+      }
+
+      await handleScannedValue(value);
+    } catch (error) {
+      Alert.alert(
+        'Could not read QR',
+        error instanceof Error
+          ? error.message
+          : 'Choose another image and try again.',
+      );
+      setScanned(false);
+    } finally {
+      setGalleryScanning(false);
+    }
+  }
+
   const codeScanner = useCodeScanner({
-    codeTypes: ['qr', 'ean-13'],
+    codeTypes: ['qr'],
     onCodeScanned: codes => {
       if (scanned) return;
       if (codes.length > 0) {
         const value = codes[0].value;
         if (value) {
           setScanned(true);
-          const parsed = parseScannedValue(value);
-
-          if (parsed.type === 'walletconnect') {
-            walletConnect
-              .pair(parsed.value)
-              .then(paired => {
-                if (paired) {
-                  navigation.goBack();
-                } else {
-                  setScanned(false);
-                }
-              })
-              .catch(() => setScanned(false));
-            return;
-          }
-
-          navigation.replace('Send', { prefilledAddress: parsed.value });
+          handleScannedValue(value).catch(() => setScanned(false));
         }
       }
     },
@@ -118,10 +189,15 @@ export function ScanScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
-      <Camera
+      <VisionCamera
         style={StyleSheet.absoluteFill}
         device={device}
-        isActive={!scanned}
+        isActive={!scanned && !galleryScanning}
+        torch={
+          torchEnabled && torchAvailable && !scanned && !galleryScanning
+            ? 'on'
+            : 'off'
+        }
         codeScanner={codeScanner}
       />
       <View style={headerStyle}>
@@ -134,9 +210,53 @@ export function ScanScreen({ navigation }: any) {
         <Text style={styles.title}>Scan QR code</Text>
         <View style={styles.headerSpacer} />
       </View>
-      <View style={styles.overlay}>
-        <View style={styles.scanFrame} />
-        <Text style={styles.scanText}>Place the QR code inside the frame</Text>
+      <View pointerEvents="box-none" style={styles.overlay}>
+        <View pointerEvents="none" style={styles.scanFrame} />
+        <Text pointerEvents="none" style={styles.scanText}>
+          Place the QR code inside the frame
+        </Text>
+        <View pointerEvents="box-none" style={styles.scanControls}>
+          <TouchableOpacity
+            activeOpacity={0.78}
+            hitSlop={12}
+            onPress={handleFlashPress}
+            style={[
+              styles.flashButton,
+              torchEnabled ? styles.flashButtonActive : null,
+              !torchAvailable ? styles.flashButtonDisabled : null,
+            ]}
+          >
+            <Ionicons
+              color={torchEnabled ? '#0A0A0A' : '#FFFFFF'}
+              name={torchEnabled ? 'flash' : 'flash-outline'}
+              size={20}
+            />
+            <Text
+              style={[
+                styles.flashButtonText,
+                torchEnabled ? styles.flashButtonTextActive : null,
+              ]}
+            >
+              {torchAvailable ? 'Flash' : 'No flash'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={0.78}
+            disabled={galleryScanning}
+            hitSlop={{ bottom: 14, left: 24, right: 24, top: 14 }}
+            onPress={handleSelectFromGallery}
+            style={[
+              styles.galleryButton,
+              galleryScanning ? styles.galleryButtonDisabled : null,
+            ]}
+          >
+            <Ionicons color="#FFFFFF" name="images-outline" size={18} />
+            <Text style={styles.galleryText}>Select from gallery</Text>
+            {galleryScanning ? (
+              <Text style={styles.galleryBusyText}>Reading...</Text>
+            ) : null}
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -189,7 +309,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    pointerEvents: 'none',
+    zIndex: 10,
+    elevation: 10,
   },
   scanFrame: {
     width: 250,
@@ -208,6 +329,63 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 16,
     overflow: 'hidden',
+  },
+  scanControls: {
+    alignItems: 'center',
+    gap: 16,
+    marginTop: 22,
+    zIndex: 20,
+    elevation: 20,
+  },
+  flashButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderColor: 'rgba(255,255,255,0.22)',
+    borderRadius: 24,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 48,
+    paddingHorizontal: 18,
+  },
+  flashButtonActive: {
+    backgroundColor: '#B8FF45',
+    borderColor: '#B8FF45',
+  },
+  flashButtonDisabled: {
+    opacity: 0.45,
+  },
+  flashButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  flashButtonTextActive: {
+    color: '#0A0A0A',
+  },
+  galleryText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  galleryButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.42)',
+    borderColor: 'rgba(255,255,255,0.18)',
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 44,
+    paddingHorizontal: 16,
+  },
+  galleryButtonDisabled: {
+    opacity: 0.72,
+  },
+  galleryBusyText: {
+    color: '#B8FF45',
+    fontSize: 12,
+    fontWeight: '800',
   },
   buttonPrimary: {
     backgroundColor: '#3E8FA0',
