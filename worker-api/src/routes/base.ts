@@ -669,20 +669,6 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     });
   });
 
-  app.get('/api/wallets', async c => {
-    const result = await privyRequest<{ data?: unknown[] }>(
-      c.env,
-      '/wallets?chain_type=stellar&limit=20',
-    );
-    const wallets = Array.isArray(result?.data) ? result.data : [];
-
-    return c.json({
-      wallets: wallets.map(wallet =>
-        normalizeWallet(wallet as Parameters<typeof normalizeWallet>[0]),
-      ),
-    });
-  });
-
   app.post('/api/session', async c => {
     const timing = createSessionTiming('/api/session');
     const body = await timing.time('body', () => readJsonBody(c));

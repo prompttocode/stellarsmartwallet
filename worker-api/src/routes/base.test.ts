@@ -261,6 +261,18 @@ function createApp() {
   return app;
 }
 
+describe("removed debug routes", () => {
+  it("does not expose a server-wide Privy wallet listing", async () => {
+    const response = await createApp().request(
+      "/api/wallets",
+      { method: "GET" },
+      { DB: createFavoriteDb() }
+    );
+
+    expect(response.status).toBe(404);
+  });
+});
+
 describe("favorite asset routes", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
