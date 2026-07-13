@@ -1,19 +1,11 @@
 import React from 'react';
-import { ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useAppPopup } from '@components/common/AppPopup';
 import QRCode from 'react-native-qrcode-styled';
-import {
-  ModernScreenHeader,
-  PressScale,
-  SectionHeader,
-  TokenIcon,
-  getModernAssets,
-  modern,
-  useSafeScreenInsetStyle,
-} from '@components/wallet';
+import { PressScale, TokenIcon, getModernAssets } from '@components/wallet';
 import type { WalletState } from '@hooks/useWallet';
 import { formatTokenAmount } from '@utils/format';
 
@@ -26,7 +18,6 @@ export function FaucetScreen({
   onGoToRamp: () => void;
   wallet: WalletState;
 }) {
-  const screenInsetStyle = useSafeScreenInsetStyle();
   const insets = useSafeAreaInsets();
   const { showPopup } = useAppPopup();
   const assets = getModernAssets(wallet.balances, wallet.visibleAssets);
@@ -35,15 +26,6 @@ export function FaucetScreen({
   const canOpenExplorer =
     Boolean(wallet.explorerAddressUrl) &&
     (!wallet.isMainnet || wallet.walletActive);
-
-  async function shareDepositAddress() {
-    if (address) {
-      await Share.share({
-        message: address,
-        title: 'Stellar deposit address',
-      });
-    }
-  }
 
   function copyAddress() {
     if (!address) return;
@@ -57,57 +39,79 @@ export function FaucetScreen({
 
   return (
     <ScrollView
-      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 48 }]}
+      contentContainerStyle={[
+        styles.content,
+        { paddingBottom: insets.bottom + 48 },
+      ]}
       style={styles.root}
       showsVerticalScrollIndicator={false}
     >
-      
       <View style={[styles.hero, { paddingTop: insets.top + 12 }]}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
           <PressScale onPress={onBack} style={styles.heroBackButton}>
             <Ionicons color="#FFFFFF" name="chevron-back" size={24} />
           </PressScale>
-          <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '900' }}>Funding</Text>
+          <Text style={{ color: '#FFFFFF', fontSize: 14, fontWeight: '900' }}>
+            Funding
+          </Text>
           <View style={{ width: 40 }} />
         </View>
         <Text style={styles.heroEyebrow}>STELLAR WALLET</Text>
-        <Text style={{ color: '#FFFFFF', fontSize: 32, fontWeight: '900', letterSpacing: -0.4, marginTop: 8 }}>
-          {
-          wallet.isMainnet
+        <Text
+          style={{
+            color: '#FFFFFF',
+            fontSize: 32,
+            fontWeight: '900',
+            letterSpacing: -0.4,
+            marginTop: 8,
+          }}
+        >
+          {wallet.isReviewMode
+            ? 'Fund this shared wallet with free Testnet assets. No real money is used.'
+            : wallet.isMainnet
             ? 'Deposit assets or use VND orders for real XLM and USDC.'
-            : 'Free XLM is for wallet testing. Orders test the payment flow.'
-        }
+            : 'Free XLM is for wallet testing. Orders test the payment flow.'}
         </Text>
-        <Text style={styles.heroSubtitle}>{
-          wallet.isMainnet
+        <Text style={styles.heroSubtitle}>
+          {wallet.isReviewMode
+            ? 'Use Friendbot and Testnet USDC to review wallet features safely.'
+            : wallet.isMainnet
             ? 'Deposit assets or use VND orders for real XLM and USDC.'
-            : 'Free XLM is for wallet testing. Orders test the payment flow.'
-        }</Text>
+            : 'Free XLM is for wallet testing. Orders test the payment flow.'}
+        </Text>
       </View>
 
-      <View style={[styles.receiptCard, styles.heroCard]}>
-        <View style={styles.cardTopRow}>
-          <View style={styles.heroIcon}>
-            <Ionicons color="#0ABF73" name="card" size={26} />
+      {!wallet.isReviewMode ? (
+        <View style={[styles.receiptCard, styles.heroCard]}>
+          <View style={styles.cardTopRow}>
+            <View style={styles.heroIcon}>
+              <Ionicons color="#0ABF73" name="card" size={26} />
+            </View>
+            <View style={styles.cardCopy}>
+              <Text style={styles.cardEyebrow}>{networkLabel} orders</Text>
+              <Text style={styles.cardTitle}>Buy with VND</Text>
+              <Text style={styles.cardText}>
+                {wallet.isMainnet
+                  ? 'Buy XLM or USDC with a bank transfer. Withdraw is available from Home.'
+                  : 'Test the same buy flow as Mainnet with Testnet assets.'}
+              </Text>
+            </View>
           </View>
-          <View style={styles.cardCopy}>
-            <Text style={styles.cardEyebrow}>{networkLabel} orders</Text>
-            <Text style={styles.cardTitle}>Buy with VND</Text>
-            <Text style={styles.cardText}>
-              {wallet.isMainnet
-                ? 'Buy XLM or USDC with a bank transfer. Withdraw is available from Home.'
-                : 'Test the same buy flow as Mainnet with Testnet assets.'}
-            </Text>
-          </View>
+          <PressScale
+            disabled={!wallet.wallet}
+            onPress={onGoToRamp}
+            style={[styles.primaryButton, styles.fullButton]}
+          >
+            <Text style={styles.primaryButtonText}>Buy with VND</Text>
+          </PressScale>
         </View>
-        <PressScale
-          disabled={!wallet.wallet}
-          onPress={onGoToRamp}
-          style={[styles.primaryButton, styles.fullButton]}
-        >
-          <Text style={styles.primaryButtonText}>Buy with VND</Text>
-        </PressScale>
-      </View>
+      ) : null}
 
       {!wallet.isMainnet ? (
         <View style={styles.receiptCardBottom}>
@@ -129,10 +133,7 @@ export function FaucetScreen({
             style={[styles.secondaryButton, styles.fullButton]}
           >
             <Text
-              style={[
-                styles.primaryButtonText,
-                styles.secondaryButtonText,
-              ]}
+              style={[styles.primaryButtonText, styles.secondaryButtonText]}
             >
               Get free Testnet XLM
             </Text>
@@ -141,11 +142,13 @@ export function FaucetScreen({
       ) : null}
 
       <View style={styles.receiptCardBottom}>
-        <Text style={styles.localSectionTitle}>{"Wallet address" }</Text>
+        <Text style={styles.localSectionTitle}>{'Wallet address'}</Text>
         <View style={styles.addressCopy}>
           <Text style={styles.cardText}>
             {wallet.isMainnet
               ? 'Send XLM or enabled Stellar assets to this wallet.'
+              : wallet.isReviewMode
+              ? 'Use this address only for Testnet sends and receives.'
               : 'Use this address for Testnet sends, receives, and order deposits.'}
           </Text>
         </View>
@@ -185,7 +188,10 @@ export function FaucetScreen({
             <PressScale
               disabled={!canOpenExplorer}
               onPress={() => wallet.openUrl(wallet.explorerAddressUrl)}
-              style={[styles.outlineButton, !canOpenExplorer ? styles.disabledButton : null]}
+              style={[
+                styles.outlineButton,
+                !canOpenExplorer ? styles.disabledButton : null,
+              ]}
             >
               <Ionicons color="#071421" name="open-outline" size={18} />
               <Text style={styles.outlineButtonText}>Explorer</Text>
@@ -195,7 +201,7 @@ export function FaucetScreen({
       </View>
 
       <View style={styles.receiptCardBottom}>
-        <Text style={styles.localSectionTitle}>{"Supported assets" }</Text>
+        <Text style={styles.localSectionTitle}>{'Supported assets'}</Text>
         {assets.map(asset => {
           const needsTrustline = !asset.isNative && !asset.trusted;
           const isXlm = asset.isNative;
@@ -205,6 +211,8 @@ export function FaucetScreen({
               : 'Faucet'
             : needsTrustline
             ? 'Enable'
+            : wallet.isReviewMode
+            ? 'Faucet'
             : 'Buy';
           const assetText = isXlm
             ? wallet.isMainnet
@@ -212,6 +220,8 @@ export function FaucetScreen({
               : 'Native Testnet asset. Friendbot can fund this for free.'
             : needsTrustline
             ? 'Enable the trustline before receiving this asset.'
+            : wallet.isReviewMode
+            ? 'Enabled for free Testnet funding and Stellar transfers.'
             : wallet.isMainnet
             ? 'Enabled for deposits and VND orders.'
             : 'Enabled for Testnet orders and Stellar transfers.';
@@ -234,9 +244,7 @@ export function FaucetScreen({
                 <TokenIcon assetCode={asset.assetCode} imageUrl={asset.image} />
                 <View style={styles.assetBodyLocal}>
                   <View style={styles.assetTitleRow}>
-                    <Text style={styles.assetNameLocal}>
-                      {asset.assetCode}
-                    </Text>
+                    <Text style={styles.assetNameLocal}>{asset.assetCode}</Text>
                     <View
                       style={[
                         styles.assetPill,
@@ -273,6 +281,8 @@ export function FaucetScreen({
                     }
                   } else if (needsTrustline) {
                     wallet.addTrustline(asset.assetCode, asset.assetIssuer);
+                  } else if (wallet.isReviewMode) {
+                    wallet.fundTestUsdc();
                   } else {
                     onGoToRamp();
                   }
@@ -283,7 +293,15 @@ export function FaucetScreen({
                     : [styles.faucetButton, styles.assetButton]
                 }
               >
-                <Text style={needsTrustline ? styles.enableButtonText : styles.assetButtonText}>{actionLabel}</Text>
+                <Text
+                  style={
+                    needsTrustline
+                      ? styles.enableButtonText
+                      : styles.assetButtonText
+                  }
+                >
+                  {actionLabel}
+                </Text>
               </PressScale>
             </View>
           );
@@ -294,13 +312,37 @@ export function FaucetScreen({
 }
 
 const styles = StyleSheet.create({
-  localSectionTitle: { color: '#111827', fontSize: 18, fontWeight: '900', marginBottom: 12 },
+  localSectionTitle: {
+    color: '#111827',
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 12,
+  },
   assetBodyLocal: { flex: 1, gap: 3 },
   assetNameLocal: { color: '#111827', fontSize: 15, fontWeight: '900' },
-  assetMetaLocal: { color: '#7D8795', fontSize: 12, fontWeight: '700', lineHeight: 17 },
-  enableButton: { alignItems: 'center', backgroundColor: '#111827', borderRadius: 17, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 9 },
+  assetMetaLocal: {
+    color: '#7D8795',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+  },
+  enableButton: {
+    alignItems: 'center',
+    backgroundColor: '#111827',
+    borderRadius: 17,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
   enableButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
-  faucetButton: { alignItems: 'center', backgroundColor: '#EEF4FF', borderRadius: 17, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 9 },
+  faucetButton: {
+    alignItems: 'center',
+    backgroundColor: '#EEF4FF',
+    borderRadius: 17,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
   assetButtonText: { color: '#111827', fontSize: 12, fontWeight: '900' },
 
   primaryButton: {

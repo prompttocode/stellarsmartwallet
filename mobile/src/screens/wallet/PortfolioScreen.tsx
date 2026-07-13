@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Image, RefreshControl, ScrollView, Text, View } from 'react-native';
-import type { ImageSourcePropType } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,7 +12,6 @@ import {
 import {
   ActivateWalletNotice,
   AssetListItem,
-  HomeBannerCarousel,
   QuickActionGrid,
   SectionHeader,
   WalletHero,
@@ -44,12 +42,6 @@ const CRYPTO_PREVIEW_LIMIT = 5;
 const portfolioAssetTabs: { key: PortfolioAssetTab; label: string }[] = [
   { key: 'crypto', label: 'Crypto' },
   { key: 'nft', label: "NFT's" },
-];
-
-const homeBanners: ImageSourcePropType[] = [
-  require('@assets/images/banner/banner1.png'),
-  require('@assets/images/banner/banner2.png'),
-  require('@assets/images/banner/bannner3.png'),
 ];
 
 export function PortfolioScreen({
@@ -145,7 +137,9 @@ export function PortfolioScreen({
     valuation.positiveAssetCount > 0 && valuation.pricedAssetCount === 0
       ? '***'
       : formattedPortfolioValue;
-  const portfolioNote = !wallet.isMainnet
+  const portfolioNote = wallet.isReviewMode
+    ? 'Review mode · Shared Testnet assets · No real money'
+    : !wallet.isMainnet
     ? valuation.pricedAssetCount > 0
       ? 'Reference market price only'
       : 'Waiting for reference market prices'
@@ -158,6 +152,15 @@ export function PortfolioScreen({
     : 'Waiting for market prices';
 
   function faucetAsset(assetCode: string) {
+    if (wallet.isReviewMode) {
+      if (assetCode === 'XLM') {
+        wallet.fundWallet();
+      } else {
+        onGoToFaucet();
+      }
+      return;
+    }
+
     if (wallet.isMainnet) {
       if (assetCode === 'XLM') {
         onGoToFaucet();
@@ -193,6 +196,16 @@ export function PortfolioScreen({
   }
 
   function confirmNetworkSwitch() {
+    if (wallet.isReviewMode) {
+      showPopup({
+        message:
+          'Review mode is locked to Stellar Testnet. All assets shown here are test assets with no real value.',
+        title: 'Testnet review mode',
+        variant: 'info',
+      });
+      return;
+    }
+
     const nextNetwork = wallet.isMainnet ? 'Testnet' : 'Mainnet';
 
     showPopup({
@@ -269,14 +282,30 @@ export function PortfolioScreen({
           onNetworkPress={confirmNetworkSwitch}
           onScan={onGoToScan}
           onSearch={onGoToAssetSearch}
-          onWalletPress={() => setIsWalletModalVisible(true)}
+          onWalletPress={() => {
+            if (wallet.isReviewMode) {
+              showPopup({
+                message:
+                  'This is a fixed shared Testnet wallet. Wallet management is disabled for reviewers.',
+                title: 'Review wallet',
+                variant: 'info',
+              });
+              return;
+            }
+
+            setIsWalletModalVisible(true);
+          }}
           network={wallet.network}
           portfolioNote={portfolioNote}
           portfolioValue={portfolioValue}
           portfolioValueLoading={loading}
           walletLoading={showWalletSetupLoading}
           walletLoadingLabel={walletLoadingLabel}
-          walletName={wallet.wallet?.displayName}
+          walletName={
+            wallet.isReviewMode
+              ? 'App Review Wallet'
+              : wallet.wallet?.displayName
+          }
         >
           {showWalletSetupLoading ? (
             <WalletSetupNotice
@@ -317,18 +346,22 @@ export function PortfolioScreen({
                   label: wallet.isMainnet ? 'Deposit' : 'Faucet',
                   onPress: onGoToFaucet,
                 },
-                {
-                  icon: (
-                    <MaterialCommunityIcons
-                      color="#FFFFFF"
-                      name="bank-transfer-out"
-                      size={25}
-                    />
-                  ),
-                  key: 'withdraw',
-                  label: 'Withdraw',
-                  onPress: onGoToWithdraw,
-                },
+                ...(wallet.isReviewMode
+                  ? []
+                  : [
+                      {
+                        icon: (
+                          <MaterialCommunityIcons
+                            color="#FFFFFF"
+                            name="bank-transfer-out"
+                            size={25}
+                          />
+                        ),
+                        key: 'withdraw',
+                        label: 'Withdraw',
+                        onPress: onGoToWithdraw,
+                      },
+                    ]),
               ]}
             />
           )}
@@ -532,11 +565,13 @@ export function PortfolioScreen({
         </View>
       </ScrollView>
 
-      <WalletManagerModal
-        visible={isWalletModalVisible}
-        onClose={() => setIsWalletModalVisible(false)}
-        walletState={wallet}
-      />
+      {!wallet.isReviewMode ? (
+        <WalletManagerModal
+          visible={isWalletModalVisible}
+          onClose={() => setIsWalletModalVisible(false)}
+          walletState={wallet}
+        />
+      ) : null}
     </View>
   );
 }

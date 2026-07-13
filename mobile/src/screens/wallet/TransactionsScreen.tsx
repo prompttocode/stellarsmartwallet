@@ -177,17 +177,23 @@ export function TransactionsScreen({
     return (
       <>
         <ModernScreenHeader
-          subtitle="Review crypto transfers, swaps, buys, and bank withdrawals."
+          subtitle={
+            wallet.isReviewMode
+              ? 'Review Testnet transfers and swaps using test assets only.'
+              : 'Review crypto transfers, swaps, buys, and bank withdrawals.'
+          }
           title="Activity"
         />
 
-        <View style={modern.sectionCard}>
-          <SegmentedFilter
-            active={historyKind}
-            onChange={setHistoryKind}
-            options={historyKinds}
-          />
-        </View>
+        {!wallet.isReviewMode ? (
+          <View style={modern.sectionCard}>
+            <SegmentedFilter
+              active={historyKind}
+              onChange={setHistoryKind}
+              options={historyKinds}
+            />
+          </View>
+        ) : null}
 
         <View style={modern.sectionCard}>
           <SectionHeader

@@ -1064,6 +1064,138 @@ export function SettingsScreen({
     );
   }
 
+  if (wallet.isReviewMode) {
+    return (
+      <ScrollView
+        contentContainerStyle={[screenInsetStyle, styles.content]}
+        showsVerticalScrollIndicator={false}
+        style={styles.screen}
+      >
+        <ModernScreenHeader title="Settings" />
+
+        <View style={styles.reviewCard}>
+          <View style={styles.reviewIcon}>
+            <Ionicons color="#B8FF45" name="flask-outline" size={28} />
+          </View>
+          <View style={styles.reviewCopy}>
+            <Text style={styles.reviewTitle}>Testnet review mode</Text>
+            <Text style={styles.reviewText}>
+              This shared wallet contains test assets only. Mainnet, VND,
+              identity verification and recovery tools are disabled.
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.sectionLabel}>WALLET</Text>
+        <View style={styles.groupCard}>
+          <SettingsRow
+            icon="wallet-outline"
+            subtitle={
+              activeWallet
+                ? `${shortAddress(
+                    activeWallet.address,
+                  )} · Shared Testnet wallet`
+                : 'Loading shared Testnet wallet'
+            }
+            title="App Review Wallet"
+            trailing={<Text style={styles.rowValueSuccess}>Testnet only</Text>}
+          />
+        </View>
+
+        <Text style={styles.sectionLabel}>NETWORK</Text>
+        <View style={styles.networkCard}>
+          <View style={styles.segmented}>
+            <View style={[styles.segment, styles.segmentActive]}>
+              <Ionicons color="#FFFFFF" name="flask-outline" size={17} />
+              <Text style={[styles.segmentText, styles.segmentTextActive]}>
+                Testnet
+              </Text>
+            </View>
+          </View>
+          <View style={styles.networkDescriptionRow}>
+            <Ionicons color="#858B94" name="lock-closed-outline" size={15} />
+            <Text style={styles.networkDescription}>
+              Locked for review · No real assets or real transactions
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.sectionLabel}>PREFERENCES</Text>
+        <View style={styles.groupCard}>
+          <SettingsRow
+            icon="cash-outline"
+            onPress={() => setCurrencyVisible(true)}
+            title="Display currency"
+            trailing={
+              <View style={styles.rowTrailing}>
+                <Text style={styles.rowValue}>{selectedCurrency}</Text>
+                <Ionicons color="#A1B0C8" name="chevron-forward" size={20} />
+              </View>
+            }
+          />
+        </View>
+
+        <Text style={styles.sectionLabel}>HELP</Text>
+        <View style={styles.groupCard}>
+          <SettingsRow
+            icon="help-circle-outline"
+            onPress={onOpenTutorial}
+            subtitle="Learn receive, faucet, send and Testnet safety basics"
+            title="App guide"
+          />
+        </View>
+
+        <PressScale onPress={wallet.logout} style={styles.signOutRow}>
+          <View style={styles.signOutIcon}>
+            <Ionicons color="#FF5252" name="exit-outline" size={21} />
+          </View>
+          <Text style={styles.signOutText}>Exit Testnet demo</Text>
+        </PressScale>
+
+        <View style={styles.versionContainer}>
+          <Text style={styles.versionText}>
+            Version {Application.nativeApplicationVersion} (
+            {Application.nativeBuildVersion})
+          </Text>
+        </View>
+
+        <BottomSheet
+          bottomInset={insets.bottom}
+          onClose={() => setCurrencyVisible(false)}
+          title="Display currency"
+          visible={currencyVisible}
+        >
+          <View style={styles.currencyList}>
+            {CURRENCIES.map(currency => (
+              <TouchableOpacity
+                activeOpacity={0.8}
+                key={currency.code}
+                onPress={() => {
+                  setSelectedCurrency(currency.code);
+                  setCurrencyVisible(false);
+                }}
+                style={styles.currencyRow}
+              >
+                <View style={styles.currencySymbol}>
+                  <Text style={styles.currencySymbolText}>
+                    {currency.symbol}
+                  </Text>
+                </View>
+                <View style={styles.rowCopy}>
+                  <Text style={styles.currencyName}>{currency.name}</Text>
+                  <Text style={styles.currencyCode}>{currency.code}</Text>
+                </View>
+                {selectedCurrency === currency.code ? (
+                  <Ionicons color="#B8FF45" name="checkmark" size={22} />
+                ) : null}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </BottomSheet>
+      </ScrollView>
+    );
+  }
+
   return (
     <>
       <ScrollView
@@ -2013,6 +2145,39 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     lineHeight: 18,
+  },
+  reviewCard: {
+    alignItems: 'center',
+    backgroundColor: '#151B12',
+    borderColor: 'rgba(184,255,69,0.25)',
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 14,
+    marginBottom: 22,
+    padding: 18,
+  },
+  reviewCopy: {
+    flex: 1,
+    gap: 5,
+  },
+  reviewIcon: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(184,255,69,0.12)',
+    borderRadius: 20,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  reviewText: {
+    color: '#A1B0C8',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  reviewTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '800',
   },
   avatar: {
     alignItems: 'center',

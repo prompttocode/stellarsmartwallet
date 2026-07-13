@@ -142,6 +142,7 @@ function mergeRouteAsset(
 
 export function AssetDetailScreen({
   onBack,
+  onGoToReceive,
   onGoToRamp,
   route,
   wallet,
@@ -163,6 +164,7 @@ export function AssetDetailScreen({
   const { data: chartData, loading: chartLoading } = useHistoricalPrice(
     asset,
     timeframe,
+    !wallet.isReviewMode,
   );
   const [favoriteNotice, setFavoriteNotice] = useState<string | null>(null);
 
@@ -248,17 +250,19 @@ export function AssetDetailScreen({
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </PressScale>
         <View style={styles.headerRight}>
-          <PressScale
-            disabled={wallet.isBusy}
-            onPress={toggleFavorite}
-            style={styles.headerIconBtn}
-          >
-            <Ionicons
-              name={isFavorite ? 'star' : 'star-outline'}
-              size={22}
-              color={isFavorite ? '#FFD60A' : '#FFFFFF'}
-            />
-          </PressScale>
+          {!wallet.isReviewMode ? (
+            <PressScale
+              disabled={wallet.isBusy}
+              onPress={toggleFavorite}
+              style={styles.headerIconBtn}
+            >
+              <Ionicons
+                name={isFavorite ? 'star' : 'star-outline'}
+                size={22}
+                color={isFavorite ? '#FFD60A' : '#FFFFFF'}
+              />
+            </PressScale>
+          ) : null}
           <PressScale onPress={shareAsset} style={styles.headerIconBtn}>
             <Ionicons name="share-social-outline" size={22} color="#FFFFFF" />
           </PressScale>
@@ -350,6 +354,24 @@ export function AssetDetailScreen({
             </LineChart.Provider>
           ) : chartLoading ? (
             <ChartSkeleton />
+          ) : wallet.isReviewMode ? (
+            <PressScale
+              disabled={wallet.isBusy}
+              onPress={() => {
+                if (asset.isNative) {
+                  wallet.fundWallet();
+                } else if (asset.assetCode === 'USDC') {
+                  wallet.fundTestUsdc();
+                } else {
+                  onGoToReceive();
+                }
+              }}
+              style={styles.buyButton}
+            >
+              <Text style={styles.buyButtonText}>
+                Get Testnet {asset.assetCode}
+              </Text>
+            </PressScale>
           ) : (
             <View
               style={{
@@ -387,6 +409,30 @@ export function AssetDetailScreen({
               disabled={wallet.isBusy}
             >
               <Text style={styles.buyButtonText}>Enable Crypto</Text>
+            </PressScale>
+          ) : wallet.isReviewMode ? (
+            <PressScale
+              disabled={wallet.isBusy}
+              onPress={() => {
+                if (asset.isNative) {
+                  wallet.fundWallet();
+                  return;
+                }
+
+                if (asset.assetCode === 'USDC') {
+                  wallet.fundTestUsdc();
+                  return;
+                }
+
+                onGoToReceive();
+              }}
+              style={styles.buyButton}
+            >
+              <Text style={styles.buyButtonText}>
+                {asset.isNative || asset.assetCode === 'USDC'
+                  ? `Get Testnet ${asset.assetCode}`
+                  : `Receive ${asset.assetCode}`}
+              </Text>
             </PressScale>
           ) : (
             <PressScale

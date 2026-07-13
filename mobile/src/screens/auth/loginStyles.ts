@@ -18,7 +18,7 @@ export const loginStyles = StyleSheet.create({
     paddingBottom: 32,
     justifyContent: 'space-between',
   },
-  
+
   // Header / Top icon
   topIconContainer: {
     alignItems: 'center',
@@ -37,7 +37,7 @@ export const loginStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  
+
   // Graphic
   graphicContainer: {
     flex: 1,
@@ -163,6 +163,12 @@ export const loginStyles = StyleSheet.create({
     width: 20,
     height: 20,
   },
+  reviewHint: {
+    color: '#8E8E93',
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: 'center',
+  },
 
   // Footer
   footerContainer: {
@@ -194,7 +200,7 @@ export const loginStyles = StyleSheet.create({
     paddingHorizontal: 20,
     width: '100%',
   },
-  
+
   // OTP
   otpWrap: {
     flexDirection: 'row',

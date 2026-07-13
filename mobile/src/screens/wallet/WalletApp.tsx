@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { type ReactNode, useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Animated, {
@@ -85,6 +85,33 @@ async function clearClosedRampOrder(wallet: WalletState) {
   }
 }
 
+function ReviewModeRouteGuard({
+  children,
+  feature,
+  navigation,
+  wallet,
+}: {
+  children: ReactNode;
+  feature: string;
+  navigation: any;
+  wallet: WalletState;
+}) {
+  const { isReviewMode, setMessage } = wallet;
+
+  useEffect(() => {
+    if (!isReviewMode) {
+      return;
+    }
+
+    setMessage(
+      `${feature} is unavailable in Testnet review mode. No real money is used.`,
+    );
+    navigation.replace('MainTabs');
+  }, [feature, isReviewMode, navigation, setMessage]);
+
+  return isReviewMode ? null : children;
+}
+
 type RampNavigationPreset = {
   amount?: string;
   assetCode?: RampAssetCode;
@@ -95,6 +122,7 @@ type RampNavigationPreset = {
 const GLOBAL_LOADING_BUSY_EXACT = new Set([
   'Verifying Privy code',
   'Sign in with Google',
+  'Opening Testnet demo',
   'Submitting KYC',
   'Funding test XLM',
   'Getting Testnet USDC',
@@ -164,6 +192,7 @@ function getCompletedStatusText(label: string) {
     'Funding test XLM': 'Funded test XLM',
     'Getting Testnet USDC': 'Got Testnet USDC',
     'Opening secure export': 'Secure export ready',
+    'Opening Testnet demo': 'Testnet demo ready',
     'Sign in with Google': 'Signed in',
     'Submitting KYC': 'KYC submitted',
     'Switching network': 'Network switched',
@@ -271,6 +300,12 @@ function MainTabs({
   onOpenTutorial: () => void;
   wallet: WalletState;
 }) {
+  function showReviewRestriction(feature: string) {
+    wallet.setMessage(
+      `${feature} is unavailable in Testnet review mode. No real money is used.`,
+    );
+  }
+
   function getAssetParams(asset: BalanceItem) {
     return {
       asset,
@@ -304,11 +339,21 @@ function MainTabs({
               navigation.navigate('Send');
             }}
             onGoToWithdraw={async () => {
+              if (wallet.isReviewMode) {
+                showReviewRestriction('VND withdrawal');
+                return;
+              }
+
               await clearClosedRampOrder(wallet);
               navigation.navigate('Ramp', { direction: 'sell' });
             }}
             onGoToFaucet={() => navigation.navigate('Faucet')}
             onGoToRamp={async (preset: RampNavigationPreset = {}) => {
+              if (wallet.isReviewMode) {
+                showReviewRestriction('VND buy and sell');
+                return;
+              }
+
               await clearClosedRampOrder(wallet);
               navigation.navigate('Ramp', {
                 amount: preset.amount,
@@ -344,6 +389,11 @@ function MainTabs({
           <TransactionsScreen
             wallet={wallet}
             onGoToRampOrder={(order: RampOrder) => {
+              if (wallet.isReviewMode) {
+                showReviewRestriction('VND order history');
+                return;
+              }
+
               wallet.openRampOrder(order).catch(() => null);
               navigation.navigate('Ramp', { source: 'history' });
             }}
@@ -381,9 +431,17 @@ function MainTabs({
       >
         {({ navigation }: any) => (
           <SettingsScreen
-            onOpenKyc={() => navigation.navigate('Kyc')}
+            onOpenKyc={() =>
+              wallet.isReviewMode
+                ? showReviewRestriction('Identity verification')
+                : navigation.navigate('Kyc')
+            }
             onOpenTutorial={onOpenTutorial}
-            onOpenWalletConnect={() => navigation.navigate('WalletConnect')}
+            onOpenWalletConnect={() =>
+              wallet.isReviewMode
+                ? showReviewRestriction('WalletConnect')
+                : navigation.navigate('WalletConnect')
+            }
             wallet={wallet}
           />
         )}
@@ -517,6 +575,13 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                     wallet={wallet}
                     onBack={() => navigation.goBack()}
                     onGoToRamp={async () => {
+                      if (wallet.isReviewMode) {
+                        wallet.setMessage(
+                          'VND orders are unavailable in Testnet review mode.',
+                        );
+                        return;
+                      }
+
                       await clearClosedRampOrder(wallet);
                       navigation.navigate('Ramp', { direction: 'buy' });
                     }}
@@ -525,21 +590,27 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
               </Stack.Screen>
               <Stack.Screen name="Ramp">
                 {({ route, navigation }: any) => (
-                  <RampScreen
-                    onOpenKyc={() => navigation.navigate('Kyc')}
-                    route={route}
+                  <ReviewModeRouteGuard
+                    feature="VND buy and sell"
+                    navigation={navigation}
                     wallet={wallet}
-                    onBack={() => {
-                      if (
-                        route?.params?.source === 'history' &&
-                        isRampOrderTerminal(wallet.activeRampOrder)
-                      ) {
-                        wallet.clearRampOrder().catch(() => null);
-                      }
+                  >
+                    <RampScreen
+                      onOpenKyc={() => navigation.navigate('Kyc')}
+                      route={route}
+                      wallet={wallet}
+                      onBack={() => {
+                        if (
+                          route?.params?.source === 'history' &&
+                          isRampOrderTerminal(wallet.activeRampOrder)
+                        ) {
+                          wallet.clearRampOrder().catch(() => null);
+                        }
 
-                      navigation.goBack();
-                    }}
-                  />
+                        navigation.goBack();
+                      }}
+                    />
+                  </ReviewModeRouteGuard>
                 )}
               </Stack.Screen>
               <Stack.Screen name="AssetSearch">
@@ -565,6 +636,13 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                     onBack={() => navigation.goBack()}
                     onGoToReceive={() => navigation.navigate('Receive')}
                     onGoToRamp={async (direction = 'buy') => {
+                      if (wallet.isReviewMode) {
+                        wallet.setMessage(
+                          'VND buy and sell are unavailable in Testnet review mode.',
+                        );
+                        return;
+                      }
+
                       await clearClosedRampOrder(wallet);
                       navigation.navigate('Ramp', { direction });
                     }}
@@ -590,22 +668,41 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                   );
                 }}
               </Stack.Screen>
-              <Stack.Screen name="Scan" component={ScanScreen} />
+              <Stack.Screen name="Scan">
+                {({ navigation }: any) => (
+                  <ScanScreen
+                    isReviewMode={wallet.isReviewMode}
+                    navigation={navigation}
+                  />
+                )}
+              </Stack.Screen>
               <Stack.Screen name="WalletConnect">
                 {({ navigation }: any) => (
-                  <WalletConnectScreen
-                    onBack={() => navigation.goBack()}
-                    onScan={() => navigation.navigate('Scan')}
+                  <ReviewModeRouteGuard
+                    feature="WalletConnect"
+                    navigation={navigation}
                     wallet={wallet}
-                  />
+                  >
+                    <WalletConnectScreen
+                      onBack={() => navigation.goBack()}
+                      onScan={() => navigation.navigate('Scan')}
+                      wallet={wallet}
+                    />
+                  </ReviewModeRouteGuard>
                 )}
               </Stack.Screen>
               <Stack.Screen name="Kyc">
                 {({ navigation }: any) => (
-                  <KycScreen
-                    onBack={() => navigation.goBack()}
+                  <ReviewModeRouteGuard
+                    feature="Identity verification"
+                    navigation={navigation}
                     wallet={wallet}
-                  />
+                  >
+                    <KycScreen
+                      onBack={() => navigation.goBack()}
+                      wallet={wallet}
+                    />
+                  </ReviewModeRouteGuard>
                 )}
               </Stack.Screen>
             </Stack.Navigator>
@@ -623,7 +720,9 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
             onClose={closeTutorial}
             visible={shouldShowTutorial}
           />
-          <WalletConnectOverlays wallet={wallet} />
+          {!wallet.isReviewMode ? (
+            <WalletConnectOverlays wallet={wallet} />
+          ) : null}
         </View>
       </WalletConnectProvider>
     </CurrencyProvider>

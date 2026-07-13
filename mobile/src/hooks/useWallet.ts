@@ -87,6 +87,7 @@ import {
   PREFERRED_NETWORK_STORAGE_KEY,
   PRIVY_SECURITY_SESSION_TIMEOUT_MS,
   RAMP_ORDER_STORAGE_PREFIX,
+  REVIEW_SESSION_EMAIL,
   TRANSACTIONS_CACHE_TTL_MS,
   TRUSTLINE_ENABLE_TIMEOUT_MS,
   TRUSTLINE_SIGN_TIMEOUT_MS,
@@ -117,11 +118,14 @@ type ApplySessionOptions = {
   activeWalletId?: string | null;
   cache?: boolean;
   clearPortfolioOnActiveWalletMismatch?: boolean;
+  generation?: number;
+  persistNetwork?: boolean;
   source?: 'cache' | 'server';
 };
 
 type FinishPrivySessionOptions = {
   cache?: boolean;
+  generation?: number;
   message?: string;
   privyUser?: unknown;
 };
@@ -246,6 +250,9 @@ export function useWallet() {
   const [privySessionReady, setPrivySessionReady] = useState(false);
   const [serverSessionReady, setServerSessionReady] = useState(false);
   const [sessionSyncing, setSessionSyncing] = useState(false);
+  const [isReviewMode, setIsReviewMode] = useState(false);
+  const isReviewModeRef = useRef(false);
+  const sessionGenerationRef = useRef(0);
   const restoreAttemptedForUserRef = useRef<string | null>(null);
   const { user, isReady, error: privyError, logout: logoutPrivy } = usePrivy();
   const { getIdentityToken } = useIdentityToken();
@@ -275,6 +282,9 @@ export function useWallet() {
 
   const checkServer = useCallback(async () => {
     try {
+      const requestGeneration = sessionGenerationRef.current;
+      const reviewModeAtRequest = isReviewModeRef.current;
+      const requestNetwork = reviewModeAtRequest ? 'testnet' : network;
       const [
         result,
         networkResult,
@@ -284,9 +294,13 @@ export function useWallet() {
       ] = await Promise.all([
         api<Health>('/api/health'),
         api<{ networks: StellarNetworkInfo[] }>('/api/networks'),
-        api<AssetsResponse>(`/api/assets?network=${network}`),
-        api<RampProvidersResponse>('/api/ramp/providers'),
-        api<WalletConnectConfig>('/api/walletconnect/config'),
+        api<AssetsResponse>(`/api/assets?network=${requestNetwork}`),
+        reviewModeAtRequest
+          ? Promise.resolve({ providers: [] } as RampProvidersResponse)
+          : api<RampProvidersResponse>('/api/ramp/providers'),
+        reviewModeAtRequest
+          ? Promise.resolve(null)
+          : api<WalletConnectConfig>('/api/walletconnect/config'),
       ]);
 
       setHealth(result);
@@ -296,13 +310,21 @@ export function useWallet() {
       setAssetPricesUpdatedAt(
         nextAssets.some(hasMarketPrice) ? Date.now() : null,
       );
-      cacheSet(getAssetsCacheKey(network), nextAssets).catch(() => null);
-      setRampProviders(rampResult.providers || []);
-      setWalletConnectConfig(walletConnectResult);
+      cacheSet(getAssetsCacheKey(requestNetwork), nextAssets).catch(() => null);
+      if (
+        requestGeneration === sessionGenerationRef.current &&
+        !isReviewModeRef.current
+      ) {
+        setRampProviders(rampResult.providers || []);
+        setWalletConnectConfig(walletConnectResult);
+      } else if (isReviewModeRef.current) {
+        setRampProviders([]);
+        setWalletConnectConfig(null);
+      }
     } catch (error) {
       setMessage(getErrorMessage(error));
     }
-  }, [network]);
+  }, [isReviewMode, network]);
 
   useEffect(() => {
     let cancelled = false;
@@ -347,7 +369,7 @@ export function useWallet() {
 
     AsyncStorage.getItem(PREFERRED_NETWORK_STORAGE_KEY)
       .then(value => {
-        if (!cancelled && isStellarNetwork(value)) {
+        if (!cancelled && !isReviewModeRef.current && isStellarNetwork(value)) {
           setNetwork(value);
         }
       })
@@ -471,6 +493,10 @@ export function useWallet() {
 
   const refreshAssetPrices = useCallback(async () => {
     try {
+      if (isReviewModeRef.current && network !== 'testnet') {
+        return null;
+      }
+
       const result = await api<AssetsResponse>(
         `/api/assets?network=${network}&limit=100`,
       );
@@ -516,7 +542,7 @@ export function useWallet() {
         }
 
         nextAssets = [...byIdentity.values()];
-      } else {
+      } else if (!isReviewModeRef.current) {
         try {
           const referenceResult = await api<AssetsResponse>(
             '/api/assets?network=mainnet&limit=100',
@@ -568,7 +594,7 @@ export function useWallet() {
 
     setActiveRampOrder(null);
 
-    if (!rampOrderStorageKey) {
+    if (isReviewMode || !rampOrderStorageKey) {
       return () => {
         cancelled = true;
       };
@@ -585,7 +611,7 @@ export function useWallet() {
     return () => {
       cancelled = true;
     };
-  }, [rampOrderStorageKey]);
+  }, [isReviewMode, rampOrderStorageKey]);
 
   function resetRecipientState() {
     setRecipient('');
@@ -611,7 +637,14 @@ export function useWallet() {
     return result.collectibles || [];
   }
 
-  function clearWalletSession(nextMessage?: string) {
+  function clearWalletSession(
+    nextMessage?: string,
+    options: { preserveReviewMode?: boolean } = {},
+  ) {
+    if (!options.preserveReviewMode) {
+      isReviewModeRef.current = false;
+      setIsReviewMode(false);
+    }
     setAccount(null);
     setKyc(DEFAULT_KYC);
     setWallets([]);
@@ -637,12 +670,40 @@ export function useWallet() {
     }
   }
 
+  function requireStandardMode(feature: string) {
+    if (!isReviewModeRef.current) {
+      return;
+    }
+
+    throw new Error(
+      `${feature} is unavailable in the shared Testnet review mode. Exit the demo and sign in to use it.`,
+    );
+  }
+
   const applySession = useCallback(
     (
       session: SessionResponse,
       nextMessage = 'Your Stellar wallet is ready.',
       options: ApplySessionOptions = {},
     ) => {
+      if (
+        options.generation !== undefined &&
+        options.generation !== sessionGenerationRef.current
+      ) {
+        return false;
+      }
+
+      const sessionEmail = String(session.account.email || '')
+        .trim()
+        .toLowerCase();
+
+      if (
+        isReviewModeRef.current &&
+        sessionEmail !== REVIEW_SESSION_EMAIL.toLowerCase()
+      ) {
+        return false;
+      }
+
       const sessionWallets = getSessionWallets(session);
       const sessionActiveWalletId = getSessionActiveWalletId(session);
       const requestedActiveWalletId = options.activeWalletId || null;
@@ -656,10 +717,16 @@ export function useWallet() {
       const sessionNetwork =
         session.network || session.account.wallet?.network || network;
 
-      setPreferredNetwork(sessionNetwork);
+      if (options.persistNetwork === false) {
+        setNetwork(sessionNetwork);
+      } else {
+        setPreferredNetwork(sessionNetwork);
+      }
       setEmail(session.account.email);
       setAccount(session.account);
-      setKyc(session.kyc || DEFAULT_KYC);
+      setKyc(
+        isReviewModeRef.current ? DEFAULT_KYC : session.kyc || DEFAULT_KYC,
+      );
       setWallets(sessionWallets);
       setArchivedWallets([]);
       setActiveWalletId(nextActiveWalletId);
@@ -678,6 +745,8 @@ export function useWallet() {
       if (options.source !== 'cache' && options.cache !== false) {
         writeCachedSession(session, userKey, sessionNetwork).catch(() => null);
       }
+
+      return true;
     },
     [network, setPreferredNetwork, userKey],
   );
@@ -788,7 +857,7 @@ export function useWallet() {
   }, [fetchTransactionHistory, network, wallet?.address]);
 
   useEffect(() => {
-    if (!account || !serverSessionReady) {
+    if (!account || !serverSessionReady || isReviewMode) {
       setPaymentMethods([]);
       setFavoriteAssets([]);
       return;
@@ -796,10 +865,10 @@ export function useWallet() {
 
     loadPaymentMethods({ silent: true }).catch(() => null);
     loadFavoriteAssets({ silent: true }).catch(() => null);
-  }, [account?.email, network, serverSessionReady]);
+  }, [account?.email, isReviewMode, network, serverSessionReady]);
 
   const refreshPrivySecuritySession = useCallback(async () => {
-    if (!isReady || !userKey) {
+    if (isReviewModeRef.current || !isReady || !userKey) {
       setPrivySessionReady(false);
       return false;
     }
@@ -811,16 +880,16 @@ export function useWallet() {
     ).catch(() => null);
     const hasToken = Boolean(identityToken);
 
-    setPrivySessionReady(hasToken);
+    setPrivySessionReady(isReviewModeRef.current ? false : hasToken);
 
-    return hasToken;
+    return isReviewModeRef.current ? false : hasToken;
   }, [isReady, userKey]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function probePrivyToken() {
-      if (!isReady || !userKey) {
+      if (isReviewModeRef.current || !isReady || !userKey) {
         setPrivySessionReady(false);
         return;
       }
@@ -829,7 +898,7 @@ export function useWallet() {
         getIdentityTokenRef.current,
       );
 
-      if (!cancelled) {
+      if (!cancelled && !isReviewModeRef.current) {
         setPrivySessionReady(Boolean(identityToken));
       }
     }
@@ -839,9 +908,17 @@ export function useWallet() {
     return () => {
       cancelled = true;
     };
-  }, [isReady, userKey]);
+  }, [isReady, isReviewMode, userKey]);
 
   async function getAuthHeaders(required = false) {
+    if (isReviewModeRef.current) {
+      if (required) {
+        throw new Error('This feature is unavailable in Testnet review mode.');
+      }
+
+      return undefined;
+    }
+
     if (!required) {
       return undefined;
     }
@@ -942,6 +1019,7 @@ export function useWallet() {
     return run(
       'Refreshing KYC status',
       async () => {
+        requireStandardMode('Identity verification');
         requireFreshServerSession();
         const headers = await getAuthHeaders(true);
         const result = await api<KycApiResponse>('/api/kyc/status', {
@@ -971,6 +1049,7 @@ export function useWallet() {
     }
 
     return run('Submitting KYC', async () => {
+      requireStandardMode('Identity verification');
       requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const result = await api<KycApiResponse>('/api/kyc/id-card', {
@@ -997,7 +1076,7 @@ export function useWallet() {
     const walletAddress = wallet?.address;
     const walletId = wallet?.id;
 
-    if (!accountEmail || !walletAddress || !walletId) {
+    if (isReviewMode || !accountEmail || !walletAddress || !walletId) {
       setRampOrderHistory(current => (current.length > 0 ? [] : current));
       return () => {
         cancelled = true;
@@ -1029,11 +1108,11 @@ export function useWallet() {
           },
         );
 
-        if (!cancelled) {
+        if (!cancelled && !isReviewModeRef.current) {
           setRampOrderHistory(result.data.orders || []);
         }
       } catch {
-        if (!cancelled) {
+        if (!cancelled && !isReviewModeRef.current) {
           setRampOrderHistory([]);
         }
       }
@@ -1044,7 +1123,7 @@ export function useWallet() {
     return () => {
       cancelled = true;
     };
-  }, [account?.email, network, wallet?.address, wallet?.id]);
+  }, [account?.email, isReviewMode, network, wallet?.address, wallet?.id]);
 
   async function requireBiometric(promptMessage: string) {
     const rnBiometrics = new ReactNativeBiometrics();
@@ -1073,6 +1152,13 @@ export function useWallet() {
       sessionNetwork: StellarNetwork = network,
       options: FinishPrivySessionOptions = {},
     ) => {
+      if (
+        options.generation !== undefined &&
+        options.generation !== sessionGenerationRef.current
+      ) {
+        return false;
+      }
+
       const identityToken =
         existingIdentityToken ||
         (await withTimeout(
@@ -1103,6 +1189,14 @@ export function useWallet() {
             options.privyUser || user,
           )
         : undefined;
+
+      if (
+        options.generation !== undefined &&
+        options.generation !== sessionGenerationRef.current
+      ) {
+        return false;
+      }
+
       const session = identityToken
         ? await api<SessionResponse>('/api/session', {
             method: 'POST',
@@ -1122,8 +1216,9 @@ export function useWallet() {
             }),
           });
 
-      applySession(session, options.message, {
+      return applySession(session, options.message, {
         cache: options.cache,
+        generation: options.generation,
         source: 'server',
       });
     },
@@ -1132,8 +1227,10 @@ export function useWallet() {
 
   useEffect(() => {
     const restoreAttemptKey = userKey ? `${userKey}:${network}` : null;
+    const restoreGeneration = sessionGenerationRef.current;
 
     if (
+      !isReviewMode &&
       isReady &&
       user &&
       userKey &&
@@ -1154,7 +1251,11 @@ export function useWallet() {
           restoreNetwork,
         ).catch(() => null);
 
-        if (cancelled) {
+        if (
+          cancelled ||
+          restoreGeneration !== sessionGenerationRef.current ||
+          isReviewModeRef.current
+        ) {
           return;
         }
 
@@ -1164,7 +1265,11 @@ export function useWallet() {
             restoreNetwork,
           ).catch(() => null);
 
-          if (cancelled) {
+          if (
+            cancelled ||
+            restoreGeneration !== sessionGenerationRef.current ||
+            isReviewModeRef.current
+          ) {
             return;
           }
 
@@ -1183,6 +1288,7 @@ export function useWallet() {
               activeWalletId: cachedActiveWalletId,
               cache: false,
               clearPortfolioOnActiveWalletMismatch: true,
+              generation: restoreGeneration,
               source: 'cache',
             },
           );
@@ -1195,10 +1301,14 @@ export function useWallet() {
             undefined,
             getEmailFromPrivyUser(user),
             restoreNetwork,
-            { privyUser: user },
+            { generation: restoreGeneration, privyUser: user },
           );
         } catch (error) {
-          if (!cancelled) {
+          if (
+            !cancelled &&
+            restoreGeneration === sessionGenerationRef.current &&
+            !isReviewModeRef.current
+          ) {
             const errorMessage = getErrorMessage(error);
             setMessage(
               cached
@@ -1207,7 +1317,10 @@ export function useWallet() {
             );
           }
         } finally {
-          if (!cancelled) {
+          if (
+            !cancelled &&
+            restoreGeneration === sessionGenerationRef.current
+          ) {
             setSessionSyncing(false);
           }
         }
@@ -1220,10 +1333,20 @@ export function useWallet() {
         if (restoreAttemptedForUserRef.current === restoreAttemptKey) {
           restoreAttemptedForUserRef.current = null;
         }
-        setSessionSyncing(false);
+        if (restoreGeneration === sessionGenerationRef.current) {
+          setSessionSyncing(false);
+        }
       };
     }
-  }, [finishPrivySession, applySession, isReady, network, user, userKey]);
+  }, [
+    finishPrivySession,
+    applySession,
+    isReady,
+    isReviewMode,
+    network,
+    user,
+    userKey,
+  ]);
 
   async function sendEmailCode() {
     return run('Sending Privy code', async () => {
@@ -1333,6 +1456,81 @@ export function useWallet() {
     });
   }
 
+  async function startReviewMode() {
+    return run('Opening Testnet demo', async () => {
+      const reviewGeneration = sessionGenerationRef.current + 1;
+
+      sessionGenerationRef.current = reviewGeneration;
+      isReviewModeRef.current = true;
+      setIsReviewMode(true);
+      setRampProviders([]);
+      setWalletConnectConfig(null);
+      setPrivySessionReady(false);
+
+      setSessionSyncing(true);
+
+      try {
+        if (user) {
+          await logoutPrivy();
+        }
+
+        if (reviewGeneration !== sessionGenerationRef.current) {
+          throw new Error('The Testnet review session was cancelled.');
+        }
+
+        clearWalletSession(undefined, { preserveReviewMode: true });
+        setSessionSyncing(true);
+
+        const session = await api<SessionResponse>('/api/session', {
+          method: 'POST',
+          body: JSON.stringify({
+            email: REVIEW_SESSION_EMAIL,
+            network: 'testnet',
+          }),
+        });
+        const sessionNetwork =
+          session.network || session.account.wallet?.network;
+
+        if (sessionNetwork !== 'testnet') {
+          throw new Error('Review mode could not start a Testnet wallet.');
+        }
+
+        if (reviewGeneration !== sessionGenerationRef.current) {
+          throw new Error('The Testnet review session was cancelled.');
+        }
+
+        const applied = applySession(
+          session,
+          'Testnet review mode is ready. All displayed assets are test assets.',
+          {
+            cache: false,
+            generation: reviewGeneration,
+            persistNetwork: false,
+            source: 'server',
+          },
+        );
+
+        if (!applied) {
+          throw new Error('The Testnet review session was cancelled.');
+        }
+
+        await loadCollectibles(session.account.wallet?.address, 'testnet');
+
+        return session;
+      } catch (error) {
+        if (reviewGeneration === sessionGenerationRef.current) {
+          isReviewModeRef.current = false;
+          setIsReviewMode(false);
+        }
+        throw error;
+      } finally {
+        if (reviewGeneration === sessionGenerationRef.current) {
+          setSessionSyncing(false);
+        }
+      }
+    });
+  }
+
   function resetLoginCode() {
     setCode('');
     setCodeSent(false);
@@ -1342,6 +1540,8 @@ export function useWallet() {
   async function signOutAndClearWalletSession(nextMessage?: string) {
     const cacheUserKey = userKey;
 
+    sessionGenerationRef.current += 1;
+    isReviewModeRef.current = false;
     await logoutPrivy();
     await clearCachedSessions(cacheUserKey).catch(() => null);
     clearWalletSession(nextMessage);
@@ -1368,7 +1568,11 @@ export function useWallet() {
               sourceWalletId: wallet?.id,
             }),
           });
-          applySession(session);
+          applySession(session, undefined, {
+            cache: !isReviewModeRef.current,
+            persistNetwork: !isReviewModeRef.current,
+            source: 'server',
+          });
           const sessionWalletAddress = session.account.wallet?.address;
 
           if (sessionWalletAddress) {
@@ -1396,6 +1600,7 @@ export function useWallet() {
     return run(
       isMainnet ? 'Creating Mainnet wallet' : 'Creating Testnet wallet',
       async () => {
+        requireStandardMode('Wallet creation');
         requireFreshServerSession();
         const headers = await getAuthHeaders(true);
         const createdWallet = await createClientStellarWalletPayload();
@@ -1433,6 +1638,7 @@ export function useWallet() {
     }
 
     return run('Switching wallet', async () => {
+      requireStandardMode('Wallet management');
       requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const session = await api<SessionResponse>('/api/wallets/select', {
@@ -1455,6 +1661,7 @@ export function useWallet() {
     }
 
     return run('Renaming wallet', async () => {
+      requireStandardMode('Wallet management');
       requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const session = await api<SessionResponse>('/api/wallets/rename', {
@@ -1479,6 +1686,7 @@ export function useWallet() {
     }
 
     return run('Archiving wallet', async () => {
+      requireStandardMode('Wallet management');
       requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const session = await api<SessionResponse>('/api/wallets/archive', {
@@ -1500,6 +1708,7 @@ export function useWallet() {
       return [];
     }
 
+    requireStandardMode('Wallet management');
     const headers = await getAuthHeaders(true);
     const response = await api<ArchivedWalletsResponse>(
       `/api/wallets/archived?network=${encodeURIComponent(network)}`,
@@ -1520,6 +1729,7 @@ export function useWallet() {
     }
 
     return run('Restoring wallet', async () => {
+      requireStandardMode('Wallet management');
       requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const session = await api<SessionResponse>('/api/wallets/restore', {
@@ -1636,7 +1846,7 @@ export function useWallet() {
       accountId: account.id,
       assetCode: assetDefinition.assetCode,
       assetIssuer: assetIssuer || assetDefinition.assetIssuer || null,
-      clientSigningSupported: true,
+      clientSigningSupported: !isReviewMode,
       email: account.email,
       sourceAddress: wallet.address,
       sourceWalletId: wallet.id,
@@ -1844,7 +2054,7 @@ export function useWallet() {
 
       const fundNftBody = {
         accountId: account.id,
-        clientSigningSupported: true,
+        clientSigningSupported: !isReviewMode,
         email: account.email,
         sourceAddress: wallet.address,
         sourceWalletId: wallet.id,
@@ -1993,7 +2203,7 @@ export function useWallet() {
         amount: amountCheck.normalized,
         assetCode: selectedAssetCode,
         assetIssuer: selectedAsset?.assetIssuer || null,
-        clientSigningSupported: true,
+        clientSigningSupported: !isReviewMode,
         destination,
         email: account.email,
         sourceAddress: wallet.address,
@@ -2216,7 +2426,7 @@ export function useWallet() {
       const swapBody = {
         accountId: account.id,
         amount: amountCheck.normalized,
-        clientSigningSupported: true,
+        clientSigningSupported: !isReviewMode,
         email: account.email,
         fromAssetCode,
         fromAssetIssuer: fromAsset?.assetIssuer || null,
@@ -2350,6 +2560,7 @@ export function useWallet() {
     }
 
     const load = async () => {
+      requireStandardMode('VND order history');
       const headers = await getAuthHeaders(isMainnet);
       const params = new URLSearchParams({
         email: account.email,
@@ -2565,6 +2776,7 @@ export function useWallet() {
     }
 
     const load = async () => {
+      requireStandardMode('Payment methods');
       const headers = await getAuthHeaders(true);
       const params = new URLSearchParams({
         email: account.email,
@@ -2603,6 +2815,7 @@ export function useWallet() {
     }
 
     return run('Saving payment method', async () => {
+      requireStandardMode('Payment methods');
       requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const result = await api<RampPaymentMethodsResponse>(
@@ -2636,6 +2849,7 @@ export function useWallet() {
     }
 
     return run('Updating payment method', async () => {
+      requireStandardMode('Payment methods');
       requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const result = await api<RampPaymentMethodsResponse>(
@@ -2663,6 +2877,7 @@ export function useWallet() {
     }
 
     return run('Deleting payment method', async () => {
+      requireStandardMode('Payment methods');
       requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const params = new URLSearchParams({
@@ -2692,6 +2907,7 @@ export function useWallet() {
     }
 
     return run('Setting default payment method', async () => {
+      requireStandardMode('Payment methods');
       requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const result = await api<RampPaymentMethodsResponse>(
@@ -2713,9 +2929,16 @@ export function useWallet() {
   }
 
   async function openRampOrder(order: RampOrder) {
-    await persistRampOrder(order);
+    return run(
+      'Opening VND order',
+      async () => {
+        requireStandardMode('VND orders');
+        await persistRampOrder(order);
 
-    return order;
+        return order;
+      },
+      { showBusy: false },
+    );
   }
 
   async function quoteRamp({
@@ -2730,6 +2953,7 @@ export function useWallet() {
     return run(
       `Quote ${direction}`,
       async () => {
+        requireStandardMode('VND buy and sell');
         const amountCheck = validateStellarAmount(rampAmount, 'Ramp amount');
 
         if (!amountCheck.valid) {
@@ -2780,6 +3004,7 @@ export function useWallet() {
     }
 
     return run(`Creating ${direction} order`, async () => {
+      requireStandardMode('VND buy and sell');
       requireFreshServerSession();
       if (kyc.status !== 'verified') {
         throw new Error('KYC_REQUIRED');
@@ -2851,6 +3076,7 @@ export function useWallet() {
     orderReference: string,
     options: { baseOrder?: RampOrder | null; updateActive?: boolean } = {},
   ) {
+    requireStandardMode('VND orders');
     const params = new URLSearchParams();
     const baseOrder =
       options.baseOrder ||
@@ -2955,6 +3181,7 @@ export function useWallet() {
     }
 
     return run('Cancelling order', async () => {
+      requireStandardMode('VND orders');
       requireFreshServerSession();
       const baseOrder =
         rampOrderHistory.find(
@@ -3008,6 +3235,7 @@ export function useWallet() {
     }
 
     return run('Confirming test payment', async () => {
+      requireStandardMode('VND orders');
       requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const result = await api<RampApiResponse<RampOrder>>(
@@ -3051,6 +3279,7 @@ export function useWallet() {
     }
 
     return run('Confirming test crypto receipt', async () => {
+      requireStandardMode('VND orders');
       requireFreshServerSession();
       const headers = await getAuthHeaders(true);
       const result = await api<RampApiResponse<RampOrder>>(
@@ -3090,6 +3319,7 @@ export function useWallet() {
     return run(
       `Sending ${order.asset_code}`,
       async () => {
+        requireStandardMode('VND orders');
         requireFreshServerSession();
         if (order.order_type !== 'sell') {
           throw new Error('Only withdrawals require an on-chain transfer.');
@@ -3122,7 +3352,7 @@ export function useWallet() {
           amount: String(order.amount),
           assetCode: order.asset_code,
           assetIssuer: asset?.assetIssuer || null,
-          clientSigningSupported: true,
+          clientSigningSupported: !isReviewMode,
           destination,
           email: account.email,
           memo: order.code,
@@ -3186,14 +3416,43 @@ export function useWallet() {
   }
 
   async function clearRampOrder() {
-    await persistRampOrder(null);
+    return run(
+      'Clearing VND order',
+      async () => {
+        requireStandardMode('VND orders');
+        await persistRampOrder(null);
+      },
+      { showBusy: false },
+    );
   }
 
   async function logout() {
+    if (isReviewModeRef.current) {
+      sessionGenerationRef.current += 1;
+      clearWalletSession('Exited Testnet review mode.');
+      setEmail('');
+      const preferredNetwork = await AsyncStorage.getItem(
+        PREFERRED_NETWORK_STORAGE_KEY,
+      ).catch(() => null);
+
+      setNetwork(
+        isStellarNetwork(preferredNetwork) ? preferredNetwork : DEFAULT_NETWORK,
+      );
+      return;
+    }
+
     await signOutAndClearWalletSession('Signed out.');
   }
 
   async function switchNetwork(nextNetwork: StellarNetwork) {
+    if (isReviewModeRef.current && nextNetwork !== 'testnet') {
+      showErrorDialog(
+        'Review mode is locked to Stellar Testnet and cannot access real assets.',
+        'Testnet only',
+      );
+      return null;
+    }
+
     if (nextNetwork === network) {
       setMessage(
         nextNetwork === 'mainnet'
@@ -3309,6 +3568,13 @@ export function useWallet() {
       return null;
     }
 
+    if (isReviewModeRef.current) {
+      return run('Importing wallet', async () => {
+        requireStandardMode('Wallet import');
+        return null;
+      });
+    }
+
     const normalizedSecret = secret.trim();
     const secretError = validateImportSecret(normalizedSecret);
     const importedAddress = getImportSecretPublicAddress(normalizedSecret);
@@ -3380,6 +3646,13 @@ export function useWallet() {
       return null;
     }
 
+    if (isReviewModeRef.current) {
+      return run('Adding watch-only wallet', async () => {
+        requireStandardMode('Watch-only wallets');
+        return null;
+      });
+    }
+
     const normalizedAddress = address.trim().toUpperCase();
     const addressError = validateWatchOnlyAddress(normalizedAddress);
 
@@ -3414,6 +3687,13 @@ export function useWallet() {
   async function createWalletExportUrl(returnUrl?: string) {
     if (!account || !wallet) {
       return null;
+    }
+
+    if (isReviewModeRef.current) {
+      return run('Opening secure export', async () => {
+        requireStandardMode('Wallet recovery export');
+        return null;
+      });
     }
 
     return run('Opening secure export', async () => {
@@ -3500,6 +3780,7 @@ export function useWallet() {
     isBusy: busy !== null,
     isMainnet,
     isReady,
+    isReviewMode,
     importWallet,
     kyc,
     loginWithGoogle,
@@ -3520,7 +3801,7 @@ export function useWallet() {
     quoteSwap,
     quoteRamp,
     rampOrderHistory,
-    rampProviders,
+    rampProviders: isReviewMode ? [] : rampProviders,
     recipient,
     recipientContact,
     recipientSelectedBalance,
@@ -3554,6 +3835,7 @@ export function useWallet() {
     setSelectedAssetCode,
     searchAssets,
     sessionSyncing,
+    startReviewMode,
     swapAsset,
     switchNetwork,
     toggleFavoriteAsset,
@@ -3565,7 +3847,7 @@ export function useWallet() {
     wallet,
     walletActive,
     walletCanSign,
-    walletConnectConfig,
+    walletConnectConfig: isReviewMode ? null : walletConnectConfig,
     walletSessionSyncing,
     wallets: networkWallets,
     showErrorDialog,

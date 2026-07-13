@@ -8,11 +8,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {
-  AppState,
-  Linking,
-  type AppStateStatus,
-} from 'react-native';
+import { AppState, Linking, type AppStateStatus } from 'react-native';
 import ReactNativeBiometrics from 'react-native-biometrics';
 import { useIdentityToken } from '@privy-io/expo';
 import { useSignRawHash } from '@privy-io/expo/extended-chains';
@@ -27,10 +23,7 @@ import {
   formatJsonRpcError,
   formatJsonRpcResult,
 } from '@walletconnect/jsonrpc-utils';
-import {
-  buildApprovedNamespaces,
-  getSdkError,
-} from '@walletconnect/utils';
+import { buildApprovedNamespaces, getSdkError } from '@walletconnect/utils';
 
 import { api } from '@api/client';
 import { useAppPopup } from '@components/common/AppPopup';
@@ -155,8 +148,9 @@ type WalletConnectContextValue = {
   clearResult: () => void;
 };
 
-const WalletConnectContext =
-  createContext<WalletConnectContextValue | null>(null);
+const WalletConnectContext = createContext<WalletConnectContextValue | null>(
+  null,
+);
 
 function wait(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -353,8 +347,9 @@ export function WalletConnectProvider({
   const [initializing, setInitializing] = useState(false);
   const [pairing, setPairing] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
-  const [proposalData, setProposalData] =
-    useState<ProposalTypes.Struct | null>(null);
+  const [proposalData, setProposalData] = useState<ProposalTypes.Struct | null>(
+    null,
+  );
   const [requestQueue, setRequestQueue] = useState<SessionRequestEvent[]>([]);
   const [requestReview, setRequestReview] =
     useState<WalletConnectXdrReview | null>(null);
@@ -365,7 +360,8 @@ export function WalletConnectProvider({
 
   walletRef.current = wallet;
 
-  const configured = Boolean(wallet.walletConnectConfig?.projectId);
+  const configured =
+    !wallet.isReviewMode && Boolean(wallet.walletConnectConfig?.projectId);
   const activeRequestEvent = requestQueue[0] || null;
 
   const refreshSessions = useCallback((nextClient = clientRef.current) => {
@@ -404,6 +400,10 @@ export function WalletConnectProvider({
       const expectedAccount = currentWallet.wallet?.address
         ? getAccountId(currentWallet.network, currentWallet.wallet.address)
         : '';
+
+      if (currentWallet.isReviewMode) {
+        return false;
+      }
 
       if (!isSupportedMethod(method)) {
         await respondWithError(
@@ -459,9 +459,18 @@ export function WalletConnectProvider({
   useEffect(() => {
     const projectId = wallet.walletConnectConfig?.projectId;
 
-    if (!projectId) {
+    if (wallet.isReviewMode || !projectId) {
+      pendingPairUriRef.current = null;
       clientRef.current = null;
       setClient(null);
+      setInitializing(false);
+      setPairing(false);
+      setLastError(null);
+      setProposalData(null);
+      setRequestQueue([]);
+      setRequestReview(null);
+      setReviewError(null);
+      setResult(null);
       setSessions([]);
       return;
     }
@@ -600,6 +609,7 @@ export function WalletConnectProvider({
     refreshSessions,
     showPopup,
     validateRequest,
+    wallet.isReviewMode,
     wallet.walletConnectConfig?.projectId,
   ]);
 
@@ -607,6 +617,17 @@ export function WalletConnectProvider({
     async (uri: string) => {
       const currentWallet = walletRef.current;
       const normalizedUri = uri.trim();
+
+      if (currentWallet.isReviewMode) {
+        pendingPairUriRef.current = null;
+        showPopup({
+          message:
+            'WalletConnect is disabled for the shared Testnet review wallet.',
+          title: 'Unavailable in review mode',
+          variant: 'warning',
+        });
+        return false;
+      }
 
       if (!normalizedUri.startsWith('wc:')) {
         showPopup({
@@ -619,7 +640,8 @@ export function WalletConnectProvider({
 
       if (!currentWallet.walletConnectConfig?.projectId) {
         showPopup({
-          message: 'WalletConnect is not available yet. Please try again later.',
+          message:
+            'WalletConnect is not available yet. Please try again later.',
           title: 'WalletConnect unavailable',
           variant: 'warning',
         });
@@ -669,6 +691,10 @@ export function WalletConnectProvider({
   );
 
   useEffect(() => {
+    if (wallet.isReviewMode) {
+      return undefined;
+    }
+
     function handleUrl(url: string) {
       const uri = extractWalletConnectUri(url);
 
@@ -689,9 +715,13 @@ export function WalletConnectProvider({
     );
 
     return () => subscription.remove();
-  }, [pair]);
+  }, [pair, wallet.isReviewMode]);
 
   useEffect(() => {
+    if (wallet.isReviewMode) {
+      return undefined;
+    }
+
     function handleAppState(nextState: AppStateStatus) {
       if (nextState === 'active') {
         refreshSessions();
@@ -701,9 +731,13 @@ export function WalletConnectProvider({
     const subscription = AppState.addEventListener('change', handleAppState);
 
     return () => subscription.remove();
-  }, [refreshSessions]);
+  }, [refreshSessions, wallet.isReviewMode]);
 
   useEffect(() => {
+    if (wallet.isReviewMode) {
+      return;
+    }
+
     const nextClient = clientRef.current;
 
     if (!nextClient) {
@@ -738,6 +772,7 @@ export function WalletConnectProvider({
   }, [
     refreshSessions,
     wallet.account,
+    wallet.isReviewMode,
     wallet.network,
     wallet.wallet?.address,
     wallet.wallet?.canSign,
@@ -748,7 +783,7 @@ export function WalletConnectProvider({
     const event = activeRequestEvent;
     const nextClient = clientRef.current;
 
-    if (!event || !nextClient) {
+    if (wallet.isReviewMode || !event || !nextClient) {
       setRequestReview(null);
       setReviewError(null);
       reviewingKeyRef.current = null;
@@ -770,20 +805,17 @@ export function WalletConnectProvider({
     setRequestReview(null);
     setReviewError(null);
 
-    api<WalletConnectXdrReview>(
-      '/api/walletconnect/stellar/review-xdr',
-      {
-        body: JSON.stringify({
-          method: event.params.request.method,
-          network: currentWallet.network,
-          peerName: session?.peer.metadata.name || '',
-          sourceAddress: currentWallet.wallet?.address || '',
-          topic: event.topic,
-          xdr,
-        }),
-        method: 'POST',
-      },
-    )
+    api<WalletConnectXdrReview>('/api/walletconnect/stellar/review-xdr', {
+      body: JSON.stringify({
+        method: event.params.request.method,
+        network: currentWallet.network,
+        peerName: session?.peer.metadata.name || '',
+        sourceAddress: currentWallet.wallet?.address || '',
+        topic: event.topic,
+        xdr,
+      }),
+      method: 'POST',
+    })
       .then(review => {
         if (!cancelled) {
           setRequestReview(review);
@@ -805,10 +837,10 @@ export function WalletConnectProvider({
         reviewingKeyRef.current = null;
       }
     };
-  }, [activeRequestEvent]);
+  }, [activeRequestEvent, wallet.isReviewMode]);
 
   const proposal = useMemo<WalletConnectProposalView | null>(() => {
-    if (!proposalData) {
+    if (wallet.isReviewMode || !proposalData) {
       return null;
     }
 
@@ -822,10 +854,10 @@ export function WalletConnectProvider({
       name: metadata.name || 'Unknown dApp',
       url: metadata.url || '',
     };
-  }, [proposalData]);
+  }, [proposalData, wallet.isReviewMode]);
 
   const request = useMemo<WalletConnectRequestView | null>(() => {
-    if (!activeRequestEvent || !client) {
+    if (wallet.isReviewMode || !activeRequestEvent || !client) {
       return null;
     }
 
@@ -844,12 +876,22 @@ export function WalletConnectProvider({
       reviewing: !requestReview && !reviewError,
       topic: activeRequestEvent.topic,
     };
-  }, [activeRequestEvent, client, requestReview, reviewError]);
+  }, [
+    activeRequestEvent,
+    client,
+    requestReview,
+    reviewError,
+    wallet.isReviewMode,
+  ]);
 
   const approveProposal = useCallback(async () => {
     const nextClient = clientRef.current;
     const event = proposalData;
     const currentWallet = walletRef.current;
+
+    if (currentWallet.isReviewMode) {
+      return;
+    }
 
     if (!nextClient || !event || !currentWallet.wallet?.address) {
       return;
@@ -870,8 +912,8 @@ export function WalletConnectProvider({
     const unsupportedChain = unsupportedRequiredChain
       ? unsupportedRequiredChain
       : activeChainRequested
-        ? null
-        : requestedChains[0];
+      ? null
+      : requestedChains[0];
 
     if (
       !currentWallet.account ||
@@ -879,7 +921,8 @@ export function WalletConnectProvider({
       !currentWallet.walletActive
     ) {
       showPopup({
-        message: 'The selected wallet is not active or cannot sign transactions.',
+        message:
+          'The selected wallet is not active or cannot sign transactions.',
         title: 'Cannot connect',
         variant: 'warning',
       });
@@ -910,10 +953,7 @@ export function WalletConnectProvider({
         supportedNamespaces: {
           stellar: {
             accounts: [
-              getAccountId(
-                currentWallet.network,
-                currentWallet.wallet.address,
-              ),
+              getAccountId(currentWallet.network, currentWallet.wallet.address),
             ],
             chains: [chainId],
             events: [],
@@ -987,6 +1027,10 @@ export function WalletConnectProvider({
     const event = activeRequestEvent;
     const currentWallet = walletRef.current;
 
+    if (currentWallet.isReviewMode) {
+      return;
+    }
+
     if (
       !nextClient ||
       !event ||
@@ -1023,7 +1067,9 @@ export function WalletConnectProvider({
         if (available) {
           const { success } = await biometrics.simplePrompt({
             cancelButtonText: 'Cancel',
-            promptMessage: `Approve ${requestReview.operationCount} Stellar operation${
+            promptMessage: `Approve ${
+              requestReview.operationCount
+            } Stellar operation${
               requestReview.operationCount === 1 ? '' : 's'
             }`,
           });

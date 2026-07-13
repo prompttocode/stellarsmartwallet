@@ -194,13 +194,7 @@ function LoginMessage({ wallet }: { wallet: WalletState }) {
   );
 }
 
-function SessionStatus({
-  detail,
-  label,
-}: {
-  detail: string;
-  label: string;
-}) {
+function SessionStatus({ detail, label }: { detail: string; label: string }) {
   return (
     <View style={styles.sessionStatusBox}>
       <LottieView
@@ -217,8 +211,15 @@ function SessionStatus({
   );
 }
 
-function WelcomeStep({ wallet, onSelectEmail }: { wallet: WalletState, onSelectEmail: () => void }) {
+function WelcomeStep({
+  wallet,
+  onSelectEmail,
+}: {
+  wallet: WalletState;
+  onSelectEmail: () => void;
+}) {
   const googleBusy = wallet.busy === 'Sign in with Google';
+  const reviewBusy = wallet.busy === 'Opening Testnet demo';
   const restoringSession = wallet.sessionSyncing && !wallet.account;
   const preparingPrivy = !wallet.isReady;
   const status = restoringSession
@@ -254,7 +255,9 @@ function WelcomeStep({ wallet, onSelectEmail }: { wallet: WalletState, onSelectE
       <View style={styles.loginBottom}>
         <View style={styles.loginWelcomeCopy}>
           <Text style={styles.welcomeTitle}>Welcome</Text>
-          <Text style={styles.welcomeSubtitle}>Your journey starts from here</Text>
+          <Text style={styles.welcomeSubtitle}>
+            Your journey starts from here
+          </Text>
         </View>
 
         {status ? (
@@ -262,23 +265,33 @@ function WelcomeStep({ wallet, onSelectEmail }: { wallet: WalletState, onSelectE
         ) : null}
 
         <View style={styles.buttonContainer}>
-          <ActionButton 
+          <ActionButton
             disabled={preparingPrivy || restoringSession || wallet.isBusy}
-            label="Continue with Email" 
-            onPress={onSelectEmail} 
-            variant="light" 
+            label="Continue with Email"
+            onPress={onSelectEmail}
+            variant="light"
           />
           <GoogleButton
             disabled={!wallet.isReady || restoringSession || wallet.isBusy}
             label={googleLabel}
             onPress={wallet.loginWithGoogle}
           />
+          <ActionButton
+            disabled={restoringSession || wallet.isBusy}
+            icon="flask-outline"
+            label={reviewBusy ? 'Opening Testnet demo...' : 'Explore Testnet'}
+            onPress={wallet.startReviewMode}
+            variant="dark"
+          />
         </View>
 
         <View style={styles.footerContainer}>
           <Text style={styles.footerText}>
-            By pressing on "Continue with..." you agree{`
-`}to our <Text style={styles.footerLink}>Terms of Service</Text> and <Text style={styles.footerLink}>Privacy Policy</Text>
+            By pressing on "Continue with..." you agree
+            {`
+`}
+            to our <Text style={styles.footerLink}>Terms of Service</Text> and{' '}
+            <Text style={styles.footerLink}>Privacy Policy</Text>
           </Text>
         </View>
       </View>
