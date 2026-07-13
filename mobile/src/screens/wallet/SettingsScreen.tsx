@@ -92,6 +92,9 @@ const HORIZON_ACCOUNT_URLS: Record<StellarNetwork, string> = {
   testnet: 'https://horizon-testnet.stellar.org/accounts/',
 };
 
+const ACCOUNT_DELETION_FORM_URL =
+  'https://docs.google.com/forms/d/e/1FAIpQLSdozoUg0PPszfQKDy6e4eeB9vf-hnZpcCzlxvunFfgtKoKRWw/viewform?usp=publish-editor';
+
 function getOtherNetwork(network: StellarNetwork): StellarNetwork {
   return network === 'mainnet' ? 'testnet' : 'mainnet';
 }
@@ -491,6 +494,46 @@ export function SettingsScreen({
     setFeedbackError(null);
     setFeedbackNotice(null);
     setDetailSheet('feedback');
+  }
+
+  async function openAccountDeletionForm() {
+    try {
+      const canOpen = await Linking.canOpenURL(ACCOUNT_DELETION_FORM_URL);
+
+      if (!canOpen) {
+        throw new Error('Your device cannot open the account deletion form.');
+      }
+
+      await Linking.openURL(ACCOUNT_DELETION_FORM_URL);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Unable to open the account deletion form.';
+
+      showPopup({
+        message,
+        title: 'Could not open form',
+        variant: 'danger',
+      });
+    }
+  }
+
+  function confirmAccountDeletionRequest() {
+    showPopup({
+      actions: [
+        { style: 'cancel', text: 'Cancel' },
+        {
+          onPress: openAccountDeletionForm,
+          style: 'destructive',
+          text: 'Open form',
+        },
+      ],
+      message:
+        'This opens a form to submit a permanent account-deletion request. Back up any recovery keys before continuing.',
+      title: 'Request account deletion?',
+      variant: 'warning',
+    });
   }
 
   async function submitUserFeedback() {
@@ -1288,6 +1331,16 @@ export function SettingsScreen({
             onPress={openFeedback}
             subtitle="Share user testing notes with the team"
             title="Send feedback"
+          />
+        </View>
+
+        <Text style={styles.sectionLabel}>ACCOUNT</Text>
+        <View style={styles.groupCard}>
+          <SettingsRow
+            icon="trash-outline"
+            onPress={confirmAccountDeletionRequest}
+            subtitle="Submit a request to permanently delete your account data"
+            title="Request account deletion"
           />
         </View>
 
