@@ -18,6 +18,7 @@ import {
   buildPaymentTransaction,
   getAvailableNativeBalance,
   getDefaultFeeEstimateFields,
+  getEmailFromPrivyUser,
   getStellarSubmissionErrorMessage,
   getTransactionFeeFields,
   reviewStellarXdr,
@@ -28,6 +29,40 @@ import {
 const env = {
   HORIZON_TESTNET_URL: 'https://horizon-testnet.stellar.org',
 } as Env;
+
+describe('Privy user email parsing', () => {
+  it('uses Google linked-account email instead of a linked Stellar wallet address', () => {
+    expect(
+      getEmailFromPrivyUser({
+        linked_accounts: [
+          {
+            address: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+            chain_type: 'stellar',
+            type: 'wallet',
+          },
+          {
+            email: 'new.user@gmail.com',
+            type: 'google_oauth',
+          },
+        ],
+      }),
+    ).toBe('new.user@gmail.com');
+  });
+
+  it('does not treat a linked wallet address as an email', () => {
+    expect(
+      getEmailFromPrivyUser({
+        linked_accounts: [
+          {
+            address: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+            chain_type: 'stellar',
+            type: 'wallet',
+          },
+        ],
+      }),
+    ).toBe('');
+  });
+});
 
 describe('Stellar payment memo', () => {
   it('adds the order code as a text memo', () => {

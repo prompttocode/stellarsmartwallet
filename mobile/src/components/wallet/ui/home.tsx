@@ -1,5 +1,12 @@
 import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, ScrollView, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Image,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
 import type {
   ImageSourcePropType,
   NativeScrollEvent,
@@ -18,6 +25,7 @@ import Animated, {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SkeletonBlock } from '@components/common/Skeleton';
 import { shortAddress } from '@utils/format';
 import { modern } from '../modernStyles';
 import { PressScale } from './primitives';
@@ -156,7 +164,10 @@ export function WalletHero({
   onWalletPress,
   portfolioNote,
   portfolioValue,
+  portfolioValueLoading = false,
   network = 'testnet',
+  walletLoading = false,
+  walletLoadingLabel,
   walletName,
 }: {
   address?: string;
@@ -167,7 +178,10 @@ export function WalletHero({
   onWalletPress?: () => void;
   portfolioNote?: string;
   portfolioValue: string;
+  portfolioValueLoading?: boolean;
   network?: 'testnet' | 'mainnet';
+  walletLoading?: boolean;
+  walletLoadingLabel?: string;
   walletName?: string;
 }) {
   const [networkPillExpanded, setNetworkPillExpanded] = useState(false);
@@ -251,14 +265,27 @@ export function WalletHero({
                 />
               </Animated.View>
             </Pressable>
-            <Pressable onPress={onWalletPress} style={modern.addressPill}>
-              <Ionicons
-                color="rgba(255,255,255,0.9)"
-                name="wallet-outline"
-                size={15}
-              />
+            <Pressable
+              disabled={walletLoading}
+              onPress={onWalletPress}
+              style={[
+                modern.addressPill,
+                walletLoading ? modern.addressPillLoading : null,
+              ]}
+            >
+              {walletLoading ? (
+                <ActivityIndicator color="#B8FF45" size="small" />
+              ) : (
+                <Ionicons
+                  color="rgba(255,255,255,0.9)"
+                  name="wallet-outline"
+                  size={15}
+                />
+              )}
               <Text numberOfLines={1} style={modern.addressPillText}>
-                {walletName || shortAddress(address)}
+                {walletLoading
+                  ? walletLoadingLabel || 'Preparing wallet'
+                  : walletName || shortAddress(address)}
               </Text>
             </Pressable>
             <View style={modern.heroActions}>
@@ -285,13 +312,22 @@ export function WalletHero({
               </View>
             </View>
 
-            <Text
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              style={modern.heroAmount}
-            >
-              {portfolioValue}
-            </Text>
+            {portfolioValueLoading ? (
+              <SkeletonBlock
+                height={52}
+                radius={16}
+                style={{ alignSelf: 'center', marginTop: 16 }}
+                width="74%"
+              />
+            ) : (
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                style={modern.heroAmount}
+              >
+                {portfolioValue}
+              </Text>
+            )}
             {portfolioNote ? (
               <Text style={modern.heroPriceNote}>{portfolioNote}</Text>
             ) : null}
@@ -299,6 +335,34 @@ export function WalletHero({
             {children}
           </View>
         </View>
+      </View>
+    </View>
+  );
+}
+
+export function WalletSetupNotice({
+  message,
+  network = 'testnet',
+  title,
+}: {
+  message?: string;
+  network?: 'testnet' | 'mainnet';
+  title?: string;
+}) {
+  const networkLabel = network === 'mainnet' ? 'Mainnet' : 'Testnet';
+
+  return (
+    <View style={modern.walletSetupNotice}>
+      <View style={modern.walletSetupSpinner}>
+        <ActivityIndicator color="#B8FF45" size="small" />
+      </View>
+      <View style={modern.walletSetupCopy}>
+        <Text style={modern.walletSetupTitle}>
+          {title || `Creating ${networkLabel} wallet`}
+        </Text>
+        <Text style={modern.walletSetupText}>
+          {message || 'This usually takes a few seconds.'}
+        </Text>
       </View>
     </View>
   );

@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { LineChart } from 'react-native-wagmi-charts';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { SkeletonBlock, SkeletonLine } from '@components/common/Skeleton';
 import { useHistoricalPrice, Timeframe } from '../../hooks/useHistoricalPrice';
 import {
   PressScale,
@@ -38,12 +39,7 @@ function formatUsd(value?: number | null) {
   })}`;
 }
 
-function formatChartPrice({
-  formatted,
-}: {
-  formatted: string;
-  value: string;
-}) {
+function formatChartPrice({ formatted }: { formatted: string; value: string }) {
   'worklet';
 
   return formatted ? `$${formatted}` : '';
@@ -352,6 +348,8 @@ export function AssetDetailScreen({
                 </LineChart.CursorCrosshair>
               </LineChart>
             </LineChart.Provider>
+          ) : chartLoading ? (
+            <ChartSkeleton />
           ) : (
             <View
               style={{
@@ -360,9 +358,7 @@ export function AssetDetailScreen({
                 alignItems: 'center',
               }}
             >
-              <Text style={{ color: '#555' }}>
-                {chartEmptyText}
-              </Text>
+              <Text style={{ color: '#555' }}>{chartEmptyText}</Text>
             </View>
           )}
         </View>
@@ -402,6 +398,23 @@ export function AssetDetailScreen({
           )}
         </View>
       </ScrollView>
+    </View>
+  );
+}
+
+function ChartSkeleton() {
+  return (
+    <View style={styles.chartSkeleton}>
+      <SkeletonBlock
+        height={168}
+        radius={24}
+        style={styles.chartSkeletonBase}
+      />
+      <View style={styles.chartSkeletonLines}>
+        <SkeletonLine height={10} width="72%" />
+        <SkeletonLine height={10} width="48%" />
+        <SkeletonLine height={10} width="64%" />
+      </View>
     </View>
   );
 }
@@ -468,6 +481,22 @@ const styles = StyleSheet.create({
     marginTop: 30,
     height: 200,
     width: '100%',
+  },
+  chartSkeleton: {
+    height: 200,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  chartSkeletonBase: {
+    borderColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+  },
+  chartSkeletonLines: {
+    bottom: 38,
+    gap: 18,
+    left: 44,
+    position: 'absolute',
+    right: 44,
   },
   chartPriceTooltip: {
     backgroundColor: '#B8FF45',

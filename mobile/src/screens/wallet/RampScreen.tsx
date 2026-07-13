@@ -1053,7 +1053,10 @@ export function RampScreen({
           <View style={modern.sectionCard}>
             <View style={styles.statusHeader}>
               {isCompleted ? (
-                <SuccessLottie size={52} style={styles.statusSuccessAnimation} />
+                <SuccessLottie
+                  size={52}
+                  style={styles.statusSuccessAnimation}
+                />
               ) : (
                 <View style={styles.statusIcon}>
                   <Ionicons
@@ -1468,6 +1471,33 @@ export function RampScreen({
   const quotedAssetAmount = formatTokenAmount(
     amountValidation.valid ? amountValidation.normalized : amount,
   );
+  const rampTitle = direction === 'sell' ? 'Withdraw to bank' : 'Buy crypto';
+  const rampSubtitle =
+    direction === 'sell'
+      ? `${
+          wallet.isMainnet ? 'Mainnet' : 'Testnet'
+        } · Sell ${assetCode} for VND.`
+      : `${
+          wallet.isMainnet ? 'Mainnet' : 'Testnet'
+        } · Buy ${assetCode} with VND.`;
+  const cryptoPanelLabel = direction === 'sell' ? 'You send' : 'You receive';
+  const walletDestination = wallet.wallet?.address
+    ? shortAddress(wallet.wallet.address)
+    : 'Wallet not ready';
+  const rampPrimaryText = quote
+    ? !wallet.serverSessionReady
+      ? 'Syncing wallet session'
+      : canCreate
+      ? 'Review VND quote'
+      : exceedsWithdrawAvailable
+      ? 'Amount exceeds available balance'
+      : rampPayoutTooSmall ||
+        (direction === 'sell' && Number(quote.total_vnd) <= 0)
+      ? 'Withdrawal amount is too small'
+      : 'Complete required details'
+    : amountInvalid
+    ? 'Enter valid amount'
+    : 'Get VND quote';
 
   function handlePrimaryRampAction() {
     if (!quote) {
@@ -1476,6 +1506,11 @@ export function RampScreen({
     }
 
     setQuoteSheetVisible(true);
+  }
+
+  function fillMaxWithdrawAmount() {
+    setAmount(sanitizeStellarAmountInput(selectedAvailableBalance));
+    clearQuote();
   }
 
   if (orderQueueVisible && !order) {
@@ -1536,12 +1571,8 @@ export function RampScreen({
             ) : null
           }
           onBack={onBack}
-          subtitle={
-            wallet.isMainnet
-              ? 'Buy crypto with VND or withdraw VND to your bank account.'
-              : 'Test the same buy and withdrawal flow with Testnet assets.'
-          }
-          title="Buy & withdraw"
+          subtitle={rampSubtitle}
+          title={rampTitle}
         />
 
         {!providerConfigured ? (
@@ -1556,17 +1587,24 @@ export function RampScreen({
           </View>
         ) : null}
 
-        <View style={modern.formCard}>
-          <View style={modern.segmented}>
+        <View style={styles.rampComposer}>
+          <View style={styles.rampModeSwitch}>
             {(['buy', 'sell'] as RampDirection[]).map(item => (
               <Pressable
+                accessibilityRole="button"
                 key={item}
                 onPress={() => resetQuote({ direction: item })}
-                style={[
-                  modern.segmentItem,
+                style={({ pressed }) => [
+                  styles.rampModeButton,
                   direction === item ? modern.segmentItemActive : null,
+                  pressed ? styles.rampModeButtonPressed : null,
                 ]}
               >
+                <Ionicons
+                  color={direction === item ? '#B8FF45' : '#8A9099'}
+                  name={item === 'buy' ? 'arrow-down' : 'arrow-up'}
+                  size={15}
+                />
                 <Text
                   style={[
                     styles.segmentText,
@@ -1579,77 +1617,149 @@ export function RampScreen({
             ))}
           </View>
 
-          <SectionHeader title="Asset and amount" />
-          <View style={styles.assetChoices}>
-            {(['XLM', 'USDC'] as RampAssetCode[]).map(code => {
-              const selected = code === assetCode;
-
-              return (
+          <View style={styles.composerPanel}>
+            <View style={styles.composerPanelHeader}>
+              <View>
+                <Text style={styles.composerPanelLabel}>
+                  {cryptoPanelLabel}
+                </Text>
+                <Text style={styles.composerPanelTitle}>Crypto amount</Text>
+              </View>
+              {direction === 'sell' ? (
                 <Pressable
-                  key={code}
-                  onPress={() => resetQuote({ assetCode: code })}
-                  style={[
-                    styles.assetChoice,
-                    selected ? styles.assetChoiceActive : null,
+                  accessibilityRole="button"
+                  onPress={fillMaxWithdrawAmount}
+                  style={({ pressed }) => [
+                    styles.composerMaxButton,
+                    pressed ? styles.composerMaxButtonPressed : null,
                   ]}
                 >
-                  <TokenIcon assetCode={code} />
-                  <Text
-                    style={[
-                      styles.assetChoiceText,
-                      selected ? styles.assetChoiceTextActive : null,
-                    ]}
-                  >
-                    {code}
-                  </Text>
+                  <Text style={styles.composerMaxText}>Max</Text>
                 </Pressable>
-              );
-            })}
-          </View>
-          <TextInput
-            keyboardType="decimal-pad"
-            onChangeText={value => {
-              setAmount(sanitizeStellarAmountInput(value));
-              clearQuote();
-            }}
-            placeholder="Crypto amount"
-            placeholderTextColor="#A7B3BA"
-            style={modern.modernInput}
-            value={amount}
-          />
-          {direction === 'sell' ? (
-            <View style={styles.availableBox}>
-              <Text style={modern.assetModernMeta}>
-                Balance: {formatTokenAmount(selectedBalance?.balance || '0')}{' '}
-                {assetCode}
-              </Text>
-              <Text style={styles.availableText}>
-                Available to withdraw:{' '}
-                {formatTokenAmount(selectedAvailableBalance)} {assetCode}
-              </Text>
-              {assetCode === 'XLM' && selectedReservedBalance ? (
-                <Text style={modern.assetModernMeta}>
-                  Reserved by Stellar:{' '}
-                  {formatTokenAmount(selectedReservedBalance)} XLM
-                </Text>
-              ) : null}
-              {exceedsWithdrawAvailable ? (
-                <View style={styles.feeWarning}>
-                  <Ionicons color="#A25C00" name="warning-outline" size={18} />
-                  <Text style={styles.feeWarningText}>
-                    Enter {formatTokenAmount(selectedAvailableBalance)}{' '}
-                    {assetCode} or less. Stellar keeps reserve and network fees
-                    aside.
-                  </Text>
-                </View>
               ) : null}
             </View>
-          ) : null}
 
-          {direction === 'sell' ? (
-            <>
-              <View style={styles.bankHeaderRow}>
-                <SectionHeader title="Bank account" />
+            <View style={styles.composerAmountRow}>
+              <TextInput
+                keyboardType="decimal-pad"
+                onChangeText={value => {
+                  setAmount(sanitizeStellarAmountInput(value));
+                  clearQuote();
+                }}
+                placeholder="0"
+                placeholderTextColor="rgba(255,255,255,0.28)"
+                style={styles.composerAmountInput}
+                value={amount}
+              />
+              <View style={styles.composerAssetBadge}>
+                <TokenIcon
+                  assetCode={assetCode}
+                  imageUrl={selectedAsset?.image}
+                  size={28}
+                />
+                <Text style={styles.composerAssetBadgeText}>{assetCode}</Text>
+              </View>
+            </View>
+
+            <View style={styles.composerAssetGrid}>
+              {(['XLM', 'USDC'] as RampAssetCode[]).map(code => {
+                const selected = code === assetCode;
+
+                return (
+                  <Pressable
+                    accessibilityRole="button"
+                    key={code}
+                    onPress={() => resetQuote({ assetCode: code })}
+                    style={({ pressed }) => [
+                      styles.composerAssetButton,
+                      selected ? styles.composerAssetButtonActive : null,
+                      pressed ? styles.composerAssetButtonPressed : null,
+                    ]}
+                  >
+                    <TokenIcon assetCode={code} size={26} />
+                    <Text
+                      style={[
+                        styles.composerAssetText,
+                        selected ? styles.composerAssetTextActive : null,
+                      ]}
+                    >
+                      {code}
+                    </Text>
+                    {selected ? (
+                      <Ionicons
+                        color="#B8FF45"
+                        name="checkmark-circle"
+                        size={16}
+                      />
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {direction === 'sell' ? (
+              <View style={styles.composerBalanceBox}>
+                <View style={styles.composerMetricRow}>
+                  <Text style={styles.composerMetricLabel}>Balance</Text>
+                  <Text style={styles.composerMetricValue}>
+                    {formatTokenAmount(selectedBalance?.balance || '0')}{' '}
+                    {assetCode}
+                  </Text>
+                </View>
+                <View style={styles.composerMetricRow}>
+                  <Text style={styles.composerMetricLabel}>Available</Text>
+                  <Text style={styles.composerMetricValueStrong}>
+                    {formatTokenAmount(selectedAvailableBalance)} {assetCode}
+                  </Text>
+                </View>
+                {assetCode === 'XLM' && selectedReservedBalance ? (
+                  <View style={styles.composerMetricRow}>
+                    <Text style={styles.composerMetricLabel}>
+                      Stellar reserve
+                    </Text>
+                    <Text style={styles.composerMetricValue}>
+                      {formatTokenAmount(selectedReservedBalance)} XLM
+                    </Text>
+                  </View>
+                ) : null}
+                {exceedsWithdrawAvailable ? (
+                  <View style={styles.feeWarning}>
+                    <Ionicons
+                      color="#A25C00"
+                      name="warning-outline"
+                      size={18}
+                    />
+                    <Text style={styles.feeWarningText}>
+                      Enter {formatTokenAmount(selectedAvailableBalance)}{' '}
+                      {assetCode} or less. Stellar keeps reserve and network
+                      fees aside.
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+
+          {direction === 'buy' ? (
+            <View style={styles.destinationPanel}>
+              <View style={styles.destinationIcon}>
+                <Ionicons color="#B8FF45" name="wallet-outline" size={19} />
+              </View>
+              <View style={styles.destinationCopy}>
+                <Text style={styles.destinationLabel}>Receive wallet</Text>
+                <Text style={styles.destinationTitle}>{walletDestination}</Text>
+                <Text style={styles.destinationMeta}>
+                  {wallet.isMainnet ? 'Mainnet' : 'Testnet'} Stellar address
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.destinationBankPanel}>
+              <View style={styles.destinationHeaderRow}>
+                <View>
+                  <Text style={styles.destinationLabel}>Destination</Text>
+                  <Text style={styles.destinationTitle}>Bank account</Text>
+                </View>
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => {
@@ -1664,17 +1774,16 @@ export function RampScreen({
                   ]}
                 >
                   <Ionicons color="#B8FF45" name="card-outline" size={16} />
-                  <Text style={styles.savedBankButtonText}>
-                    Saved {wallet.paymentMethods.length || ''}
-                  </Text>
+                  <Text style={styles.savedBankButtonText}>Saved banks</Text>
                 </Pressable>
               </View>
+
               <Pressable
                 accessibilityRole="button"
                 onPress={() => setBankPickerVisible(true)}
                 style={({ pressed }) => [
-                  styles.selectedBankField,
-                  pressed ? styles.selectedBankFieldPressed : null,
+                  styles.destinationBankButton,
+                  pressed ? styles.destinationBankButtonPressed : null,
                 ]}
               >
                 <View style={styles.bankLogoBox}>
@@ -1691,34 +1800,75 @@ export function RampScreen({
                 </View>
                 <Ionicons color="#64747D" name="chevron-down" size={20} />
               </Pressable>
-              <TextInput
-                autoCapitalize="characters"
-                onChangeText={value => {
-                  setFullName(value);
-                  clearQuote();
-                }}
-                placeholder="Account holder name without accents"
-                placeholderTextColor="#A7B3BA"
-                style={modern.modernInput}
-                value={fullName}
-              />
-              <TextInput
-                keyboardType="number-pad"
-                onChangeText={value => {
-                  setAccountNumber(value.replace(/\D/g, ''));
-                  clearQuote();
-                }}
-                placeholder="Account number"
-                placeholderTextColor="#A7B3BA"
-                style={modern.modernInput}
-                value={accountNumber}
-              />
-              <Text style={modern.assetModernMeta}>
-                VND will be sent to this bank account after the crypto transfer
-                is confirmed.
+
+              <View style={styles.destinationInputStack}>
+                <TextInput
+                  autoCapitalize="characters"
+                  onChangeText={value => {
+                    setFullName(value);
+                    clearQuote();
+                  }}
+                  placeholder="Account holder name without accents"
+                  placeholderTextColor="#A7B3BA"
+                  style={styles.destinationInput}
+                  value={fullName}
+                />
+                <TextInput
+                  keyboardType="number-pad"
+                  onChangeText={value => {
+                    setAccountNumber(value.replace(/\D/g, ''));
+                    clearQuote();
+                  }}
+                  placeholder="Account number"
+                  placeholderTextColor="#A7B3BA"
+                  style={styles.destinationInput}
+                  value={accountNumber}
+                />
+              </View>
+              <Text style={styles.destinationMeta}>
+                VND will be sent after the crypto transfer is confirmed.
               </Text>
-            </>
-          ) : null}
+            </View>
+          )}
+
+          <View style={styles.quoteSummaryPanel}>
+            <View style={styles.quoteSummaryHeader}>
+              <Text style={styles.quoteSummaryTitle}>Quote summary</Text>
+              {quote ? (
+                <View style={styles.quoteReadyBadge}>
+                  <Text style={styles.quoteReadyText}>Ready</Text>
+                </View>
+              ) : null}
+            </View>
+            {quote ? (
+              <>
+                <View style={styles.quoteSummaryRow}>
+                  <Text style={styles.quoteSummaryLabel}>Rate</Text>
+                  <Text style={styles.quoteSummaryValue}>
+                    {formatVnd(quote.rate)} / {quote.asset_code}
+                  </Text>
+                </View>
+                <View style={styles.quoteSummaryRow}>
+                  <Text style={styles.quoteSummaryLabel}>Fee</Text>
+                  <Text style={styles.quoteSummaryValue}>
+                    {formatVnd(quote.fee_vnd)}
+                  </Text>
+                </View>
+                <View style={styles.quoteSummaryRow}>
+                  <Text style={styles.quoteSummaryLabel}>
+                    {direction === 'buy' ? 'Crypto amount' : 'Crypto sent'}
+                  </Text>
+                  <Text style={styles.quoteSummaryValue}>
+                    {quotedAssetAmount} {assetCode}
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <Text style={styles.quoteSummaryEmpty}>
+                Get a quote to see rate, provider fee, and final VND amount.
+              </Text>
+            )}
+          </View>
 
           {rampAmountWarning ? (
             <View style={styles.feeWarning}>
@@ -1738,24 +1888,9 @@ export function RampScreen({
               (Boolean(quote) && !canCreate)
             }
             onPress={handlePrimaryRampAction}
-            style={modern.primaryModernButton}
+            style={styles.composerPrimaryButton}
           >
-            <Text style={modern.modernButtonText}>
-              {quote
-                ? !wallet.serverSessionReady
-                  ? 'Syncing wallet session'
-                  : canCreate
-                  ? 'Review VND quote'
-                  : exceedsWithdrawAvailable
-                  ? 'Amount exceeds available balance'
-                  : rampPayoutTooSmall ||
-                    (direction === 'sell' && Number(quote.total_vnd) <= 0)
-                  ? 'Withdrawal amount is too small'
-                  : 'Complete required details'
-                : amountInvalid
-                ? 'Enter valid amount'
-                : 'Get VND quote'}
-            </Text>
+            <Text style={modern.modernButtonText}>{rampPrimaryText}</Text>
           </PressScale>
         </View>
       </ScrollView>
@@ -1858,7 +1993,9 @@ export function RampScreen({
                         </Text>
                       </>
                     ) : (
-                      <Text style={modern.swapConfirmTokenText}>VND PAYOUT</Text>
+                      <Text style={modern.swapConfirmTokenText}>
+                        VND PAYOUT
+                      </Text>
                     )}
                   </View>
                 </View>
@@ -2225,6 +2362,238 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
   },
+  composerAmountInput: {
+    color: '#FFFFFF',
+    flex: 1,
+    fontSize: 36,
+    fontWeight: '900',
+    minHeight: 54,
+    minWidth: 0,
+    padding: 0,
+  },
+  composerAmountRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  composerAssetBadge: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  composerAssetBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  composerAssetButton: {
+    alignItems: 'center',
+    backgroundColor: '#1E232B',
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 16,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: 'row',
+    gap: 7,
+    justifyContent: 'center',
+    minHeight: 50,
+    minWidth: 0,
+    paddingHorizontal: 9,
+  },
+  composerAssetButtonActive: {
+    backgroundColor: 'rgba(184,255,69,0.12)',
+    borderColor: '#B8FF45',
+  },
+  composerAssetButtonPressed: {
+    opacity: 0.78,
+  },
+  composerAssetGrid: {
+    flexDirection: 'row',
+    gap: 9,
+  },
+  composerAssetText: {
+    color: '#8A9099',
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  composerAssetTextActive: {
+    color: '#FFFFFF',
+  },
+  composerBalanceBox: {
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    borderTopWidth: 1,
+    gap: 8,
+    paddingTop: 12,
+  },
+  composerMaxButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(184,255,69,0.12)',
+    borderColor: 'rgba(184,255,69,0.24)',
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 32,
+    paddingHorizontal: 13,
+  },
+  composerMaxButtonPressed: {
+    opacity: 0.78,
+  },
+  composerMaxText: {
+    color: '#B8FF45',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  composerMetricLabel: {
+    color: '#8A969D',
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  composerMetricRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'space-between',
+  },
+  composerMetricValue: {
+    color: '#CAD4BE',
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  composerMetricValueStrong: {
+    color: '#FFFFFF',
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  composerPanel: {
+    backgroundColor: '#111318',
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 14,
+    padding: 16,
+  },
+  composerPanelHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  composerPanelLabel: {
+    color: '#8A969D',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  composerPanelTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  composerPrimaryButton: {
+    alignItems: 'center',
+    backgroundColor: '#B8FF45',
+    borderRadius: 18,
+    justifyContent: 'center',
+    minHeight: 56,
+    paddingHorizontal: 18,
+  },
+  destinationBankButton: {
+    alignItems: 'center',
+    backgroundColor: '#1E222B',
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 17,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 72,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  destinationBankButtonPressed: {
+    backgroundColor: '#282C35',
+  },
+  destinationBankPanel: {
+    backgroundColor: '#111318',
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 12,
+    padding: 16,
+  },
+  destinationCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  destinationHeaderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  destinationIcon: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(184,255,69,0.1)',
+    borderColor: 'rgba(184,255,69,0.24)',
+    borderRadius: 18,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: 'center',
+    width: 38,
+  },
+  destinationInput: {
+    backgroundColor: '#1E232B',
+    borderColor: '#2A303A',
+    borderRadius: 17,
+    borderWidth: 1,
+    color: '#FFFFFF',
+    fontSize: 15,
+    minHeight: 54,
+    paddingHorizontal: 15,
+    paddingVertical: 11,
+  },
+  destinationInputStack: {
+    gap: 10,
+  },
+  destinationLabel: {
+    color: '#8A969D',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  destinationMeta: {
+    color: '#8A969D',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+  },
+  destinationPanel: {
+    alignItems: 'center',
+    backgroundColor: '#111318',
+    borderColor: 'rgba(88,166,255,0.22)',
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    padding: 16,
+  },
+  destinationTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
   autoSendCancelButton: {
     alignItems: 'center',
     backgroundColor: '#D84C5F',
@@ -2575,6 +2944,88 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     padding: 10,
+  },
+  quoteReadyBadge: {
+    backgroundColor: 'rgba(184,255,69,0.12)',
+    borderColor: 'rgba(184,255,69,0.24)',
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  quoteReadyText: {
+    color: '#B8FF45',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  quoteSummaryEmpty: {
+    color: '#8A969D',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+  },
+  quoteSummaryHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  quoteSummaryLabel: {
+    color: '#8A969D',
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  quoteSummaryPanel: {
+    backgroundColor: '#111318',
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 22,
+    borderWidth: 1,
+    gap: 10,
+    padding: 16,
+  },
+  quoteSummaryRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  quoteSummaryTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  quoteSummaryValue: {
+    color: '#FFFFFF',
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  rampComposer: {
+    gap: 14,
+    marginHorizontal: 18,
+  },
+  rampModeButton: {
+    alignItems: 'center',
+    borderRadius: 16,
+    flex: 1,
+    flexDirection: 'row',
+    gap: 7,
+    justifyContent: 'center',
+    minHeight: 42,
+    paddingHorizontal: 10,
+  },
+  rampModeButtonPressed: {
+    opacity: 0.78,
+  },
+  rampModeSwitch: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 4,
+    padding: 4,
   },
   feeWarning: {
     alignItems: 'flex-start',

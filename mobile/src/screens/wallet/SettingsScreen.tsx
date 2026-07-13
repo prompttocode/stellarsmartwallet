@@ -34,8 +34,11 @@ import {
   SupportedCurrency,
   useCurrencyConfig,
 } from '@contexts/CurrencyContext';
-import type { StellarNetwork } from '@app-types';
-import type { RampPaymentMethod } from '@app-types';
+import type {
+  FeedbackCategory,
+  RampPaymentMethod,
+  StellarNetwork,
+} from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
 import { shortAddress } from '@utils/format';
 import {
@@ -53,9 +56,34 @@ const CURRENCIES: { code: SupportedCurrency; name: string; symbol: string }[] =
     { code: 'GBP', name: 'British Pound', symbol: '£' },
   ];
 
-const EGG_COLORS = ['#8B5CF6', '#F59E0B', '#10B981', '#EC4899', '#3B82F6', '#B8FF45', '#EF4444'];
+const FEEDBACK_CATEGORIES: {
+  key: FeedbackCategory;
+  label: string;
+}[] = [
+  { key: 'onboarding', label: 'Onboarding' },
+  { key: 'send_receive', label: 'Send/receive' },
+  { key: 'bug', label: 'Bug' },
+  { key: 'feature_request', label: 'Feature idea' },
+  { key: 'general', label: 'General' },
+];
 
-type DetailSheet = 'advanced' | 'payment' | 'security' | 'wallet' | null;
+const EGG_COLORS = [
+  '#8B5CF6',
+  '#F59E0B',
+  '#10B981',
+  '#EC4899',
+  '#3B82F6',
+  '#B8FF45',
+  '#EF4444',
+];
+
+type DetailSheet =
+  | 'advanced'
+  | 'feedback'
+  | 'payment'
+  | 'security'
+  | 'wallet'
+  | null;
 type ToolMode = 'import' | 'watch' | null;
 type PaymentSheetMode = 'form' | 'list';
 
@@ -63,6 +91,9 @@ const HORIZON_ACCOUNT_URLS: Record<StellarNetwork, string> = {
   mainnet: 'https://horizon.stellar.org/accounts/',
   testnet: 'https://horizon-testnet.stellar.org/accounts/',
 };
+
+const ACCOUNT_DELETION_FORM_URL =
+  'https://docs.google.com/forms/d/e/1FAIpQLSdozoUg0PPszfQKDy6e4eeB9vf-hnZpcCzlxvunFfgtKoKRWw/viewform?usp=publish-editor';
 
 function getOtherNetwork(network: StellarNetwork): StellarNetwork {
   return network === 'mainnet' ? 'testnet' : 'mainnet';
@@ -258,6 +289,12 @@ export function SettingsScreen({
   const [paymentDefault, setPaymentDefault] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentNotice, setPaymentNotice] = useState<string | null>(null);
+  const [feedbackCategory, setFeedbackCategory] =
+    useState<FeedbackCategory>('onboarding');
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [feedbackNotice, setFeedbackNotice] = useState<string | null>(null);
+  const [feedbackRating, setFeedbackRating] = useState(5);
 
   const [avatarColor, setAvatarColor] = useState('#8B5CF6');
   const bounceAnim = useRef(new Animated.Value(1)).current;
@@ -269,7 +306,7 @@ export function SettingsScreen({
 
   function handleProfileEgg() {
     Clipboard.setString(wallet.account?.email || '');
-    
+
     setToastVisible(true);
     toastOpacity.setValue(0);
     toastTranslateY.setValue(0);
@@ -277,23 +314,44 @@ export function SettingsScreen({
 
     Animated.sequence([
       Animated.parallel([
-        Animated.timing(toastOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
-        Animated.timing(toastScale, { toValue: 1, duration: 200, useNativeDriver: true }),
-        Animated.timing(toastTranslateY, { toValue: -30, duration: 200, useNativeDriver: true })
+        Animated.timing(toastOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(toastScale, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(toastTranslateY, {
+          toValue: -30,
+          duration: 200,
+          useNativeDriver: true,
+        }),
       ]),
       Animated.delay(1000),
       Animated.parallel([
-        Animated.timing(toastOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
-        Animated.timing(toastTranslateY, { toValue: 50, duration: 400, useNativeDriver: true })
-      ])
+        Animated.timing(toastOpacity, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+        Animated.timing(toastTranslateY, {
+          toValue: 50,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+      ]),
     ]).start(({ finished }) => {
       if (finished) setToastVisible(false);
     });
 
     const nextColors = EGG_COLORS.filter(c => c !== avatarColor);
-    const randomColor = nextColors[Math.floor(Math.random() * nextColors.length)];
+    const randomColor =
+      nextColors[Math.floor(Math.random() * nextColors.length)];
     setAvatarColor(randomColor);
-    
+
     bounceAnim.setValue(0.9);
     Animated.spring(bounceAnim, {
       toValue: 1,
@@ -432,6 +490,87 @@ export function SettingsScreen({
     }
   }
 
+  function openFeedback() {
+    setFeedbackError(null);
+    setFeedbackNotice(null);
+    setDetailSheet('feedback');
+  }
+
+  async function openAccountDeletionForm() {
+    try {
+      const canOpen = await Linking.canOpenURL(ACCOUNT_DELETION_FORM_URL);
+
+      if (!canOpen) {
+        throw new Error('Your device cannot open the account deletion form.');
+      }
+
+      await Linking.openURL(ACCOUNT_DELETION_FORM_URL);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Unable to open the account deletion form.';
+
+      showPopup({
+        message,
+        title: 'Could not open form',
+        variant: 'danger',
+      });
+    }
+  }
+
+  function confirmAccountDeletionRequest() {
+    showPopup({
+      actions: [
+        { style: 'cancel', text: 'Cancel' },
+        {
+          onPress: openAccountDeletionForm,
+          style: 'destructive',
+          text: 'Open form',
+        },
+      ],
+      message:
+        'This opens a form to submit a permanent account-deletion request. Back up any recovery keys before continuing.',
+      title: 'Request account deletion?',
+      variant: 'warning',
+    });
+  }
+
+  async function submitUserFeedback() {
+    const message = feedbackMessage.trim();
+
+    if (message.length < 3) {
+      setFeedbackError('Write a short note before sending feedback.');
+      return;
+    }
+
+    const version = [
+      Application.nativeApplicationVersion,
+      Application.nativeBuildVersion
+        ? `(${Application.nativeBuildVersion})`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(' ');
+    const result = await wallet.submitFeedback({
+      appVersion: version || 'development',
+      category: feedbackCategory,
+      message,
+      rating: feedbackRating,
+    });
+
+    if (!result) {
+      setFeedbackError('Could not send feedback. Please try again.');
+      return;
+    }
+
+    setFeedbackMessage('');
+    setFeedbackError(null);
+    setFeedbackNotice(
+      'Feedback sent. Thank you for helping improve the wallet.',
+    );
+  }
+
   useEffect(() => {
     if (detailSheet !== 'wallet') {
       setAddressCopied(false);
@@ -443,6 +582,13 @@ export function SettingsScreen({
       resetPaymentForm(null);
       setPaymentSheetMode('list');
       setPaymentNotice(null);
+    }
+  }, [detailSheet]);
+
+  useEffect(() => {
+    if (detailSheet !== 'feedback') {
+      setFeedbackError(null);
+      setFeedbackNotice(null);
     }
   }, [detailSheet]);
 
@@ -927,15 +1073,56 @@ export function SettingsScreen({
       >
         <ModernScreenHeader title="Settings" />
 
-        <View style={{ zIndex: 10, alignItems: 'center', justifyContent: 'center' }}>
-          <TouchableOpacity activeOpacity={0.9} onPress={handleProfileEgg} style={{ width: '100%' }}>
-            <Animated.View style={[styles.profileCard, { transform: [{ scale: bounceAnim }] }]}>
-              <Ionicons name="planet-outline" size={72} color="rgba(255,255,255,0.15)" style={styles.bgIcon1} />
-              <Ionicons name="cube-outline" size={54} color="rgba(255,255,255,0.15)" style={styles.bgIcon2} />
-              <Ionicons name="sparkles-outline" size={28} color="#FFFFFF" style={styles.bgIcon3} />
-              <Ionicons name="rocket-outline" size={36} color="rgba(255,255,255,0.12)" style={styles.bgIcon4} />
-              <Ionicons name="hardware-chip-outline" size={28} color="rgba(255,255,255,0.1)" style={styles.bgIcon5} />
-              <Ionicons name="star-outline" size={14} color="#FFFFFF" style={styles.bgIcon6} />
+        <View
+          style={{ zIndex: 10, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={handleProfileEgg}
+            style={{ width: '100%' }}
+          >
+            <Animated.View
+              style={[
+                styles.profileCard,
+                { transform: [{ scale: bounceAnim }] },
+              ]}
+            >
+              <Ionicons
+                name="planet-outline"
+                size={72}
+                color="rgba(255,255,255,0.15)"
+                style={styles.bgIcon1}
+              />
+              <Ionicons
+                name="cube-outline"
+                size={54}
+                color="rgba(255,255,255,0.15)"
+                style={styles.bgIcon2}
+              />
+              <Ionicons
+                name="sparkles-outline"
+                size={28}
+                color="#FFFFFF"
+                style={styles.bgIcon3}
+              />
+              <Ionicons
+                name="rocket-outline"
+                size={36}
+                color="rgba(255,255,255,0.12)"
+                style={styles.bgIcon4}
+              />
+              <Ionicons
+                name="hardware-chip-outline"
+                size={28}
+                color="rgba(255,255,255,0.1)"
+                style={styles.bgIcon5}
+              />
+              <Ionicons
+                name="star-outline"
+                size={14}
+                color="#FFFFFF"
+                style={styles.bgIcon6}
+              />
               <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
                 <Text style={styles.avatarText}>{profileInitial}</Text>
               </View>
@@ -943,27 +1130,23 @@ export function SettingsScreen({
                 <Text numberOfLines={1} style={styles.profileEmail}>
                   {email}
                 </Text>
-                <Ionicons
-                  color="#B8FF45"
-                  name="shield-checkmark"
-                  size={16}
-                />
+                <Ionicons color="#B8FF45" name="shield-checkmark" size={16} />
               </View>
             </Animated.View>
           </TouchableOpacity>
 
           {toastVisible && (
-            <Animated.View 
+            <Animated.View
               pointerEvents="none"
               style={[
-                styles.customToast, 
-                { 
-                  opacity: toastOpacity, 
+                styles.customToast,
+                {
+                  opacity: toastOpacity,
                   transform: [
                     { scale: toastScale },
-                    { translateY: toastTranslateY }
-                  ] 
-                }
+                    { translateY: toastTranslateY },
+                  ],
+                },
               ]}
             >
               <Ionicons name="checkmark-circle" size={16} color="#B8FF45" />
@@ -1142,6 +1325,23 @@ export function SettingsScreen({
             subtitle="Learn receive, fund, send, and safety basics"
             title="App guide"
           />
+          <View style={styles.divider} />
+          <SettingsRow
+            icon="chatbubble-ellipses-outline"
+            onPress={openFeedback}
+            subtitle="Share user testing notes with the team"
+            title="Send feedback"
+          />
+        </View>
+
+        <Text style={styles.sectionLabel}>ACCOUNT</Text>
+        <View style={styles.groupCard}>
+          <SettingsRow
+            icon="trash-outline"
+            onPress={confirmAccountDeletionRequest}
+            subtitle="Submit a request to permanently delete your account data"
+            title="Request account deletion"
+          />
         </View>
 
         <PressScale onPress={wallet.logout} style={styles.signOutRow}>
@@ -1153,7 +1353,8 @@ export function SettingsScreen({
 
         <View style={styles.versionContainer}>
           <Text style={styles.versionText}>
-            Version {Application.nativeApplicationVersion} ({Application.nativeBuildVersion})
+            Version {Application.nativeApplicationVersion} (
+            {Application.nativeBuildVersion})
           </Text>
         </View>
       </ScrollView>
@@ -1662,6 +1863,126 @@ export function SettingsScreen({
         </View>
       </BottomSheet>
 
+      <BottomSheet
+        bottomInset={insets.bottom}
+        onClose={() => setDetailSheet(null)}
+        title="Feedback"
+        visible={detailSheet === 'feedback'}
+      >
+        <ScrollView
+          contentContainerStyle={styles.feedbackSheetContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          style={styles.paymentSheetScroll}
+        >
+          <Text style={styles.feedbackIntro}>
+            Share what worked, what felt confusing, or what blocked your first
+            Stellar wallet experience.
+          </Text>
+
+          <Text style={styles.paymentFormLabel}>RATING</Text>
+          <View style={styles.feedbackStars}>
+            {[1, 2, 3, 4, 5].map(value => {
+              const selected = value <= feedbackRating;
+
+              return (
+                <TouchableOpacity
+                  activeOpacity={0.78}
+                  key={value}
+                  onPress={() => {
+                    setFeedbackRating(value);
+                    setFeedbackError(null);
+                  }}
+                  style={styles.feedbackStarButton}
+                >
+                  <Ionicons
+                    color={selected ? '#B8FF45' : '#5E6873'}
+                    name={selected ? 'star' : 'star-outline'}
+                    size={28}
+                  />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <Text style={styles.paymentFormLabel}>TYPE</Text>
+          <View style={styles.feedbackCategoryGrid}>
+            {FEEDBACK_CATEGORIES.map(category => {
+              const selected = feedbackCategory === category.key;
+
+              return (
+                <TouchableOpacity
+                  activeOpacity={0.82}
+                  key={category.key}
+                  onPress={() => {
+                    setFeedbackCategory(category.key);
+                    setFeedbackError(null);
+                  }}
+                  style={[
+                    styles.feedbackCategoryChip,
+                    selected ? styles.feedbackCategoryChipSelected : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.feedbackCategoryText,
+                      selected ? styles.feedbackCategoryTextSelected : null,
+                    ]}
+                  >
+                    {category.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <TextInput
+            maxLength={2000}
+            multiline
+            onChangeText={value => {
+              setFeedbackMessage(value);
+              setFeedbackError(null);
+              setFeedbackNotice(null);
+            }}
+            placeholder="Tell us about your onboarding, receive/send flow, or anything confusing."
+            placeholderTextColor="#9499A2"
+            style={[styles.input, styles.feedbackInput]}
+            textAlignVertical="top"
+            value={feedbackMessage}
+          />
+
+          {feedbackError ? (
+            <Text style={styles.validationText}>{feedbackError}</Text>
+          ) : null}
+          {feedbackNotice ? (
+            <Text style={styles.paymentNotice}>{feedbackNotice}</Text>
+          ) : null}
+
+          <View style={styles.modalActions}>
+            <TouchableOpacity
+              onPress={() => setDetailSheet(null)}
+              style={styles.modalSecondaryButton}
+            >
+              <Text style={styles.modalSecondaryText}>Close</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              disabled={wallet.isBusy || feedbackMessage.trim().length < 3}
+              onPress={submitUserFeedback}
+              style={[
+                styles.modalPrimaryButton,
+                wallet.isBusy || feedbackMessage.trim().length < 3
+                  ? styles.modalPrimaryButtonDisabled
+                  : null,
+              ]}
+            >
+              <Text style={styles.modalPrimaryText}>
+                {wallet.busy === 'Sending feedback' ? 'Sending...' : 'Send'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </BottomSheet>
+
       <WalletManagerModal
         onClose={() => setWalletManagerVisible(false)}
         visible={walletManagerVisible}
@@ -1868,6 +2189,58 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 17,
     fontWeight: '800',
+  },
+  feedbackCategoryChip: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 13,
+    borderWidth: 1,
+    minHeight: 40,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+  },
+  feedbackCategoryChipSelected: {
+    backgroundColor: 'rgba(184,255,69,0.12)',
+    borderColor: 'rgba(184,255,69,0.36)',
+  },
+  feedbackCategoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  feedbackCategoryText: {
+    color: '#A1B0C8',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  feedbackCategoryTextSelected: {
+    color: '#B8FF45',
+  },
+  feedbackInput: {
+    minHeight: 118,
+    textAlignVertical: 'top',
+  },
+  feedbackIntro: {
+    color: '#A1B0C8',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  feedbackSheetContent: {
+    gap: 12,
+    paddingBottom: 4,
+  },
+  feedbackStarButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 14,
+    height: 46,
+    justifyContent: 'center',
+    width: 46,
+  },
+  feedbackStars: {
+    flexDirection: 'row',
+    gap: 8,
   },
   defaultBadge: {
     backgroundColor: 'rgba(184,255,69,0.14)',

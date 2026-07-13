@@ -48,9 +48,35 @@ import type {
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 const WALLET_TUTORIAL_STORAGE_VERSION = 'v1';
+const WALLET_TUTORIAL_STORAGE_PREFIX = `wallet-tutorial-seen:${WALLET_TUTORIAL_STORAGE_VERSION}`;
+const WALLET_TUTORIAL_STORAGE_KEY = `${WALLET_TUTORIAL_STORAGE_PREFIX}:app`;
 
-function getWalletTutorialStorageKey(accountKey: string) {
-  return `wallet-tutorial-seen:${WALLET_TUTORIAL_STORAGE_VERSION}:${accountKey}`;
+async function hasSeenWalletTutorial() {
+  const currentValue = await AsyncStorage.getItem(WALLET_TUTORIAL_STORAGE_KEY);
+
+  if (currentValue === '1') {
+    return true;
+  }
+
+  const keys = await AsyncStorage.getAllKeys();
+  const legacySeenKeys = keys.filter(
+    key =>
+      key.startsWith(`${WALLET_TUTORIAL_STORAGE_PREFIX}:`) &&
+      key !== WALLET_TUTORIAL_STORAGE_KEY,
+  );
+
+  if (legacySeenKeys.length === 0) {
+    return false;
+  }
+
+  const legacyValues = await AsyncStorage.multiGet(legacySeenKeys);
+  const hasLegacySeen = legacyValues.some(([, value]) => value === '1');
+
+  if (hasLegacySeen) {
+    await AsyncStorage.setItem(WALLET_TUTORIAL_STORAGE_KEY, '1');
+  }
+
+  return hasLegacySeen;
 }
 
 async function clearClosedRampOrder(wallet: WalletState) {
@@ -77,6 +103,7 @@ const GLOBAL_LOADING_BUSY_EXACT = new Set([
   'Confirming test payment',
   'Confirming test crypto receipt',
   'Opening secure export',
+  'Switching network',
 ]);
 
 const GLOBAL_LOADING_BUSY_PREFIXES = [
@@ -121,6 +148,14 @@ function getCompletedStatusText(label: string) {
     return 'Sell order created';
   }
 
+  if (label.startsWith('Creating Mainnet wallet')) {
+    return 'Mainnet wallet ready';
+  }
+
+  if (label.startsWith('Creating Testnet wallet')) {
+    return 'Testnet wallet ready';
+  }
+
   const exactMessages: Record<string, string> = {
     'Claiming demo NFT': 'NFT claimed',
     'Confirming test crypto receipt': 'Crypto receipt confirmed',
@@ -131,6 +166,7 @@ function getCompletedStatusText(label: string) {
     'Opening secure export': 'Secure export ready',
     'Sign in with Google': 'Signed in',
     'Submitting KYC': 'KYC submitted',
+    'Switching network': 'Network switched',
     'Verifying Privy code': 'Verified',
   };
 
@@ -363,12 +399,7 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
   );
   const [tutorialVisible, setTutorialVisible] = useState(false);
   const previousGlobalBusyRef = useRef<string | null>(null);
-  const checkedTutorialKeyRef = useRef<string | null>(null);
-  const tutorialAccountKey =
-    wallet.account?.id || wallet.account?.email || null;
-  const tutorialStorageKey = tutorialAccountKey
-    ? getWalletTutorialStorageKey(tutorialAccountKey)
-    : null;
+  const checkedTutorialRef = useRef(false);
   const shouldShowLoadingBanner =
     shouldUseGlobalLoadingBanner(wallet.busy) &&
     !wallet.errorDialog &&
@@ -392,9 +423,7 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
   function closeTutorial() {
     setTutorialVisible(false);
 
-    if (tutorialStorageKey) {
-      AsyncStorage.setItem(tutorialStorageKey, '1').catch(() => null);
-    }
+    AsyncStorage.setItem(WALLET_TUTORIAL_STORAGE_KEY, '1').catch(() => null);
   }
 
   useEffect(() => {
@@ -423,20 +452,20 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
   }, [wallet.busy, wallet.errorDialog]);
 
   useEffect(() => {
-    if (!tutorialCanOpen || !tutorialStorageKey) {
+    if (!tutorialCanOpen) {
       return undefined;
     }
 
-    if (checkedTutorialKeyRef.current === tutorialStorageKey) {
+    if (checkedTutorialRef.current) {
       return undefined;
     }
 
-    checkedTutorialKeyRef.current = tutorialStorageKey;
+    checkedTutorialRef.current = true;
     let cancelled = false;
 
-    AsyncStorage.getItem(tutorialStorageKey)
-      .then(value => {
-        if (!cancelled && value !== '1') {
+    hasSeenWalletTutorial()
+      .then(hasSeen => {
+        if (!cancelled && !hasSeen) {
           setTutorialVisible(true);
         }
       })
@@ -445,7 +474,7 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
     return () => {
       cancelled = true;
     };
-  }, [tutorialCanOpen, tutorialStorageKey]);
+  }, [tutorialCanOpen]);
 
   return (
     <CurrencyProvider>

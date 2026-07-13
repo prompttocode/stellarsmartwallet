@@ -25,6 +25,9 @@ import type {
   Contact,
   FavoriteAsset,
   FavoriteAssetsResponse,
+  FeedbackApiResponse,
+  FeedbackCategory,
+  FeedbackItem,
   WalletAccount,
   FundNftResult,
   Health,
@@ -95,7 +98,6 @@ import {
   getTokenWithRetry,
   hasLinkedStellarEmbeddedWallet,
   isPrivyHash,
-  walletRecordToClientPayload,
   withTimeout,
 } from './wallet/privy';
 import {
@@ -226,6 +228,7 @@ export function useWallet() {
     errorDialog,
     message,
     run,
+    setBusy,
     setErrorDialog,
     setMessage,
     showErrorDialog,
@@ -244,12 +247,7 @@ export function useWallet() {
   const [serverSessionReady, setServerSessionReady] = useState(false);
   const [sessionSyncing, setSessionSyncing] = useState(false);
   const restoreAttemptedForUserRef = useRef<string | null>(null);
-  const {
-    user,
-    isReady,
-    error: privyError,
-    logout: logoutPrivy,
-  } = usePrivy();
+  const { user, isReady, error: privyError, logout: logoutPrivy } = usePrivy();
   const { getIdentityToken } = useIdentityToken();
   const getIdentityTokenRef = useRef(getIdentityToken);
   const sessionBootstrapWalletRef =
@@ -265,8 +263,7 @@ export function useWallet() {
     },
   });
   const { login: loginWithOAuth, state: oauthState } = useLoginWithOAuth();
-  const { createWallet: createPrivyExtendedWallet } =
-    useCreateExtendedWallet();
+  const { createWallet: createPrivyExtendedWallet } = useCreateExtendedWallet();
   const { signRawHash } = useSignRawHash();
 
   const setPreferredNetwork = useCallback((nextNetwork: StellarNetwork) => {
@@ -667,7 +664,9 @@ export function useWallet() {
       setArchivedWallets([]);
       setActiveWalletId(nextActiveWalletId);
       setBalances(
-        clearPortfolio ? [] : session.balances || session.balance.balances || [],
+        clearPortfolio
+          ? []
+          : session.balances || session.balance.balances || [],
       );
       setTransactions(clearPortfolio ? [] : session.transactions || []);
       if (clearPortfolio) {
@@ -1169,14 +1168,13 @@ export function useWallet() {
             return;
           }
 
-          const cachedActiveWalletId =
-            sessionHasWalletId(
-              cached.session,
-              cachedStoredWalletId,
-              restoreNetwork,
-            )
-              ? cachedStoredWalletId
-              : null;
+          const cachedActiveWalletId = sessionHasWalletId(
+            cached.session,
+            cachedStoredWalletId,
+            restoreNetwork,
+          )
+            ? cachedStoredWalletId
+            : null;
 
           applySession(
             cached.session,
@@ -1225,14 +1223,7 @@ export function useWallet() {
         setSessionSyncing(false);
       };
     }
-  }, [
-    finishPrivySession,
-    applySession,
-    isReady,
-    network,
-    user,
-    userKey,
-  ]);
+  }, [finishPrivySession, applySession, isReady, network, user, userKey]);
 
   async function sendEmailCode() {
     return run('Sending Privy code', async () => {
@@ -1329,9 +1320,14 @@ export function useWallet() {
 
       setCode('');
       setCodeSent(false);
-      await finishPrivySession(identityToken || undefined, oauthEmail, network, {
-        privyUser: oauthUser || user,
-      });
+      await finishPrivySession(
+        identityToken || undefined,
+        oauthEmail,
+        network,
+        {
+          privyUser: oauthUser || user,
+        },
+      );
 
       return true;
     });
@@ -1356,36 +1352,40 @@ export function useWallet() {
       return;
     }
 
-    await run('Refreshing wallet', async () => {
-      setSessionSyncing(true);
+    await run(
+      'Refreshing wallet',
+      async () => {
+        setSessionSyncing(true);
 
-      try {
-        const session = await api<SessionResponse>('/api/session', {
-          method: 'POST',
-          body: JSON.stringify({
-            activeWalletId: activeNetworkWalletId,
-            email: account.email,
-            network,
-            sourceAddress: wallet?.address,
-            sourceWalletId: wallet?.id,
-          }),
-        });
-        applySession(session);
-        const sessionWalletAddress = session.account.wallet?.address;
+        try {
+          const session = await api<SessionResponse>('/api/session', {
+            method: 'POST',
+            body: JSON.stringify({
+              activeWalletId: activeNetworkWalletId,
+              email: account.email,
+              network,
+              sourceAddress: wallet?.address,
+              sourceWalletId: wallet?.id,
+            }),
+          });
+          applySession(session);
+          const sessionWalletAddress = session.account.wallet?.address;
 
-        if (sessionWalletAddress) {
-          const nextTransactions = await fetchTransactionHistory(
-            sessionWalletAddress,
-            session.network || network,
-          );
-          setTransactions(nextTransactions);
+          if (sessionWalletAddress) {
+            const nextTransactions = await fetchTransactionHistory(
+              sessionWalletAddress,
+              session.network || network,
+            );
+            setTransactions(nextTransactions);
+          }
+
+          setMessage('Balances and transaction history refreshed.');
+        } finally {
+          setSessionSyncing(false);
         }
-
-        setMessage('Balances and transaction history refreshed.');
-      } finally {
-        setSessionSyncing(false);
-      }
-    }, options);
+      },
+      options,
+    );
   }
 
   async function createWallet() {
@@ -1652,11 +1652,15 @@ export function useWallet() {
 
     if (result.requiresClientSignature) {
       if (!isPrivyHash(result.hash)) {
-        throw new Error('Could not prepare this asset update. Please try again.');
+        throw new Error(
+          'Could not prepare this asset update. Please try again.',
+        );
       }
 
       if (!result.transactionXdr) {
-        throw new Error('Could not prepare this asset update. Please try again.');
+        throw new Error(
+          'Could not prepare this asset update. Please try again.',
+        );
       }
 
       const signedTrustline = await withTimeout(
@@ -1669,19 +1673,16 @@ export function useWallet() {
         'Wallet signing timed out. Please try again.',
       );
 
-      result = await api<TrustlineResult>(
-        `/api/stellar/${network}/trustline`,
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            ...trustlineBody,
-            clientSignature: signedTrustline.signature,
-            signingHash: result.hash,
-            transactionXdr: result.transactionXdr,
-          }),
-        },
-      );
+      result = await api<TrustlineResult>(`/api/stellar/${network}/trustline`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          ...trustlineBody,
+          clientSignature: signedTrustline.signature,
+          signingHash: result.hash,
+          transactionXdr: result.transactionXdr,
+        }),
+      });
     }
 
     setBalances(result.balances);
@@ -1709,8 +1710,7 @@ export function useWallet() {
     const existingBalance = balances.find(
       balance =>
         balance.assetCode === assetDefinition.assetCode &&
-        (balance.assetIssuer || null) ===
-          (assetDefinition.assetIssuer || null),
+        (balance.assetIssuer || null) === (assetDefinition.assetIssuer || null),
     );
 
     if (existingBalance?.trusted) {
@@ -1859,11 +1859,15 @@ export function useWallet() {
 
       if (result.requiresClientSignature) {
         if (!isPrivyHash(result.hash)) {
-          throw new Error('Could not prepare this NFT claim. Please try again.');
+          throw new Error(
+            'Could not prepare this NFT claim. Please try again.',
+          );
         }
 
         if (!result.transactionXdr) {
-          throw new Error('Could not prepare this NFT claim. Please try again.');
+          throw new Error(
+            'Could not prepare this NFT claim. Please try again.',
+          );
         }
 
         const signedClaim = await withTimeout(
@@ -1876,18 +1880,15 @@ export function useWallet() {
           'Wallet signing timed out. Please try again.',
         );
 
-        result = await api<FundNftResult>(
-          `/api/stellar/${network}/fund-nft`,
-          {
-            method: 'POST',
-            body: JSON.stringify({
-              ...fundNftBody,
-              clientSignature: signedClaim.signature,
-              signingHash: result.hash,
-              transactionXdr: result.transactionXdr,
-            }),
-          },
-        );
+        result = await api<FundNftResult>(`/api/stellar/${network}/fund-nft`, {
+          method: 'POST',
+          body: JSON.stringify({
+            ...fundNftBody,
+            clientSignature: signedClaim.signature,
+            signingHash: result.hash,
+            transactionXdr: result.transactionXdr,
+          }),
+        });
       }
 
       setBalances(result.balances);
@@ -1964,13 +1965,11 @@ export function useWallet() {
         message: selectedAsset?.isNative
           ? `You can send up to ${formatTokenAmount(
               String(availableBalance),
-            )} XLM. Stellar keeps ${
-              formatTokenAmount(
-                selectedBalance?.reservedBalance ||
-                  selectedBalance?.minimumBalance ||
-                  '0',
-              )
-            } XLM reserved for the account minimum balance and network fees.`
+            )} XLM. Stellar keeps ${formatTokenAmount(
+              selectedBalance?.reservedBalance ||
+                selectedBalance?.minimumBalance ||
+                '0',
+            )} XLM reserved for the account minimum balance and network fees.`
           : `You can send up to ${formatTokenAmount(
               String(availableBalance),
             )} ${selectedAssetCode}.`,
@@ -2088,8 +2087,7 @@ export function useWallet() {
       const fromBalance = balances.find(
         balance =>
           balance.assetCode === fromAssetCode &&
-          (balance.assetIssuer || null) ===
-            (fromAsset.assetIssuer || null),
+          (balance.assetIssuer || null) === (fromAsset.assetIssuer || null),
       );
       const availableBalance = Number(
         fromBalance?.availableBalance || fromBalance?.balance || 0,
@@ -2100,13 +2098,11 @@ export function useWallet() {
           throw new Error(
             `You can swap up to ${formatTokenAmount(
               String(availableBalance),
-            )} XLM. Stellar keeps ${
-              formatTokenAmount(
-                fromBalance?.reservedBalance ||
-                  fromBalance?.minimumBalance ||
-                  '0',
-              )
-            } XLM reserved for the account minimum balance and network fees.`,
+            )} XLM. Stellar keeps ${formatTokenAmount(
+              fromBalance?.reservedBalance ||
+                fromBalance?.minimumBalance ||
+                '0',
+            )} XLM reserved for the account minimum balance and network fees.`,
           );
         }
 
@@ -2189,8 +2185,7 @@ export function useWallet() {
       const fromBalance = balances.find(
         balance =>
           balance.assetCode === fromAssetCode &&
-          (balance.assetIssuer || null) ===
-            (fromAsset.assetIssuer || null),
+          (balance.assetIssuer || null) === (fromAsset.assetIssuer || null),
       );
       const availableBalance = Number(
         fromBalance?.availableBalance || fromBalance?.balance || 0,
@@ -2201,13 +2196,11 @@ export function useWallet() {
           throw new Error(
             `You can swap up to ${formatTokenAmount(
               String(availableBalance),
-            )} XLM. Stellar keeps ${
-              formatTokenAmount(
-                fromBalance?.reservedBalance ||
-                  fromBalance?.minimumBalance ||
-                  '0',
-              )
-            } XLM reserved for the account minimum balance and network fees.`,
+            )} XLM. Stellar keeps ${formatTokenAmount(
+              fromBalance?.reservedBalance ||
+                fromBalance?.minimumBalance ||
+                '0',
+            )} XLM reserved for the account minimum balance and network fees.`,
           );
         }
 
@@ -2260,19 +2253,16 @@ export function useWallet() {
           'Wallet signing timed out. Please try again.',
         );
 
-        result = await api<SwapResult>(
-          `/api/stellar/${network}/swap/execute`,
-          {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-              ...swapBody,
-              clientSignature: signedSwap.signature,
-              signingHash: result.hash,
-              transactionXdr: result.transactionXdr,
-            }),
-          },
-        );
+        result = await api<SwapResult>(`/api/stellar/${network}/swap/execute`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            ...swapBody,
+            clientSignature: signedSwap.signature,
+            signingHash: result.hash,
+            transactionXdr: result.transactionXdr,
+          }),
+        });
       }
 
       setBalances(result.balances);
@@ -2348,10 +2338,7 @@ export function useWallet() {
       }
 
       const next = [...current];
-      next[existingIndex] = mergeRampOrderDetails(
-        next[existingIndex],
-        order,
-      );
+      next[existingIndex] = mergeRampOrderDetails(next[existingIndex], order);
       return next;
     });
   }
@@ -2518,6 +2505,57 @@ export function useWallet() {
       },
       { showAlert: false },
     );
+  }
+
+  async function submitFeedback({
+    appVersion,
+    category = 'general',
+    message: feedbackMessage,
+    rating,
+  }: {
+    appVersion?: string | null;
+    category?: FeedbackCategory;
+    message: string;
+    rating?: number | null;
+  }): Promise<FeedbackItem | null> {
+    if (!account) {
+      setMessage('Sign in before sending feedback.');
+      return null;
+    }
+
+    const messageText = feedbackMessage.trim();
+
+    if (messageText.length < 3) {
+      showErrorDialog(
+        'Write a short note before sending feedback.',
+        'Feedback',
+      );
+      return null;
+    }
+
+    return run('Sending feedback', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const result = await api<FeedbackApiResponse>('/api/feedback', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          appVersion: appVersion || null,
+          category,
+          email: account.email,
+          message: messageText,
+          network,
+          rating: rating ?? null,
+          source: 'settings',
+          sourceAddress: wallet?.address,
+          sourceWalletId: wallet?.id,
+        }),
+      });
+
+      setMessage('Feedback sent. Thank you for helping improve the wallet.');
+
+      return result.data.feedback;
+    });
   }
 
   async function loadPaymentMethods(options: { silent?: boolean } = {}) {
@@ -2816,7 +2854,9 @@ export function useWallet() {
     const params = new URLSearchParams();
     const baseOrder =
       options.baseOrder ||
-      rampOrderHistory.find(item => (item.code || item.id) === orderReference) ||
+      rampOrderHistory.find(
+        item => (item.code || item.id) === orderReference,
+      ) ||
       (activeRampOrder?.code === orderReference ||
       activeRampOrder?.id === orderReference
         ? activeRampOrder
@@ -2917,7 +2957,9 @@ export function useWallet() {
     return run('Cancelling order', async () => {
       requireFreshServerSession();
       const baseOrder =
-        rampOrderHistory.find(item => (item.code || item.id) === orderReference) ||
+        rampOrderHistory.find(
+          item => (item.code || item.id) === orderReference,
+        ) ||
         (activeRampOrder?.code === orderReference ||
         activeRampOrder?.id === orderReference
           ? activeRampOrder
@@ -3188,8 +3230,7 @@ export function useWallet() {
       }
 
       const hasTargetNetworkWallet = (account.wallets || []).some(
-        item =>
-          item.network === nextNetwork && !item.archived && item.canSign,
+        item => item.network === nextNetwork && !item.archived && item.canSign,
       );
       const storedTargetWalletId = await readStoredActiveWalletId(
         account.email,
@@ -3205,10 +3246,17 @@ export function useWallet() {
         )
           ? storedTargetWalletId
           : undefined;
+
+      if (!hasTargetNetworkWallet) {
+        setBusy(
+          nextNetwork === 'mainnet'
+            ? 'Creating Mainnet wallet'
+            : 'Creating Testnet wallet',
+        );
+      }
+
       const bootstrapWallet = hasTargetNetworkWallet
         ? undefined
-        : hasLinkedStellarEmbeddedWallet(user)
-        ? walletRecordToClientPayload(wallet)
         : await createClientStellarWalletPayload();
       const identityToken = bootstrapWallet
         ? await getTokenWithRetry(getIdentityToken)
@@ -3440,8 +3488,7 @@ export function useWallet() {
     createWallet,
     deletePaymentMethod,
     email,
-    isRestoringSession:
-      Boolean(user) && (!account || sessionSyncing),
+    isRestoringSession: Boolean(user) && (!account || sessionSyncing),
     errorDialog,
     explorerAddressUrl,
     createWalletExportUrl,
@@ -3495,6 +3542,7 @@ export function useWallet() {
     sendAsset,
     sendRampOrderPayment,
     sendEmailCode,
+    submitFeedback,
     submitKycIdCard,
     selectWallet,
     setAmount: setWalletAmount,

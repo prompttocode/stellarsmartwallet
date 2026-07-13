@@ -109,3 +109,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_account_favorite_assets_unique_asset
 
 CREATE INDEX IF NOT EXISTS idx_account_favorite_assets_account_network
   ON account_favorite_assets(account_email, network, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS account_feedback (
+  id TEXT PRIMARY KEY,
+  account_email TEXT NOT NULL,
+  wallet_id TEXT,
+  wallet_address TEXT,
+  network TEXT NOT NULL,
+  rating INTEGER,
+  category TEXT NOT NULL DEFAULT 'general',
+  message TEXT NOT NULL,
+  app_version TEXT,
+  source TEXT NOT NULL DEFAULT 'settings',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_feedback_account_created
+  ON account_feedback(account_email, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_account_feedback_created
+  ON account_feedback(created_at DESC);

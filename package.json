@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "android": "npm --prefix mobile run android",
+    "appstore": "./scripts/upload-ios-appstore.sh",
     "ios": "npm --prefix mobile run ios",
     "lint": "npm --prefix mobile run lint",
     "mobile": "npm --prefix mobile run start",

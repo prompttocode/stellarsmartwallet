@@ -133,7 +133,7 @@ const STROOPS_PER_XLM = 10_000_000n;
 const TRUSTLINE_FEE_BUFFER_XLM = 0.0001;
 const PAYMENT_FEE_BUFFER_XLM = 0.0001;
 export const KNOWN_ASSET_CASES = new Map(
-  ['AQUA', 'EURC', 'PYUSD', 'USDC', 'XLM'].map(code => [
+  ['AQUA', 'EURC', 'PYUSD', 'USDC', 'XLM'].map((code) => [
     code.toLowerCase(),
     code,
   ]),
@@ -231,15 +231,34 @@ export function nowIso() {
 }
 
 export function normalizeEmail(value: unknown) {
-  return String(value || '').trim().toLowerCase();
+  return String(value || '')
+    .trim()
+    .toLowerCase();
 }
 
 export function isEmailLike(value: unknown) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeEmail(value));
 }
 
-export function normalizeNetwork(value: unknown, fallback: StellarNetwork = 'testnet') {
-  const network = String(value || fallback).trim().toLowerCase();
+function getValidEmailCandidate(...values: unknown[]) {
+  for (const value of values) {
+    const email = normalizeEmail(value);
+
+    if (isEmailLike(email)) {
+      return email;
+    }
+  }
+
+  return '';
+}
+
+export function normalizeNetwork(
+  value: unknown,
+  fallback: StellarNetwork = 'testnet',
+) {
+  const network = String(value || fallback)
+    .trim()
+    .toLowerCase();
 
   if (network === 'public' || network === 'pubnet') {
     return 'mainnet';
@@ -285,7 +304,7 @@ export function listNetworks(env: Env) {
   return [
     getNetworkConfig(env, 'testnet'),
     getNetworkConfig(env, 'mainnet'),
-  ].map(config => ({
+  ].map((config) => ({
     horizonUrl: config.horizonUrl,
     label: config.label,
     network: config.network,
@@ -293,7 +312,12 @@ export function listNetworks(env: Env) {
   }));
 }
 
-export function getExplorerUrl(env: Env, network: StellarNetwork, type: string, id: string) {
+export function getExplorerUrl(
+  env: Env,
+  network: StellarNetwork,
+  type: string,
+  id: string,
+) {
   const config = getNetworkConfig(env, network);
   const safeType = type === 'account' ? 'account' : 'tx';
 
@@ -342,7 +366,10 @@ async function withSessionTiming<T>(
   }
 }
 
-export function assertStellarAddress(address: unknown, field = 'Wallet address') {
+export function assertStellarAddress(
+  address: unknown,
+  field = 'Wallet address',
+) {
   try {
     Keypair.fromPublicKey(String(address || '').trim());
   } catch {
@@ -354,7 +381,10 @@ export function assertAmount(amount: unknown, label = 'Amount') {
   const value = String(amount || '').trim();
 
   if (!/^\d+(\.\d{1,7})?$/.test(value) || Number(value) <= 0) {
-    throw makeError(`${label} must be greater than 0 with up to 7 decimal places`, 400);
+    throw makeError(
+      `${label} must be greater than 0 with up to 7 decimal places`,
+      400,
+    );
   }
 
   return value;
@@ -390,10 +420,7 @@ export function stroopsToXlm(value: unknown) {
   const amount = BigInt(stroops);
   const whole = amount / STROOPS_PER_XLM;
   const fraction = amount % STROOPS_PER_XLM;
-  const fractionText = fraction
-    .toString()
-    .padStart(7, '0')
-    .replace(/0+$/, '');
+  const fractionText = fraction.toString().padStart(7, '0').replace(/0+$/, '');
 
   return fractionText ? `${whole}.${fractionText}` : whole.toString();
 }
@@ -408,7 +435,9 @@ export function getTransactionFeeFields(record?: Record<string, any> | null) {
   const feeChargedStroops = normalizeStroops(
     record?.feeChargedStroops ?? record?.fee_charged,
   );
-  const maxFeeStroops = normalizeStroops(record?.maxFeeStroops ?? record?.max_fee);
+  const maxFeeStroops = normalizeStroops(
+    record?.maxFeeStroops ?? record?.max_fee,
+  );
 
   return {
     feeChargedStroops,
@@ -452,7 +481,7 @@ export function assertSecretKey(secret: unknown, field = 'Secret key') {
 
     if (/^[0-9a-f]{64}$/i.test(cleanHex)) {
       const seed = new Uint8Array(
-        cleanHex.match(/.{2}/g)!.map(byte => Number.parseInt(byte, 16)),
+        cleanHex.match(/.{2}/g)!.map((byte) => Number.parseInt(byte, 16)),
       );
 
       return Keypair.fromRawEd25519Seed(seed);
@@ -485,7 +514,7 @@ export function getAllowedOrigin(origin: string, env: Env) {
 
   const allowed = configured
     .split(',')
-    .map(item => item.trim())
+    .map((item) => item.trim())
     .filter(Boolean);
 
   return allowed.includes(origin) ? origin : allowed[0] || null;
@@ -493,13 +522,14 @@ export function getAllowedOrigin(origin: string, env: Env) {
 
 export function bytesToHex(bytesLike: Uint8Array | ArrayLike<number>) {
   return Array.from(bytesLike)
-    .map(value => value.toString(16).padStart(2, '0'))
+    .map((value) => value.toString(16).padStart(2, '0'))
     .join('');
 }
 
 export function hexToBase64(hexValue: string) {
   const clean = hexValue.replace(/^0x/, '');
-  const bytes = clean.match(/.{1,2}/g)?.map(byte => Number.parseInt(byte, 16)) || [];
+  const bytes =
+    clean.match(/.{1,2}/g)?.map((byte) => Number.parseInt(byte, 16)) || [];
   let binary = '';
 
   for (const byte of bytes) {
@@ -574,7 +604,11 @@ export function getPrivyClient(env: Env) {
 export function getEmailFromPrivyUser(user: unknown) {
   const currentUser = user as {
     email?: string;
-    linked_accounts?: Array<{ address?: string; email?: string; type?: string }>;
+    linked_accounts?: Array<{
+      address?: string;
+      email?: string;
+      type?: string;
+    }>;
     linkedAccounts?: Array<{ address?: string; email?: string; type?: string }>;
   } | null;
 
@@ -582,17 +616,28 @@ export function getEmailFromPrivyUser(user: unknown) {
     return '';
   }
 
-  if (currentUser.email) {
-    return normalizeEmail(currentUser.email);
+  const directEmail = getValidEmailCandidate(currentUser.email);
+
+  if (directEmail) {
+    return directEmail;
   }
 
-  const linkedAccounts = currentUser.linked_accounts || currentUser.linkedAccounts || [];
-  const emailAccount =
-    linkedAccounts.find(
-      account => account.type === 'email' && (account.address || account.email),
-    ) || linkedAccounts.find(account => account.address || account.email);
+  const linkedAccounts =
+    currentUser.linked_accounts || currentUser.linkedAccounts || [];
+  const emailLinkedAccount = linkedAccounts.find((account) => {
+    const type = String(account.type || '').toLowerCase();
 
-  return normalizeEmail(emailAccount?.address || emailAccount?.email);
+    return (
+      ['email', 'google', 'google_oauth', 'oauth'].includes(type) &&
+      getValidEmailCandidate(account.email, account.address)
+    );
+  });
+  const anyEmailLinkedAccount = linkedAccounts.find((account) =>
+    getValidEmailCandidate(account.email, account.address),
+  );
+  const emailAccount = emailLinkedAccount || anyEmailLinkedAccount;
+
+  return getValidEmailCandidate(emailAccount?.email, emailAccount?.address);
 }
 
 export async function findPrivyUserByEmail(env: Env, email: string) {
@@ -726,7 +771,7 @@ function bytesToBase64(bytes: Uint8Array) {
 function base64ToBytes(value: string) {
   const binary = atob(value);
 
-  return Uint8Array.from(binary, char => char.charCodeAt(0));
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
 function bytesToBase64Url(bytes: Uint8Array) {
@@ -758,7 +803,9 @@ async function getWalletSecretCryptoKey(env: Env) {
       hash: 'SHA-256',
       iterations: 100_000,
       name: 'PBKDF2',
-      salt: new TextEncoder().encode(`${env.PRIVY_APP_ID}:stellar-wallet-secret`),
+      salt: new TextEncoder().encode(
+        `${env.PRIVY_APP_ID}:stellar-wallet-secret`,
+      ),
     },
     material,
     { length: 256, name: 'AES-GCM' },
@@ -812,7 +859,9 @@ export function encodeWalletExportChallenge(challenge: WalletExportChallenge) {
   return btoa(JSON.stringify(challenge));
 }
 
-export function decodeWalletExportChallenge(value: string): WalletExportChallenge {
+export function decodeWalletExportChallenge(
+  value: string,
+): WalletExportChallenge {
   try {
     return JSON.parse(atob(value)) as WalletExportChallenge;
   } catch {
@@ -850,7 +899,10 @@ async function decryptHpkePayload(
   return new Uint8Array(await recipient.open(ciphertext));
 }
 
-function normalizeExportedStellarSecret(expectedAddress: string, exportedKey: string) {
+function normalizeExportedStellarSecret(
+  expectedAddress: string,
+  exportedKey: string,
+) {
   const trimmedKey = String(exportedKey || '').trim();
 
   if (!trimmedKey) {
@@ -860,7 +912,10 @@ function normalizeExportedStellarSecret(expectedAddress: string, exportedKey: st
   const keypair = assertSecretKey(trimmedKey, 'Exported Stellar secret key');
 
   if (keypair.publicKey() !== expectedAddress) {
-    throw makeError('Exported key does not match the selected Stellar wallet', 502);
+    throw makeError(
+      'Exported key does not match the selected Stellar wallet',
+      502,
+    );
   }
 
   return { secret: keypair.secret() };
@@ -876,7 +931,10 @@ export async function prepareStellarWalletSecretExport(
   const remoteWallet = await wallets.get(walletId);
 
   if (String(remoteWallet?.address || '') !== expectedAddress) {
-    throw makeError('Privy wallet does not match the selected Stellar wallet', 502);
+    throw makeError(
+      'Privy wallet does not match the selected Stellar wallet',
+      502,
+    );
   }
 
   const hpkeRecipient = await buildHpkeExportRecipient();
@@ -919,7 +977,10 @@ export async function completeStellarWalletSecretExport(
   const remoteWallet = await wallets.get(challenge.walletId);
 
   if (String(remoteWallet?.address || '') !== challenge.expectedAddress) {
-    throw makeError('Privy wallet does not match the selected Stellar wallet', 502);
+    throw makeError(
+      'Privy wallet does not match the selected Stellar wallet',
+      502,
+    );
   }
 
   const response = await privyRequest<{
@@ -942,7 +1003,10 @@ export async function completeStellarWalletSecretExport(
   const ciphertext = String(response?.ciphertext || '').trim();
 
   if (!encapsulatedKey || !ciphertext) {
-    throw makeError('Privy did not return an encrypted wallet export payload', 502);
+    throw makeError(
+      'Privy did not return an encrypted wallet export payload',
+      502,
+    );
   }
 
   const decryptedBytes = await decryptHpkePayload(
@@ -977,9 +1041,13 @@ export function normalizeWallet(
     kind: overrides.kind || 'privy',
     network: overrides.network || 'testnet',
     publicKey: wallet.public_key || wallet.address || overrides.publicKey || '',
-    ...(overrides.archived !== undefined ? { archived: overrides.archived } : null),
+    ...(overrides.archived !== undefined
+      ? { archived: overrides.archived }
+      : null),
     ...(overrides.archivedAt ? { archivedAt: overrides.archivedAt } : null),
-    ...(encryptedSecret?.ciphertext && encryptedSecret.iv ? { encryptedSecret } : null),
+    ...(encryptedSecret?.ciphertext && encryptedSecret.iv
+      ? { encryptedSecret }
+      : null),
   };
 }
 
@@ -987,12 +1055,14 @@ export function normalizeAccountWallets(
   account: AccountRecord,
   preferredNetwork: StellarNetwork = 'testnet',
 ): AccountRecord {
-  const inputWallets = Array.isArray(account.wallets) ? [...account.wallets] : [];
+  const inputWallets = Array.isArray(account.wallets)
+    ? [...account.wallets]
+    : [];
 
   if (
     account.wallet?.id &&
     !inputWallets.some(
-      wallet =>
+      (wallet) =>
         wallet.id === account.wallet?.id &&
         wallet.network === account.wallet?.network,
     )
@@ -1001,11 +1071,11 @@ export function normalizeAccountWallets(
   }
 
   const wallets = inputWallets
-    .filter(wallet => wallet.id && wallet.address)
+    .filter((wallet) => wallet.id && wallet.address)
     .filter(
       (wallet, index, allWallets) =>
         allWallets.findIndex(
-          item =>
+          (item) =>
             item.id === wallet.id &&
             item.address === wallet.address &&
             item.network === wallet.network,
@@ -1019,15 +1089,18 @@ export function normalizeAccountWallets(
       kind: wallet.kind || 'privy',
       network: normalizeNetwork(wallet.network),
     }));
-  const visibleWallets = wallets.filter(wallet => !wallet.archived);
+  const visibleWallets = wallets.filter((wallet) => !wallet.archived);
   const activeWallet =
     visibleWallets.find(
-      wallet => wallet.id === account.activeWalletId && wallet.network === preferredNetwork,
+      (wallet) =>
+        wallet.id === account.activeWalletId &&
+        wallet.network === preferredNetwork,
     ) ||
     visibleWallets.find(
-      wallet => wallet.id === account.wallet?.id && wallet.network === preferredNetwork,
+      (wallet) =>
+        wallet.id === account.wallet?.id && wallet.network === preferredNetwork,
     ) ||
-    visibleWallets.find(wallet => wallet.network === preferredNetwork) ||
+    visibleWallets.find((wallet) => wallet.network === preferredNetwork) ||
     visibleWallets[0] ||
     wallets[0] ||
     null;
@@ -1040,9 +1113,12 @@ export function normalizeAccountWallets(
   };
 }
 
-export function getVisibleWallets(account: AccountRecord, network?: StellarNetwork) {
+export function getVisibleWallets(
+  account: AccountRecord,
+  network?: StellarNetwork,
+) {
   return (account.wallets || []).filter(
-    wallet => !wallet.archived && (!network || wallet.network === network),
+    (wallet) => !wallet.archived && (!network || wallet.network === network),
   );
 }
 
@@ -1054,7 +1130,9 @@ export function stripWalletSecret(wallet: WalletRecord): WalletRecord {
 
 export async function getAccountByEmail(env: Env, emailValue: unknown) {
   const email = normalizeEmail(emailValue);
-  const row = await env.DB.prepare('SELECT data FROM accounts WHERE email = ? LIMIT 1')
+  const row = await env.DB.prepare(
+    'SELECT data FROM accounts WHERE email = ? LIMIT 1',
+  )
     .bind(email)
     .first<{ data: string }>();
 
@@ -1094,14 +1172,20 @@ export async function saveAccount(env: Env, account: AccountRecord) {
 }
 
 export async function getIssuer(env: Env, assetCode: string) {
-  const row = await env.DB.prepare('SELECT data FROM issuers WHERE asset_code = ? LIMIT 1')
+  const row = await env.DB.prepare(
+    'SELECT data FROM issuers WHERE asset_code = ? LIMIT 1',
+  )
     .bind(assetCode)
     .first<{ data: string }>();
 
   return row?.data ? jsonParse<DemoIssuer | null>(row.data, null) : null;
 }
 
-export async function saveIssuer(env: Env, assetCode: string, issuer: DemoIssuer) {
+export async function saveIssuer(
+  env: Env,
+  assetCode: string,
+  issuer: DemoIssuer,
+) {
   const item = {
     ...issuer,
     assetCode,
@@ -1121,7 +1205,9 @@ export async function saveIssuer(env: Env, assetCode: string, issuer: DemoIssuer
   return item;
 }
 
-function normalizeKycRow(row?: Record<string, unknown> | null): AccountKycRecord | null {
+function normalizeKycRow(
+  row?: Record<string, unknown> | null,
+): AccountKycRecord | null {
   if (!row) {
     return null;
   }
@@ -1260,7 +1346,10 @@ export async function requireVerifiedKyc(env: Env, emailValue: unknown) {
   return kyc;
 }
 
-export async function saveContact(env: Env, contact: { funded: boolean; label: string; wallet: WalletRecord }) {
+export async function saveContact(
+  env: Env,
+  contact: { funded: boolean; label: string; wallet: WalletRecord },
+) {
   const item = {
     id: contact.wallet.id,
     funded: Boolean(contact.funded),
@@ -1300,7 +1389,7 @@ export async function ensureWalletForNetwork(
       network,
     });
     const existingWallet = (normalizedAccount.wallets || []).find(
-      item =>
+      (item) =>
         item.network === network &&
         (item.id === wallet.id || item.address === wallet.address),
     );
@@ -1323,7 +1412,7 @@ export async function ensureWalletForNetwork(
   }
 
   const existingWallet = getVisibleWallets(normalizedAccount, network).find(
-    wallet => wallet.canSign,
+    (wallet) => wallet.canSign,
   );
 
   if (existingWallet) {
@@ -1402,15 +1491,12 @@ export async function getOrCreateSessionAccountByEmail(
   const walletSource =
     initialWalletSource ||
     (await createSignableStellarWallet(env, email, `Stellar ${network} 1`));
-  const wallet = normalizeWallet(
-    walletSource,
-    {
-      canSign: true,
-      displayName: `Stellar ${network} 1`,
-      kind: 'privy',
-      network,
-    },
-  );
+  const wallet = normalizeWallet(walletSource, {
+    canSign: true,
+    displayName: `Stellar ${network} 1`,
+    kind: 'privy',
+    network,
+  });
 
   return saveAccount(
     env,
@@ -1426,7 +1512,10 @@ export async function getOrCreateSessionAccountByEmail(
   );
 }
 
-export function getBearerToken(headerValue: string | undefined, body: Record<string, unknown>) {
+export function getBearerToken(
+  headerValue: string | undefined,
+  body: Record<string, unknown>,
+) {
   const match = String(headerValue || '').match(/^Bearer\s+(.+)$/i);
 
   return String(body.identityToken || match?.[1] || '').trim();
@@ -1546,7 +1635,7 @@ export function assertAccountWallet({
   walletId: string;
 }) {
   const wallet = (account.wallets || []).find(
-    item =>
+    (item) =>
       item.id === walletId &&
       item.address === address &&
       item.network === network &&
@@ -1595,7 +1684,9 @@ export function getTestnetAssetDefinitions() {
   ];
 }
 
-export function getKnownAssetDefinitions(networkValue: unknown): AssetDefinition[] {
+export function getKnownAssetDefinitions(
+  networkValue: unknown,
+): AssetDefinition[] {
   const network = normalizeNetwork(networkValue);
 
   if (network === 'mainnet') {
@@ -1618,13 +1709,17 @@ export async function getDemoIssuer(env: Env, assetCode: string) {
   );
 }
 
-export async function loadAccount(env: Env, address: string, networkValue: unknown) {
+export async function loadAccount(
+  env: Env,
+  address: string,
+  networkValue: unknown,
+) {
   try {
     return await getStellarServer(env, networkValue).loadAccount(address);
   } catch (error) {
     const maybeStatus =
-      (error as { response?: { status?: number }; status?: number })?.response?.status ||
-      (error as { status?: number })?.status;
+      (error as { response?: { status?: number }; status?: number })?.response
+        ?.status || (error as { status?: number })?.status;
 
     if (maybeStatus === 404) {
       return null;
@@ -1634,7 +1729,11 @@ export async function loadAccount(env: Env, address: string, networkValue: unkno
   }
 }
 
-export async function friendbotFund(env: Env, address: string, networkValue: unknown) {
+export async function friendbotFund(
+  env: Env,
+  address: string,
+  networkValue: unknown,
+) {
   const config = getNetworkConfig(env, networkValue);
 
   if (!config.supportsFriendbot || !config.friendbotUrl) {
@@ -1648,7 +1747,10 @@ export async function friendbotFund(env: Env, address: string, networkValue: unk
   const text = await response.text();
 
   if (!response.ok) {
-    throw makeError(text || 'Friendbot could not fund test XLM', response.status);
+    throw makeError(
+      text || 'Friendbot could not fund test XLM',
+      response.status,
+    );
   }
 
   return text;
@@ -1694,17 +1796,22 @@ export async function ensureDemoAssetIssuer(
   return issuer;
 }
 
-export function filterAssetsBySearch(assets: AssetDefinition[], search: unknown) {
-  const query = String(search || '').trim().toLowerCase();
+export function filterAssetsBySearch(
+  assets: AssetDefinition[],
+  search: unknown,
+) {
+  const query = String(search || '')
+    .trim()
+    .toLowerCase();
 
   if (!query) {
     return assets;
   }
 
-  return assets.filter(asset =>
+  return assets.filter((asset) =>
     [asset.assetCode, asset.displayName, asset.homeDomain, asset.assetIssuer]
       .filter(Boolean)
-      .some(value => String(value).toLowerCase().includes(query)),
+      .some((value) => String(value).toLowerCase().includes(query)),
   );
 }
 
@@ -1767,7 +1874,7 @@ function parseStellarExpertAssetId(assetId: string) {
   }
 
   const parts = assetId.split('-');
-  const issuer = parts.find(part => part.startsWith('G')) || null;
+  const issuer = parts.find((part) => part.startsWith('G')) || null;
 
   return {
     assetCode: parts[0] || '',
@@ -1775,7 +1882,9 @@ function parseStellarExpertAssetId(assetId: string) {
   };
 }
 
-function mapStellarExpertAsset(record: StellarExpertAssetRecord): AssetDefinition | null {
+function mapStellarExpertAsset(
+  record: StellarExpertAssetRecord,
+): AssetDefinition | null {
   const toml = record.tomlInfo || record.toml_info || {};
   const parsed = parseStellarExpertAssetId(String(record.asset || ''));
   const assetCode = String(toml.code || parsed.assetCode || '').trim();
@@ -1793,22 +1902,29 @@ function mapStellarExpertAsset(record: StellarExpertAssetRecord): AssetDefinitio
     assetIssuer: isNative ? null : assetIssuer || null,
     demo: false,
     displayName:
-      String(toml.name || toml.anchorAsset || toml.orgName || assetCode).trim() ||
-      assetCode,
+      String(
+        toml.name || toml.anchorAsset || toml.orgName || assetCode,
+      ).trim() || assetCode,
     homeDomain: record.domain || record.home_domain || null,
     iconKey: assetCode.toLowerCase(),
     image: toml.image || toml.orgLogo || null,
     isNative,
     network: 'mainnet',
-    priceUsd: Number.isFinite(Number(record.price)) ? Number(record.price) : null,
+    priceUsd: Number.isFinite(Number(record.price))
+      ? Number(record.price)
+      : null,
     rating: Number.isFinite(rating) ? rating : null,
     trustLevel: isNative || rating >= 7 ? 'verified' : 'discovered',
-    volume7d:
-      Number.isFinite(Number(record.volume7d)) ? Number(record.volume7d) : null,
+    volume7d: Number.isFinite(Number(record.volume7d))
+      ? Number(record.volume7d)
+      : null,
   };
 }
 
-async function fetchStellarExpertAssets(options: { limit: number; search?: unknown }) {
+async function fetchStellarExpertAssets(options: {
+  limit: number;
+  search?: unknown;
+}) {
   const params = new URLSearchParams({
     limit: String(options.limit),
     order: 'desc',
@@ -1865,7 +1981,11 @@ async function fetchStellarExpertAssets(options: { limit: number; search?: unkno
   return assets;
 }
 
-export async function getSupportedAssets(env: Env, networkValue: unknown, options: { limit?: unknown; search?: unknown } = {}) {
+export async function getSupportedAssets(
+  env: Env,
+  networkValue: unknown,
+  options: { limit?: unknown; search?: unknown } = {},
+) {
   const network = normalizeNetwork(networkValue);
   const fallbackAssets = filterAssetsBySearch(
     getKnownAssetDefinitions(network),
@@ -1890,12 +2010,16 @@ export async function getSupportedAssets(env: Env, networkValue: unknown, option
 
 export async function getSupportedAsset(
   env: Env,
-  input: { assetCode?: unknown; assetIssuer?: unknown; network: StellarNetwork },
+  input: {
+    assetCode?: unknown;
+    assetIssuer?: unknown;
+    network: StellarNetwork;
+  },
 ) {
   const normalized = normalizeAssetCode(input.assetCode);
   const assetIssuer = String(input.assetIssuer || '').trim();
   const knownAsset = getKnownAssetDefinitions(input.network).find(
-    item =>
+    (item) =>
       item.assetCode === normalized &&
       (!assetIssuer || item.assetIssuer === assetIssuer),
   );
@@ -1906,7 +2030,7 @@ export async function getSupportedAsset(
 
   const assets = await getSupportedAssets(env, input.network);
   const asset = assets.find(
-    item =>
+    (item) =>
       item.assetCode === normalized &&
       (!assetIssuer || item.assetIssuer === assetIssuer),
   );
@@ -1934,14 +2058,18 @@ export async function getSupportedAsset(
   throw makeError('Token is not supported', 400);
 }
 
-export function getNativeBalance(account: Awaited<ReturnType<typeof loadAccount>>) {
+export function getNativeBalance(
+  account: Awaited<ReturnType<typeof loadAccount>>,
+) {
   if (!account) {
     return '0';
   }
 
   const balances = account.balances as Array<Record<string, any>>;
 
-  return balances.find(balance => balance.asset_type === 'native')?.balance || '0';
+  return (
+    balances.find((balance) => balance.asset_type === 'native')?.balance || '0'
+  );
 }
 
 export function getMinimumBalanceForSubentries(subentryCount: number) {
@@ -1987,7 +2115,9 @@ export function getRequiredBalanceForNewTrustline(
 ) {
   const subentryCount = Number(account?.subentry_count || 0);
 
-  return getMinimumBalanceForSubentries(subentryCount + 1) + TRUSTLINE_FEE_BUFFER_XLM;
+  return (
+    getMinimumBalanceForSubentries(subentryCount + 1) + TRUSTLINE_FEE_BUFFER_XLM
+  );
 }
 
 export function assertCanAddTrustline(
@@ -2027,9 +2157,7 @@ function getHorizonResultCodes(error: unknown) {
     getNestedValue(error, ['data', 'extras', 'result_codes']),
   ];
 
-  return candidates.find(
-    item => item && typeof item === 'object',
-  ) as
+  return candidates.find((item) => item && typeof item === 'object') as
     | {
         transaction?: string;
         operations?: string[];
@@ -2073,7 +2201,8 @@ export function getStellarSubmissionErrorMessage(
     return `${fallback} Code: ${allCodes.join(', ')}`;
   }
 
-  const rawMessage = error instanceof Error ? error.message : String(error || '');
+  const rawMessage =
+    error instanceof Error ? error.message : String(error || '');
 
   if (/Request failed with status code 400/i.test(rawMessage)) {
     return fallback;
@@ -2095,7 +2224,7 @@ export function findIssuedBalance(
 
   return (
     balances.find(
-      balance =>
+      (balance) =>
         balance.asset_type !== 'native' &&
         balance.asset_code === assetCode &&
         balance.asset_issuer === issuerAddress,
@@ -2117,12 +2246,15 @@ export function mergeKnownAndDiscoveredAssets(
     merged.set(key, asset);
   }
 
-  for (const balance of ((account?.balances || []) as Array<Record<string, any>>)) {
+  for (const balance of (account?.balances || []) as Array<
+    Record<string, any>
+  >) {
     const assetCode =
       balance.asset_type === 'native'
         ? NATIVE_ASSET_CODE
         : normalizeAssetCode(balance.asset_code);
-    const assetIssuer = assetCode === NATIVE_ASSET_CODE ? null : balance.asset_issuer || null;
+    const assetIssuer =
+      assetCode === NATIVE_ASSET_CODE ? null : balance.asset_issuer || null;
     const key =
       assetCode === NATIVE_ASSET_CODE
         ? `${network}:native`
@@ -2150,7 +2282,7 @@ export function getBalanceItems(
   account: Awaited<ReturnType<typeof loadAccount>>,
   assetDefinitions: AssetDefinition[],
 ) {
-  return assetDefinitions.map(asset => {
+  return assetDefinitions.map((asset) => {
     if (asset.isNative) {
       const balance = Number(getNativeBalance(account));
       const minimumBalance = getMinimumBalanceForAccount(account);
@@ -2163,13 +2295,19 @@ export function getBalanceItems(
         exists: Boolean(account),
         minimumBalance: formatStellarBalance(minimumBalance),
         reservedBalance: formatStellarBalance(
-          account && Number.isFinite(balance) ? Math.min(balance, minimumBalance) : 0,
+          account && Number.isFinite(balance)
+            ? Math.min(balance, minimumBalance)
+            : 0,
         ),
         trusted: Boolean(account),
       };
     }
 
-    const balance = findIssuedBalance(account, asset.assetCode, asset.assetIssuer);
+    const balance = findIssuedBalance(
+      account,
+      asset.assetCode,
+      asset.assetIssuer,
+    );
 
     return {
       ...asset,
@@ -2182,7 +2320,11 @@ export function getBalanceItems(
   });
 }
 
-export async function getAccountBalances(env: Env, address: string, networkValue: unknown) {
+export async function getAccountBalances(
+  env: Env,
+  address: string,
+  networkValue: unknown,
+) {
   const network = normalizeNetwork(networkValue);
   const [account, supportedAssets] = await Promise.all([
     loadAccount(env, address, network),
@@ -2212,7 +2354,13 @@ export function ensureTrustline(
     return;
   }
 
-  if (!findIssuedBalance(account, assetDefinition.assetCode, assetDefinition.assetIssuer)) {
+  if (
+    !findIssuedBalance(
+      account,
+      assetDefinition.assetCode,
+      assetDefinition.assetIssuer,
+    )
+  ) {
     throw makeError(
       `${field} has not added ${assetDefinition.assetCode}. Add the trustline first.`,
       400,
@@ -2254,17 +2402,17 @@ export function assertSufficientBalance(
   );
 
   if (!Number.isFinite(balance) || balance < amount) {
-    throw makeError(
-      `Insufficient ${assetDefinition.assetCode} balance`,
-      400,
-    );
+    throw makeError(`Insufficient ${assetDefinition.assetCode} balance`, 400);
   }
 
   const nativeBalance = Number(getNativeBalance(account));
   const requiredNativeBalance =
     getMinimumBalanceForAccount(account) + PAYMENT_FEE_BUFFER_XLM;
 
-  if (!Number.isFinite(nativeBalance) || nativeBalance < requiredNativeBalance) {
+  if (
+    !Number.isFinite(nativeBalance) ||
+    nativeBalance < requiredNativeBalance
+  ) {
     throw makeError(
       `Deposit a small amount of XLM to pay Stellar network fees before sending ${assetDefinition.assetCode}.`,
       400,
@@ -2295,7 +2443,9 @@ export function getIssuedAsset(assetDefinition: AssetDefinition) {
 }
 
 export function getAssetForOperation(assetDefinition: AssetDefinition) {
-  return assetDefinition.isNative ? Asset.native() : getIssuedAsset(assetDefinition);
+  return assetDefinition.isNative
+    ? Asset.native()
+    : getIssuedAsset(assetDefinition);
 }
 
 function stellarAmountsEqual(left: unknown, right: unknown) {
@@ -2318,7 +2468,10 @@ function isNativeOperationAsset(asset: Record<string, any> | undefined) {
     return asset.isNative();
   }
 
-  return String(asset.code || '').toUpperCase() === NATIVE_ASSET_CODE && !asset.issuer;
+  return (
+    String(asset.code || '').toUpperCase() === NATIVE_ASSET_CODE &&
+    !asset.issuer
+  );
 }
 
 function operationAssetMatches(
@@ -2375,8 +2528,7 @@ export function buildPaymentTransaction({
   const builder = new TransactionBuilder(sourceAccount, {
     fee: BASE_FEE,
     networkPassphrase: config.passphrase,
-  })
-    .addOperation(operation);
+  }).addOperation(operation);
   const safeMemo = assertStellarMemo(memo);
 
   if (safeMemo) {
@@ -2438,7 +2590,10 @@ export async function signStellarTransaction(
   const signature = result.data?.signature || result.signature;
 
   if (!signature) {
-    throw makeError('Privy did not return a Stellar transaction signature', 502);
+    throw makeError(
+      'Privy did not return a Stellar transaction signature',
+      502,
+    );
   }
 
   return signature.replace(/^0x/, '');
@@ -2475,7 +2630,11 @@ export async function submitPrivySignedTransaction({
     const secret = await decryptWalletSecret(env, wallet.encryptedSecret);
     transaction.sign(assertSecretKey(secret, 'Imported Stellar secret key'));
   } else {
-    const signatureHex = await signStellarTransaction(env, walletId, transaction);
+    const signatureHex = await signStellarTransaction(
+      env,
+      walletId,
+      transaction,
+    );
     addPrivySignature(transaction, sourceAddress, signatureHex);
   }
 
@@ -2554,11 +2713,9 @@ export async function quoteStellarSwap(
   assertSufficientBalance(sourceAccount, fromDefinition, sendAmount);
 
   const records = await getStellarServer(env, network)
-    .strictSendPaths(
-      getAssetForOperation(fromDefinition),
-      sendAmount,
-      [getAssetForOperation(toDefinition)],
-    )
+    .strictSendPaths(getAssetForOperation(fromDefinition), sendAmount, [
+      getAssetForOperation(toDefinition),
+    ])
     .call();
   const bestPath = (records as any)?.records?.[0];
 
@@ -2670,7 +2827,8 @@ export async function executeStellarSwap(
   const signingHash = `0x${bytesToHex(transaction.hash() as Uint8Array)}`;
 
   if (clientSignatureHex && transactionXdr) {
-    const operation = (transaction.operations || [])[0] as Record<string, any> | undefined;
+    const operation = (transaction.operations || [])[0] as
+      Record<string, any> | undefined;
     const operationSource = operation?.source
       ? String(operation.source)
       : sourceAddress;
@@ -2688,7 +2846,10 @@ export async function executeStellarSwap(
       !operationAssetMatches(operation.sendAsset, fromDefinition) ||
       !operationAssetMatches(operation.destAsset, toDefinition)
     ) {
-      throw makeError('Signed transaction does not match the swap request', 400);
+      throw makeError(
+        'Signed transaction does not match the swap request',
+        400,
+      );
     }
   }
 
@@ -2746,14 +2907,16 @@ export async function fetchAccountOperations(
 
   if (!response.ok) {
     throw makeError(
-      String((body as { detail?: string })?.detail || 'Could not load Stellar history'),
+      String(
+        (body as { detail?: string })?.detail ||
+          'Could not load Stellar history',
+      ),
       response.status,
     );
   }
 
-  return ((body as { _embedded?: { records?: unknown[] } })?._embedded?.records || []) as Array<
-    Record<string, any>
-  >;
+  return ((body as { _embedded?: { records?: unknown[] } })?._embedded
+    ?.records || []) as Array<Record<string, any>>;
 }
 
 export async function tryFetchTransactionFeeFields(
@@ -2830,13 +2993,14 @@ export function normalizeOperationRecord(
           operation.destination_asset_code ||
           NATIVE_ASSET_CODE
     : isCreateAccount
-    ? NATIVE_ASSET_CODE
-    : operation.asset_type === 'native' || operation.source_asset_type === 'native'
       ? NATIVE_ASSET_CODE
-      : operation.asset_code ||
-        operation.source_asset_code ||
-        operation.destination_asset_code ||
-        NATIVE_ASSET_CODE;
+      : operation.asset_type === 'native' ||
+          operation.source_asset_type === 'native'
+        ? NATIVE_ASSET_CODE
+        : operation.asset_code ||
+          operation.source_asset_code ||
+          operation.destination_asset_code ||
+          NATIVE_ASSET_CODE;
   const amount = isPathPayment
     ? pathShowsReceivedAsset
       ? operation.destination_amount ||
@@ -2848,13 +3012,13 @@ export function normalizeOperationRecord(
         operation.destination_amount ||
         '0'
     : isCreateAccount
-    ? operation.starting_balance || '0'
-    : isChangeTrust
-      ? '0'
-      : operation.amount ||
-        operation.source_amount ||
-        operation.destination_amount ||
-        '0';
+      ? operation.starting_balance || '0'
+      : isChangeTrust
+        ? '0'
+        : operation.amount ||
+          operation.source_amount ||
+          operation.destination_amount ||
+          '0';
   const feeFields = getTransactionFeeFields(operation.transaction_attr);
 
   return {
@@ -2901,7 +3065,9 @@ export async function getAccountHistory(
   const records = await fetchAccountOperations(env, address, network, limit);
 
   return records
-    .map(operation => normalizeOperationRecord(env, address, operation, network))
+    .map((operation) =>
+      normalizeOperationRecord(env, address, operation, network),
+    )
     .filter(Boolean);
 }
 
@@ -2909,7 +3075,10 @@ export function parseStellarXdr(env: Env, xdr: unknown, networkValue: unknown) {
   const config = getNetworkConfig(env, networkValue);
 
   try {
-    return TransactionBuilder.fromXDR(String(xdr || '').trim(), config.passphrase);
+    return TransactionBuilder.fromXDR(
+      String(xdr || '').trim(),
+      config.passphrase,
+    );
   } catch {
     throw makeError(
       'Stellar XDR is invalid or uses the wrong network passphrase',
@@ -2921,7 +3090,11 @@ export function parseStellarXdr(env: Env, xdr: unknown, networkValue: unknown) {
 export function requireClassicTransaction(
   transaction: ReturnType<typeof parseStellarXdr>,
 ) {
-  if (!('source' in transaction) || !('memo' in transaction) || !('sequence' in transaction)) {
+  if (
+    !('source' in transaction) ||
+    !('memo' in transaction) ||
+    !('sequence' in transaction)
+  ) {
     throw makeError('Fee-bump XDR is not supported by this signer yet', 400);
   }
 
@@ -3097,7 +3270,9 @@ export function reviewStellarXdr({
   sourceAddress?: string;
   xdr: unknown;
 }) {
-  const transaction = requireClassicTransaction(parseStellarXdr(env, xdr, network));
+  const transaction = requireClassicTransaction(
+    parseStellarXdr(env, xdr, network),
+  );
 
   if (sourceAddress && transaction.source !== sourceAddress) {
     throw makeError('XDR does not use the selected wallet as source', 403);
@@ -3112,21 +3287,24 @@ export function reviewStellarXdr({
     warnings.push(`This transaction contains ${operations.length} operations.`);
   }
 
-  if (operations.some(operation => operation.type === 'invokeHostFunction')) {
+  if (operations.some((operation) => operation.type === 'invokeHostFunction')) {
     warnings.push(
       'This is a Soroban smart contract request. Only approve if you trust this dApp and understand the contract action.',
     );
   }
 
-  if (Number(transaction.fee) > Number(BASE_FEE) * Math.max(1, operations.length) * 10) {
-    warnings.push('This transaction uses a higher than usual Stellar network fee.');
+  if (
+    Number(transaction.fee) >
+    Number(BASE_FEE) * Math.max(1, operations.length) * 10
+  ) {
+    warnings.push(
+      'This transaction uses a higher than usual Stellar network fee.',
+    );
   }
 
   return {
     fee: transaction.fee,
-    memo: transaction.memo?.value
-      ? transaction.memo.value.toString()
-      : null,
+    memo: transaction.memo?.value ? transaction.memo.value.toString() : null,
     network,
     operationCount: operations.length,
     operations,
@@ -3157,7 +3335,9 @@ export async function signStellarXdr({
   walletId: string;
   xdr: unknown;
 }) {
-  const transaction = requireClassicTransaction(parseStellarXdr(env, xdr, network));
+  const transaction = requireClassicTransaction(
+    parseStellarXdr(env, xdr, network),
+  );
   const review = reviewStellarXdr({
     env,
     network,
@@ -3187,7 +3367,11 @@ export async function signStellarXdr({
   } else if (clientSignatureHex) {
     addPrivySignature(transaction, sourceAddress, clientSignatureHex);
   } else {
-    const signatureHex = await signStellarTransaction(env, walletId, transaction);
+    const signatureHex = await signStellarTransaction(
+      env,
+      walletId,
+      transaction,
+    );
     addPrivySignature(transaction, sourceAddress, signatureHex);
   }
 
@@ -3202,10 +3386,14 @@ export async function signStellarXdr({
     };
   }
 
-  let submitted: Awaited<ReturnType<ReturnType<typeof getStellarServer>['submitTransaction']>>;
+  let submitted: Awaited<
+    ReturnType<ReturnType<typeof getStellarServer>['submitTransaction']>
+  >;
 
   try {
-    submitted = await getStellarServer(env, network).submitTransaction(transaction);
+    submitted = await getStellarServer(env, network).submitTransaction(
+      transaction,
+    );
   } catch (error) {
     const status =
       Number(getNestedValue(error, ['response', 'status'])) ||
