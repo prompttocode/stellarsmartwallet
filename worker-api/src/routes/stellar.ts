@@ -636,6 +636,19 @@ async function handleSwapQuote(
   const network = normalizeNetwork(c.req.param('network'), fallbackNetwork);
   const sourceAddress = String(body.sourceAddress || '').trim();
   assertStellarAddress(sourceAddress, 'Swap wallet');
+  const account = await requireAccountContext(
+    c.env,
+    c.req.header('authorization'),
+    body,
+    { network, requireAuth: true },
+  );
+  assertAccountWallet({
+    account,
+    address: sourceAddress,
+    network,
+    requireSigner: false,
+    walletId: String(body.sourceWalletId || '').trim(),
+  });
 
   const result = await quoteStellarSwap(c.env, {
     amount: body.amount,
@@ -661,7 +674,7 @@ async function handleSwapExecute(c: Context<WorkerBindings>, fallbackNetwork?: S
   const sourceAddress = String(body.sourceAddress || '').trim();
   const account = await requireAccountContext(c.env, c.req.header('authorization'), body, {
     network,
-    requireAuth: shouldRequireMainnetAuth(network),
+    requireAuth: true,
   });
   const sourceWallet = assertAccountWallet({
     account,

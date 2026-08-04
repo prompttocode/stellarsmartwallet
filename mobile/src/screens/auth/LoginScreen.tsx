@@ -8,9 +8,11 @@ import {
   View,
 } from 'react-native';
 import LottieView from 'lottie-react-native';
+import * as WebBrowser from 'expo-web-browser';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '@config';
 import type { WalletState } from '@hooks/useWallet';
 import { loginStyles as styles } from './loginStyles';
 
@@ -39,6 +41,8 @@ function ActionButton({
 }) {
   return (
     <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -85,6 +89,8 @@ function GoogleButton({
 }) {
   return (
     <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -218,6 +224,7 @@ function WelcomeStep({
   wallet: WalletState;
   onSelectEmail: () => void;
 }) {
+  const appleBusy = wallet.busy === 'Sign in with Apple';
   const googleBusy = wallet.busy === 'Sign in with Google';
   const reviewBusy = wallet.busy === 'Opening Testnet demo';
   const restoringSession = wallet.sessionSyncing && !wallet.account;
@@ -240,6 +247,27 @@ function WelcomeStep({
     : googleBusy
     ? 'Opening Google...'
     : 'Continue with Google';
+  const appleLabel = restoringSession
+    ? 'Restoring session...'
+    : preparingPrivy
+    ? 'Preparing sign-in...'
+    : appleBusy
+    ? 'Opening Apple...'
+    : 'Continue with Apple';
+
+  async function openLegalDocument(url: string, label: string) {
+    try {
+      await WebBrowser.openBrowserAsync(url, {
+        presentationStyle:
+          WebBrowser.WebBrowserPresentationStyle.FORM_SHEET,
+      });
+    } catch {
+      wallet.showErrorDialog(
+        `Unable to open ${label}. Check your connection and try again.`,
+        'Could not open link',
+      );
+    }
+  }
 
   return (
     <View style={styles.stepContainer}>
@@ -277,12 +305,21 @@ function WelcomeStep({
             onPress={wallet.loginWithGoogle}
           />
           <ActionButton
-            disabled={restoringSession || wallet.isBusy}
-            icon="flask-outline"
-            label={reviewBusy ? 'Opening Testnet demo...' : 'Explore Testnet'}
-            onPress={wallet.startReviewMode}
+            disabled={!wallet.isReady || restoringSession || wallet.isBusy}
+            icon="logo-apple"
+            label={appleLabel}
+            onPress={wallet.loginWithApple}
             variant="dark"
           />
+          {__DEV__ ? (
+            <ActionButton
+              disabled={restoringSession || wallet.isBusy}
+              icon="flask-outline"
+              label={reviewBusy ? 'Opening Testnet demo...' : 'Explore Testnet'}
+              onPress={wallet.startReviewMode}
+              variant="dark"
+            />
+          ) : null}
         </View>
 
         <View style={styles.footerContainer}>
@@ -290,8 +327,28 @@ function WelcomeStep({
             By pressing on "Continue with..." you agree
             {`
 `}
-            to our <Text style={styles.footerLink}>Terms of Service</Text> and{' '}
-            <Text style={styles.footerLink}>Privacy Policy</Text>
+            to our{' '}
+            <Text
+              accessibilityLabel="Open Terms of Service"
+              accessibilityRole="link"
+              onPress={() =>
+                openLegalDocument(TERMS_OF_SERVICE_URL, 'Terms of Service')
+              }
+              style={styles.footerLink}
+            >
+              Terms of Service
+            </Text>{' '}
+            and{' '}
+            <Text
+              accessibilityLabel="Open Privacy Policy"
+              accessibilityRole="link"
+              onPress={() =>
+                openLegalDocument(PRIVACY_POLICY_URL, 'Privacy Policy')
+              }
+              style={styles.footerLink}
+            >
+              Privacy Policy
+            </Text>
           </Text>
         </View>
       </View>

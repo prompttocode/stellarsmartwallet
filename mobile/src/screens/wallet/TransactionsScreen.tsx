@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   StyleSheet,
@@ -146,6 +146,13 @@ export function TransactionsScreen({
     () => filterTransactions(wallet.transactions, filter),
     [filter, wallet.transactions],
   );
+  const effectiveHistoryKind = wallet.isMainnet ? historyKind : 'stellar';
+
+  useEffect(() => {
+    if (!wallet.isMainnet && historyKind !== 'stellar') {
+      setHistoryKind('stellar');
+    }
+  }, [historyKind, wallet.isMainnet]);
   const assetImagesByCode = useMemo(() => {
     const byCode = new Map<string, string | null | undefined>();
 
@@ -158,7 +165,7 @@ export function TransactionsScreen({
     return byCode;
   }, [wallet.balances, wallet.visibleAssets]);
   const activityData = useMemo<ActivityListItem[]>(() => {
-    if (historyKind === 'stellar') {
+    if (effectiveHistoryKind === 'stellar') {
       return visibleTransactions.map(transaction => ({
         id: transaction.id,
         kind: 'transaction',
@@ -171,21 +178,21 @@ export function TransactionsScreen({
       kind: 'order',
       order,
     }));
-  }, [historyKind, visibleTransactions, wallet.rampOrderHistory]);
+  }, [effectiveHistoryKind, visibleTransactions, wallet.rampOrderHistory]);
 
   function renderHeader() {
     return (
       <>
         <ModernScreenHeader
           subtitle={
-            wallet.isReviewMode
-              ? 'Review Testnet transfers and swaps using test assets only.'
-              : 'Review crypto transfers, swaps, buys, and bank withdrawals.'
+            wallet.isMainnet
+              ? 'Review crypto transfers, swaps, buys, and bank withdrawals.'
+              : 'Review Testnet transfers and swaps using test assets only.'
           }
           title="Activity"
         />
 
-        {!wallet.isReviewMode ? (
+        {wallet.isMainnet ? (
           <View style={modern.sectionCard}>
             <SegmentedFilter
               active={historyKind}
@@ -200,7 +207,7 @@ export function TransactionsScreen({
             action={
               <PressScale
                 onPress={
-                  historyKind === 'stellar'
+                  effectiveHistoryKind === 'stellar'
                     ? wallet.refreshSession
                     : wallet.refreshRampOrderHistory
                 }
@@ -208,9 +215,11 @@ export function TransactionsScreen({
                 <Text style={modern.sectionActionText}>↻</Text>
               </PressScale>
             }
-            title={historyKind === 'stellar' ? 'Transfers' : 'Cash orders'}
+            title={
+              effectiveHistoryKind === 'stellar' ? 'Transfers' : 'Cash orders'
+            }
           />
-          {historyKind === 'stellar' ? (
+          {effectiveHistoryKind === 'stellar' ? (
             <SegmentedFilter
               active={filter}
               onChange={setFilter}
@@ -223,7 +232,7 @@ export function TransactionsScreen({
   }
 
   function renderEmpty() {
-    return historyKind === 'stellar' ? (
+    return effectiveHistoryKind === 'stellar' ? (
       <View style={[modern.emptyModern, styles.emptyWrap]}>
         <Text style={modern.emptyModernTitle}>No transactions yet</Text>
         <Text style={modern.emptyModernText}>

@@ -74,6 +74,17 @@ jest.mock('expo-media-library', () => ({
   saveToLibraryAsync: jest.fn(async () => undefined),
 }));
 
+jest.mock('expo-secure-store', () => ({
+  deleteItemAsync: jest.fn(async () => undefined),
+  getItemAsync: jest.fn(async () => null),
+  setItemAsync: jest.fn(async () => undefined),
+}));
+
+jest.mock('expo-web-browser', () => ({
+  openBrowserAsync: jest.fn(async () => ({ type: 'dismiss' })),
+  WebBrowserPresentationStyle: { FORM_SHEET: 'formSheet' },
+}));
+
 jest.mock('react-native-biometrics', () =>
   jest.fn().mockImplementation(() => ({
     isSensorAvailable: jest.fn(async () => ({ available: false })),
@@ -157,6 +168,7 @@ jest.mock('@privy-io/expo', () => ({
     login: jest.fn(async () => undefined),
     state: { status: 'initial' },
   }),
+  useOAuthTokens: () => undefined,
   usePrivy: () => ({
     user: null,
     isReady: true,
@@ -225,6 +237,10 @@ jest.mock('@screens/wallet/WalletApp', () => {
 });
 
 import App from '../App';
+import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '../src/config';
+import type { WalletState } from '../src/hooks/useWallet';
+import { LoginScreen } from '../src/screens/auth/LoginScreen';
+import * as WebBrowser from 'expo-web-browser';
 
 test('renders correctly', async () => {
   const fetchSpy = jest
@@ -344,4 +360,91 @@ test('renders correctly', async () => {
   await ReactTestRenderer.act(async () => {
     renderer.unmount();
   });
+});
+
+function createLoginWallet(
+  overrides: Record<string, unknown> = {},
+): WalletState {
+  return {
+    account: null,
+    busy: null,
+    codeSent: false,
+    isBusy: false,
+    isReady: true,
+    loginWithApple: jest.fn(async () => true),
+    loginWithGoogle: jest.fn(async () => true),
+    sessionSyncing: false,
+    showErrorDialog: jest.fn(),
+    startReviewMode: jest.fn(async () => true),
+    ...overrides,
+  } as unknown as WalletState;
+}
+
+test('offers Sign in with Apple at the same login level as Google', async () => {
+  const wallet = createLoginWallet();
+  let renderer!: ReturnType<typeof ReactTestRenderer.create>;
+
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<LoginScreen wallet={wallet} />);
+  });
+
+  const appleButton = renderer.root.findByProps({
+    accessibilityLabel: 'Continue with Apple',
+  });
+
+  await ReactTestRenderer.act(async () => {
+    await appleButton.props.onPress();
+  });
+
+  expect(wallet.loginWithApple).toHaveBeenCalledTimes(1);
+  expect(
+    renderer.root.findByProps({
+      accessibilityLabel: 'Continue with Google',
+    }),
+  ).toBeTruthy();
+});
+
+test('opens both legal labels in the browser sheet and reports failures', async () => {
+  const wallet = createLoginWallet();
+  const openBrowser = jest.mocked(WebBrowser.openBrowserAsync);
+  let renderer!: ReturnType<typeof ReactTestRenderer.create>;
+
+  openBrowser.mockResolvedValue({ type: 'dismiss' } as never);
+
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<LoginScreen wallet={wallet} />);
+  });
+
+  await ReactTestRenderer.act(async () => {
+    await renderer.root.findByProps({
+      accessibilityLabel: 'Open Terms of Service',
+    }).props.onPress();
+    await renderer.root.findByProps({
+      accessibilityLabel: 'Open Privacy Policy',
+    }).props.onPress();
+  });
+
+  expect(openBrowser).toHaveBeenNthCalledWith(
+    1,
+    TERMS_OF_SERVICE_URL,
+    expect.objectContaining({ presentationStyle: 'formSheet' }),
+  );
+  expect(openBrowser).toHaveBeenNthCalledWith(
+    2,
+    PRIVACY_POLICY_URL,
+    expect.objectContaining({ presentationStyle: 'formSheet' }),
+  );
+
+  openBrowser.mockRejectedValueOnce(new Error('offline'));
+
+  await ReactTestRenderer.act(async () => {
+    await renderer.root.findByProps({
+      accessibilityLabel: 'Open Privacy Policy',
+    }).props.onPress();
+  });
+
+  expect(wallet.showErrorDialog).toHaveBeenCalledWith(
+    expect.stringContaining('Unable to open Privacy Policy'),
+    'Could not open link',
+  );
 });

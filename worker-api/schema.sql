@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS account_kyc (
   phone TEXT,
   cccd_last4 TEXT,
   cccd_hash TEXT,
+  country_code TEXT,
   dob TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -24,6 +25,19 @@ CREATE TABLE IF NOT EXISTS account_kyc (
 
 CREATE INDEX IF NOT EXISTS idx_account_kyc_provider_user_id
   ON account_kyc(provider_user_id);
+
+CREATE TABLE IF NOT EXISTS account_exchange_profiles (
+  account_email TEXT PRIMARY KEY,
+  provider_id TEXT NOT NULL,
+  country_code TEXT NOT NULL,
+  kyc_status TEXT NOT NULL,
+  sanctions_status TEXT NOT NULL,
+  reason_code TEXT,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_exchange_profiles_provider_country
+  ON account_exchange_profiles(provider_id, country_code, updated_at);
 
 CREATE TABLE IF NOT EXISTS contacts (
   id TEXT PRIMARY KEY,

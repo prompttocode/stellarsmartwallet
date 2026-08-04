@@ -40,7 +40,7 @@ import type {
   StellarNetwork,
 } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
-import { shortAddress } from '@utils/format';
+import { maskEmailForDisplay, shortAddress } from '@utils/format';
 import {
   getImportSecretPublicAddress,
   validateImportSecret,
@@ -91,9 +91,6 @@ const HORIZON_ACCOUNT_URLS: Record<StellarNetwork, string> = {
   mainnet: 'https://horizon.stellar.org/accounts/',
   testnet: 'https://horizon-testnet.stellar.org/accounts/',
 };
-
-const ACCOUNT_DELETION_FORM_URL =
-  'https://docs.google.com/forms/d/e/1FAIpQLSdozoUg0PPszfQKDy6e4eeB9vf-hnZpcCzlxvunFfgtKoKRWw/viewform?usp=publish-editor';
 
 function getOtherNetwork(network: StellarNetwork): StellarNetwork {
   return network === 'mainnet' ? 'testnet' : 'mainnet';
@@ -305,7 +302,7 @@ export function SettingsScreen({
   const toastScale = useRef(new Animated.Value(0.5)).current;
 
   function handleProfileEgg() {
-    Clipboard.setString(wallet.account?.email || '');
+    Clipboard.setString(maskEmailForDisplay(wallet.account?.email));
 
     setToastVisible(true);
     toastOpacity.setValue(0);
@@ -367,8 +364,9 @@ export function SettingsScreen({
   const canOpenExplorer =
     Boolean(wallet.explorerAddressUrl) &&
     (!wallet.isMainnet || wallet.walletActive);
-  const email = wallet.account?.email || 'No email';
-  const profileInitial = email.charAt(0).toUpperCase() || 'S';
+  const accountEmail = wallet.account?.email || '';
+  const displayEmail = maskEmailForDisplay(accountEmail);
+  const profileInitial = accountEmail.charAt(0).toUpperCase() || 'S';
   const networkLabel = wallet.isMainnet ? 'Mainnet' : 'Testnet';
   const kycVerified = wallet.kyc.status === 'verified';
   const canBackupRecovery = activeWallet?.kind === 'privy';
@@ -496,42 +494,35 @@ export function SettingsScreen({
     setDetailSheet('feedback');
   }
 
-  async function openAccountDeletionForm() {
-    try {
-      const canOpen = await Linking.canOpenURL(ACCOUNT_DELETION_FORM_URL);
-
-      if (!canOpen) {
-        throw new Error('Your device cannot open the account deletion form.');
-      }
-
-      await Linking.openURL(ACCOUNT_DELETION_FORM_URL);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Unable to open the account deletion form.';
-
-      showPopup({
-        message,
-        title: 'Could not open form',
-        variant: 'danger',
-      });
-    }
-  }
-
   function confirmAccountDeletionRequest() {
     showPopup({
       actions: [
         { style: 'cancel', text: 'Cancel' },
         {
-          onPress: openAccountDeletionForm,
+          onPress: () => {
+            showPopup({
+              actions: [
+                { style: 'cancel', text: 'Keep account' },
+                {
+                  onPress: wallet.deleteAccount,
+                  style: 'destructive',
+                  text: 'Delete forever',
+                },
+              ],
+              dismissOnBackdrop: false,
+              message:
+                'This removes your app profile, Privy user, KYC data, saved bank details and local session. Public blockchain transactions cannot be erased.',
+              title: 'Final confirmation',
+              variant: 'danger',
+            });
+          },
           style: 'destructive',
-          text: 'Open form',
+          text: 'Continue',
         },
       ],
       message:
-        'This opens a form to submit a permanent account-deletion request. Back up any recovery keys before continuing.',
-      title: 'Request account deletion?',
+        'Back up your recovery key first. You will confirm with Face ID or Touch ID when biometric authentication is available.',
+      title: 'Delete account?',
       variant: 'warning',
     });
   }
@@ -611,7 +602,7 @@ export function SettingsScreen({
       setTimeout(() => {
         showPopup({
           message:
-            'This security action needs an active Privy session. Please sign out and sign in again with email OTP or Google.',
+            'This security action needs an active Privy session. Please sign out and sign in again with email OTP, Google or Apple.',
           title: 'Privy sign-in required',
           variant: 'warning',
         });
@@ -1260,7 +1251,7 @@ export function SettingsScreen({
               </View>
               <View style={styles.profileEmailRow}>
                 <Text numberOfLines={1} style={styles.profileEmail}>
-                  {email}
+                  {displayEmail}
                 </Text>
                 <Ionicons color="#B8FF45" name="shield-checkmark" size={16} />
               </View>
@@ -1377,52 +1368,58 @@ export function SettingsScreen({
             }
           />
           <View style={styles.divider} />
-          <SettingsRow
-            disabled={kycVerified}
-            icon="shield-checkmark-outline"
-            onPress={kycVerified ? undefined : onOpenKyc}
-            subtitle={
-              kycVerified
-                ? 'Verified for VND buy and withdrawal'
-                : 'Required before buying or withdrawing with VND'
-            }
-            title="Identity verification"
-            trailing={
-              <View style={styles.rowTrailing}>
-                <Text
-                  style={[
-                    styles.rowValue,
-                    kycVerified
-                      ? styles.rowValueSuccess
-                      : styles.rowValueWarning,
-                  ]}
-                >
-                  {kycVerified ? 'Verified' : 'Not verified'}
-                </Text>
-                <Ionicons
-                  color={kycVerified ? '#59D98E' : '#A1B0C8'}
-                  name={kycVerified ? 'checkmark-circle' : 'chevron-forward'}
-                  size={20}
-                />
-              </View>
-            }
-          />
-          <View style={styles.divider} />
-          <SettingsRow
-            icon="card-outline"
-            onPress={openPaymentMethods}
-            subtitle={
-              defaultPaymentMethod
-                ? `${defaultPaymentMethod.bankName} · ${maskBankAccount(
-                    defaultPaymentMethod.accountNumber,
-                  )}`
-                : `${wallet.paymentMethods.length} saved method${
-                    wallet.paymentMethods.length === 1 ? '' : 's'
-                  }`
-            }
-            title="Payment methods"
-          />
-          <View style={styles.divider} />
+          {wallet.isMainnet ? (
+            <>
+              <SettingsRow
+                disabled={kycVerified}
+                icon="shield-checkmark-outline"
+                onPress={kycVerified ? undefined : onOpenKyc}
+                subtitle={
+                  kycVerified
+                    ? 'Verified for VND buy and withdrawal'
+                    : 'Required before buying or withdrawing with VND'
+                }
+                title="Identity verification"
+                trailing={
+                  <View style={styles.rowTrailing}>
+                    <Text
+                      style={[
+                        styles.rowValue,
+                        kycVerified
+                          ? styles.rowValueSuccess
+                          : styles.rowValueWarning,
+                      ]}
+                    >
+                      {kycVerified ? 'Verified' : 'Not verified'}
+                    </Text>
+                    <Ionicons
+                      color={kycVerified ? '#59D98E' : '#A1B0C8'}
+                      name={
+                        kycVerified ? 'checkmark-circle' : 'chevron-forward'
+                      }
+                      size={20}
+                    />
+                  </View>
+                }
+              />
+              <View style={styles.divider} />
+              <SettingsRow
+                icon="card-outline"
+                onPress={openPaymentMethods}
+                subtitle={
+                  defaultPaymentMethod
+                    ? `${defaultPaymentMethod.bankName} · ${maskBankAccount(
+                        defaultPaymentMethod.accountNumber,
+                      )}`
+                    : `${wallet.paymentMethods.length} saved method${
+                        wallet.paymentMethods.length === 1 ? '' : 's'
+                      }`
+                }
+                title="Payment methods"
+              />
+              <View style={styles.divider} />
+            </>
+          ) : null}
           <SettingsRow
             icon="lock-closed-outline"
             onPress={() => setDetailSheet('security')}
@@ -1471,8 +1468,8 @@ export function SettingsScreen({
           <SettingsRow
             icon="trash-outline"
             onPress={confirmAccountDeletionRequest}
-            subtitle="Submit a request to permanently delete your account data"
-            title="Request account deletion"
+            subtitle="Permanently remove your account and stored personal data"
+            title="Delete account"
           />
         </View>
 

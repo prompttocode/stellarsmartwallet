@@ -175,7 +175,7 @@ export function PortfolioScreen({
       return;
     }
 
-    onGoToRamp();
+    onGoToFaucet();
   }
 
   async function refreshPortfolio() {
@@ -346,9 +346,8 @@ export function PortfolioScreen({
                   label: wallet.isMainnet ? 'Deposit' : 'Faucet',
                   onPress: onGoToFaucet,
                 },
-                ...(wallet.isReviewMode
-                  ? []
-                  : [
+                ...(wallet.isMainnet
+                  ? [
                       {
                         icon: (
                           <MaterialCommunityIcons
@@ -361,7 +360,8 @@ export function PortfolioScreen({
                         label: 'Withdraw',
                         onPress: onGoToWithdraw,
                       },
-                    ]),
+                    ]
+                  : []),
               ]}
             />
           )}

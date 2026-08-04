@@ -112,6 +112,31 @@ function ReviewModeRouteGuard({
   return isReviewMode ? null : children;
 }
 
+function MainnetRouteGuard({
+  children,
+  feature,
+  navigation,
+  wallet,
+}: {
+  children: ReactNode;
+  feature: string;
+  navigation: any;
+  wallet: WalletState;
+}) {
+  const { isMainnet, setMessage } = wallet;
+
+  useEffect(() => {
+    if (isMainnet) {
+      return;
+    }
+
+    setMessage(`${feature} is available on Mainnet only.`);
+    navigation.replace('MainTabs');
+  }, [feature, isMainnet, navigation, setMessage]);
+
+  return isMainnet ? children : null;
+}
+
 type RampNavigationPreset = {
   amount?: string;
   assetCode?: RampAssetCode;
@@ -300,6 +325,10 @@ function MainTabs({
   onOpenTutorial: () => void;
   wallet: WalletState;
 }) {
+  function showMainnetRestriction(feature: string) {
+    wallet.setMessage(`${feature} is available on Mainnet only.`);
+  }
+
   function showReviewRestriction(feature: string) {
     wallet.setMessage(
       `${feature} is unavailable in Testnet review mode. No real money is used.`,
@@ -339,8 +368,8 @@ function MainTabs({
               navigation.navigate('Send');
             }}
             onGoToWithdraw={async () => {
-              if (wallet.isReviewMode) {
-                showReviewRestriction('VND withdrawal');
+              if (!wallet.isMainnet) {
+                showMainnetRestriction('VND withdrawal');
                 return;
               }
 
@@ -349,8 +378,8 @@ function MainTabs({
             }}
             onGoToFaucet={() => navigation.navigate('Faucet')}
             onGoToRamp={async (preset: RampNavigationPreset = {}) => {
-              if (wallet.isReviewMode) {
-                showReviewRestriction('VND buy and sell');
+              if (!wallet.isMainnet) {
+                showMainnetRestriction('VND buy and sell');
                 return;
               }
 
@@ -389,8 +418,8 @@ function MainTabs({
           <TransactionsScreen
             wallet={wallet}
             onGoToRampOrder={(order: RampOrder) => {
-              if (wallet.isReviewMode) {
-                showReviewRestriction('VND order history');
+              if (!wallet.isMainnet) {
+                showMainnetRestriction('VND order history');
                 return;
               }
 
@@ -432,8 +461,8 @@ function MainTabs({
         {({ navigation }: any) => (
           <SettingsScreen
             onOpenKyc={() =>
-              wallet.isReviewMode
-                ? showReviewRestriction('Identity verification')
+              !wallet.isMainnet
+                ? showMainnetRestriction('Identity verification')
                 : navigation.navigate('Kyc')
             }
             onOpenTutorial={onOpenTutorial}
@@ -574,10 +603,11 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                   <FaucetScreen
                     wallet={wallet}
                     onBack={() => navigation.goBack()}
+                    onGoToReceive={() => navigation.navigate('Receive')}
                     onGoToRamp={async () => {
-                      if (wallet.isReviewMode) {
+                      if (!wallet.isMainnet) {
                         wallet.setMessage(
-                          'VND orders are unavailable in Testnet review mode.',
+                          'VND orders are available on Mainnet only.',
                         );
                         return;
                       }
@@ -590,7 +620,7 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
               </Stack.Screen>
               <Stack.Screen name="Ramp">
                 {({ route, navigation }: any) => (
-                  <ReviewModeRouteGuard
+                  <MainnetRouteGuard
                     feature="VND buy and sell"
                     navigation={navigation}
                     wallet={wallet}
@@ -610,7 +640,7 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                         navigation.goBack();
                       }}
                     />
-                  </ReviewModeRouteGuard>
+                  </MainnetRouteGuard>
                 )}
               </Stack.Screen>
               <Stack.Screen name="AssetSearch">
@@ -636,9 +666,9 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                     onBack={() => navigation.goBack()}
                     onGoToReceive={() => navigation.navigate('Receive')}
                     onGoToRamp={async (direction = 'buy') => {
-                      if (wallet.isReviewMode) {
+                      if (!wallet.isMainnet) {
                         wallet.setMessage(
-                          'VND buy and sell are unavailable in Testnet review mode.',
+                          'VND buy and sell are available on Mainnet only.',
                         );
                         return;
                       }
@@ -693,7 +723,7 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
               </Stack.Screen>
               <Stack.Screen name="Kyc">
                 {({ navigation }: any) => (
-                  <ReviewModeRouteGuard
+                  <MainnetRouteGuard
                     feature="Identity verification"
                     navigation={navigation}
                     wallet={wallet}
@@ -702,7 +732,7 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                       onBack={() => navigation.goBack()}
                       wallet={wallet}
                     />
-                  </ReviewModeRouteGuard>
+                  </MainnetRouteGuard>
                 )}
               </Stack.Screen>
             </Stack.Navigator>

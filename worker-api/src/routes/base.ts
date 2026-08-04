@@ -10,6 +10,7 @@ import {
   createPrivyUser,
   createSignableStellarWallet,
   decodeWalletExportChallenge,
+  deleteAccountPermanently,
   encryptWalletSecret,
   findPrivyUserByEmail,
   friendbotFund,
@@ -20,6 +21,8 @@ import {
   getIssuedAsset,
   getOrCreateSessionAccountByEmail,
   getPrivyClient,
+  getPrivyUserFromIdentityToken,
+  hasLinkedAppleAccount,
   getStellarServer,
   getSupportedAssets,
   getVisibleWallets,
@@ -37,6 +40,8 @@ import {
   privyRequest,
   readJsonBody,
   requireAccountContext,
+  requireAuthenticatedAccount,
+  requireAuthenticatedAccountContext,
   sanitizeWalletName,
   saveAccount,
   saveContact,
@@ -46,6 +51,10 @@ import {
   type StellarNetwork,
   type WorkerBindings,
 } from '../core';
+import {
+  getExchangeEligibility,
+  type ExchangeService,
+} from '../exchangeEligibility';
 
 type ClientStellarWalletInput = {
   address?: string;
@@ -562,6 +571,50 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     }),
   );
 
+  app.get('/api/exchange/eligibility', async c => {
+    const account = await requireAuthenticatedAccount(
+      c.env,
+      c.req.header('authorization'),
+    );
+    const network = normalizeNetwork(c.req.query('network'));
+    const serviceValue = String(c.req.query('service') || '').toLowerCase();
+
+    if (serviceValue !== 'ramp' && serviceValue !== 'swap') {
+      throw makeError('Exchange service must be ramp or swap', 400);
+    }
+
+    return c.json(
+      await getExchangeEligibility(c.env, account, {
+        network,
+        service: serviceValue as ExchangeService,
+      }),
+    );
+  });
+
+  app.delete('/api/account', async c => {
+    const body = await readJsonBody(c);
+
+    if (String(body.confirmation || '') !== 'DELETE') {
+      throw makeError('Type DELETE to confirm permanent account deletion', 400);
+    }
+
+    const { account, user } = await requireAuthenticatedAccountContext(
+      c.env,
+      c.req.header('authorization'),
+    );
+
+    return c.json(
+      await deleteAccountPermanently(c.env, account, {
+        appleOAuthToken: String(body.appleOAuthToken || '').trim(),
+        appleTokenTypeHint:
+          body.appleTokenTypeHint === 'access_token'
+            ? 'access_token'
+            : 'refresh_token',
+        requireAppleRevocation: hasLinkedAppleAccount(user),
+      }),
+    );
+  });
+
   app.get('/api/assets', async c => {
     const network = normalizeNetwork(c.req.query('network'));
     const assets = await getSupportedAssets(c.env, network, {
@@ -681,9 +734,7 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
 
     if (identityToken) {
       const user = await timing.time('privy_user', () =>
-        getPrivyClient(c.env).users().get({
-          id_token: identityToken,
-        }),
+        getPrivyUserFromIdentityToken(c.env, identityToken),
       );
       const email = getEmailFromPrivyUser(user);
 
@@ -778,9 +829,7 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     let email = normalizeEmail(body.email);
 
     if (identityToken) {
-      const user = await getPrivyClient(c.env).users().get({
-        id_token: identityToken,
-      });
+      const user = await getPrivyUserFromIdentityToken(c.env, identityToken);
 
       email = getEmailFromPrivyUser(user);
     }
@@ -818,9 +867,7 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
       throw makeError('Missing Privy login token', 401);
     }
 
-    const user = await getPrivyClient(c.env).users().get({
-      id_token: identityToken,
-    });
+    const user = await getPrivyUserFromIdentityToken(c.env, identityToken);
     const email = getEmailFromPrivyUser(user);
 
     if (!isEmailLike(email)) {

@@ -354,7 +354,7 @@ export function AssetDetailScreen({
             </LineChart.Provider>
           ) : chartLoading ? (
             <ChartSkeleton />
-          ) : wallet.isReviewMode ? (
+          ) : !wallet.isMainnet ? (
             <PressScale
               disabled={wallet.isBusy}
               onPress={() => {
@@ -410,7 +410,7 @@ export function AssetDetailScreen({
             >
               <Text style={styles.buyButtonText}>Enable Crypto</Text>
             </PressScale>
-          ) : wallet.isReviewMode ? (
+          ) : !wallet.isMainnet ? (
             <PressScale
               disabled={wallet.isBusy}
               onPress={() => {

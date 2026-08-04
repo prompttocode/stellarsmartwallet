@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import ReactNativeBiometrics from 'react-native-biometrics';
 import {
   useIdentityToken,
   useLoginWithEmail,
   useLoginWithOAuth,
+  useOAuthTokens,
   usePrivy,
 } from '@privy-io/expo';
 import {
@@ -79,6 +81,7 @@ import {
 } from './wallet/assets';
 import {
   ASSETS_CACHE_TTL_MS,
+  APPLE_OAUTH_TOKEN_STORAGE_KEY,
   DEFAULT_KYC,
   DEFAULT_NETWORK,
   IMPORT_WALLET_TIMEOUT_MS,
@@ -270,6 +273,29 @@ export function useWallet() {
     },
   });
   const { login: loginWithOAuth, state: oauthState } = useLoginWithOAuth();
+  useOAuthTokens({
+    onOAuthTokenGrant: tokens => {
+      if (String(tokens.provider || '').toLowerCase() !== 'apple') {
+        return;
+      }
+
+      const token = tokens.refresh_token || tokens.access_token;
+
+      if (!token) {
+        return;
+      }
+
+      SecureStore.setItemAsync(
+        APPLE_OAUTH_TOKEN_STORAGE_KEY,
+        JSON.stringify({
+          token,
+          tokenTypeHint: tokens.refresh_token
+            ? 'refresh_token'
+            : 'access_token',
+        }),
+      ).catch(() => undefined);
+    },
+  });
   const { createWallet: createPrivyExtendedWallet } = useCreateExtendedWallet();
   const { signRawHash } = useSignRawHash();
 
@@ -297,7 +323,9 @@ export function useWallet() {
         api<AssetsResponse>(`/api/assets?network=${requestNetwork}`),
         reviewModeAtRequest
           ? Promise.resolve({ providers: [] } as RampProvidersResponse)
-          : api<RampProvidersResponse>('/api/ramp/providers'),
+          : api<RampProvidersResponse>(
+              `/api/ramp/providers?network=${requestNetwork}`,
+            ),
         reviewModeAtRequest
           ? Promise.resolve(null)
           : api<WalletConnectConfig>('/api/walletconnect/config'),
@@ -1456,6 +1484,54 @@ export function useWallet() {
     });
   }
 
+  async function loginWithApple() {
+    await run('Sign in with Apple', async () => {
+      if (user) {
+        await signOutAndClearWalletSession();
+      }
+
+      let oauthUser: Awaited<ReturnType<typeof loginWithOAuth>>;
+
+      try {
+        oauthUser = await loginWithOAuth({
+          provider: 'apple',
+          redirectUri: '/',
+        });
+      } catch (error) {
+        const reason = getErrorMessage(error);
+
+        if (/cancel/i.test(reason)) {
+          setMessage('Sign in with Apple was cancelled.');
+          return false;
+        }
+
+        throw error;
+      }
+
+      const identityToken = await getTokenWithRetry(getIdentityToken);
+
+      if (!oauthUser && !identityToken) {
+        setMessage('Sign in with Apple was cancelled.');
+        return false;
+      }
+
+      const oauthEmail = getEmailFromPrivyUser(oauthUser);
+
+      setCode('');
+      setCodeSent(false);
+      await finishPrivySession(
+        identityToken || undefined,
+        oauthEmail,
+        network,
+        {
+          privyUser: oauthUser || user,
+        },
+      );
+
+      return true;
+    });
+  }
+
   async function startReviewMode() {
     return run('Opening Testnet demo', async () => {
       const reviewGeneration = sessionGenerationRef.current + 1;
@@ -1995,10 +2071,12 @@ export function useWallet() {
       }
 
       await ensureWalletTrustline('USDC', usdc.assetIssuer);
+      const headers = await getAuthHeaders(true);
 
       const result = await api<SwapResult>(
         '/api/stellar/testnet/swap/execute',
         {
+          headers,
           method: 'POST',
           body: JSON.stringify({
             accountId: account.id,
@@ -2272,11 +2350,13 @@ export function useWallet() {
     fromAssetCode: string;
     toAssetCode: string;
   }) {
-    if (!wallet) {
+    if (!account || !wallet) {
       return null;
     }
 
     return run(`Quote ${fromAssetCode}`, async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
       const fromAsset = visibleAssets.find(
         asset => asset.assetCode === fromAssetCode,
       );
@@ -2325,11 +2405,15 @@ export function useWallet() {
 
       return api<SwapQuoteResult>(`/api/stellar/${network}/swap/quote`, {
         method: 'POST',
+        headers,
         body: JSON.stringify({
+          accountId: account.id,
           amount: amountCheck.normalized,
+          email: account.email,
           fromAssetCode,
           fromAssetIssuer: fromAsset?.assetIssuer || null,
           sourceAddress: wallet.address,
+          sourceWalletId: wallet.id,
           toAssetCode,
           toAssetIssuer: toAsset?.assetIssuer || null,
         }),
@@ -2374,7 +2458,7 @@ export function useWallet() {
 
     return run(`Swap ${fromAssetCode}`, async () => {
       requireFreshServerSession();
-      const headers = await getAuthHeaders(isMainnet);
+      const headers = await getAuthHeaders(true);
       const fromAsset = visibleAssets.find(
         asset => asset.assetCode === fromAssetCode,
       );
@@ -2950,10 +3034,16 @@ export function useWallet() {
     assetCode: RampAssetCode;
     direction: RampDirection;
   }) {
+    if (!account || !wallet) {
+      return null;
+    }
+
     return run(
       `Quote ${direction}`,
       async () => {
         requireStandardMode('VND buy and sell');
+        requireFreshServerSession();
+        const headers = await getAuthHeaders(true);
         const amountCheck = validateStellarAmount(rampAmount, 'Ramp amount');
 
         if (!amountCheck.valid) {
@@ -2964,10 +3054,15 @@ export function useWallet() {
           '/api/ramp/quote',
           {
             method: 'POST',
+            headers,
             body: JSON.stringify({
               amount: amountCheck.normalized,
               assetCode,
               direction,
+              email: account.email,
+              network,
+              sourceAddress: wallet.address,
+              sourceWalletId: wallet.id,
             }),
           },
         );
@@ -3444,6 +3539,67 @@ export function useWallet() {
     await signOutAndClearWalletSession('Signed out.');
   }
 
+  async function deleteAccount() {
+    if (!account) {
+      return false;
+    }
+
+    return run('Deleting account', async () => {
+      requireStandardMode('Account deletion');
+      requireFreshServerSession();
+      await requireBiometric('Confirm permanent account deletion');
+      const headers = await getAuthHeaders(true);
+      const storedAppleToken = await SecureStore.getItemAsync(
+        APPLE_OAUTH_TOKEN_STORAGE_KEY,
+      ).catch(() => null);
+      let appleOAuthToken: string | undefined;
+      let appleTokenTypeHint: 'access_token' | 'refresh_token' | undefined;
+
+      if (storedAppleToken) {
+        try {
+          const parsed = JSON.parse(storedAppleToken) as {
+            token?: string;
+            tokenTypeHint?: string;
+          };
+
+          appleOAuthToken = String(parsed.token || '').trim() || undefined;
+          appleTokenTypeHint =
+            parsed.tokenTypeHint === 'access_token'
+              ? 'access_token'
+              : parsed.tokenTypeHint === 'refresh_token'
+              ? 'refresh_token'
+              : undefined;
+        } catch {
+          appleOAuthToken = undefined;
+        }
+      }
+
+      await api('/api/account', {
+        body: JSON.stringify({
+          appleOAuthToken,
+          appleTokenTypeHint,
+          confirmation: 'DELETE',
+        }),
+        headers,
+        method: 'DELETE',
+      });
+
+      const cacheUserKey = userKey;
+
+      sessionGenerationRef.current += 1;
+      isReviewModeRef.current = false;
+      await logoutPrivy().catch(() => undefined);
+      await clearCachedSessions(cacheUserKey).catch(() => null);
+      await SecureStore.deleteItemAsync(APPLE_OAUTH_TOKEN_STORAGE_KEY).catch(
+        () => undefined,
+      );
+      clearWalletSession('Your account and stored personal data were deleted.');
+      setEmail('');
+
+      return true;
+    });
+  }
+
   async function switchNetwork(nextNetwork: StellarNetwork) {
     if (isReviewModeRef.current && nextNetwork !== 'testnet') {
       showErrorDialog(
@@ -3766,6 +3922,7 @@ export function useWallet() {
     createRampOrder,
     createTestReceiver,
     createWallet,
+    deleteAccount,
     deletePaymentMethod,
     email,
     isRestoringSession: Boolean(user) && (!account || sessionSyncing),
@@ -3783,6 +3940,7 @@ export function useWallet() {
     isReviewMode,
     importWallet,
     kyc,
+    loginWithApple,
     loginWithGoogle,
     loginState,
     loadArchivedWallets,

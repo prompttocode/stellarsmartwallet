@@ -22,6 +22,11 @@ vi.mock("../core", () => {
     createPrivyUser: vi.fn(),
     createSignableStellarWallet: vi.fn(),
     decodeWalletExportChallenge: vi.fn(),
+    deleteAccountPermanently: vi.fn(async () => ({
+      blockchainHistoryRetained: true,
+      deleted: true,
+      providerIdentityDeleted: true,
+    })),
     encryptWalletSecret: vi.fn(),
     findPrivyUserByEmail: vi.fn(),
     friendbotFund: vi.fn(),
@@ -32,6 +37,8 @@ vi.mock("../core", () => {
     getIssuedAsset: vi.fn(),
     getOrCreateSessionAccountByEmail: vi.fn(),
     getPrivyClient: vi.fn(),
+    getPrivyUserFromIdentityToken: vi.fn(),
+    hasLinkedAppleAccount: vi.fn(() => false),
     getStellarServer: vi.fn(),
     getSupportedAssets: vi.fn(async () => []),
     getVisibleWallets: vi.fn(),
@@ -54,6 +61,14 @@ vi.mock("../core", () => {
       email: "user@example.com",
       id: "account-1",
     })),
+    requireAuthenticatedAccount: vi.fn(async () => ({
+      email: "user@example.com",
+      id: "account-1",
+    })),
+    requireAuthenticatedAccountContext: vi.fn(async () => ({
+      account: { email: "user@example.com", id: "account-1" },
+      user: { id: "account-1", linked_accounts: [] },
+    })),
     sanitizeWalletName: (value: unknown) => String(value || "").trim(),
     saveAccount: vi.fn(),
     saveContact: vi.fn(),
@@ -66,11 +81,24 @@ vi.mock("../core", () => {
   };
 });
 
+vi.mock("../exchangeEligibility", () => ({
+  getExchangeEligibility: vi.fn(async () => ({
+    allowed: false,
+    countryCode: null,
+    kycStatus: "not_started",
+    providerId: null,
+    reasonCode: "PROVIDER_NOT_CONFIGURED",
+  })),
+}));
+
 import {
   buildAccountSession,
+  deleteAccountPermanently,
   getVisibleWallets,
   normalizeAccountWallets,
   requireAccountContext,
+  requireAuthenticatedAccount,
+  requireAuthenticatedAccountContext,
   saveAccount,
   stripWalletSecret,
 } from "../core";
@@ -270,6 +298,59 @@ describe("removed debug routes", () => {
     );
 
     expect(response.status).toBe(404);
+  });
+});
+
+describe("account deletion route", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("requires explicit confirmation", async () => {
+    const response = await createApp().request(
+      "/api/account",
+      {
+        body: JSON.stringify({ confirmation: "NO" }),
+        headers: {
+          Authorization: "Bearer test-token",
+          "Content-Type": "application/json",
+        },
+        method: "DELETE",
+      },
+      { DB: createFavoriteDb() }
+    );
+
+    expect(response.status).toBe(400);
+    expect(deleteAccountPermanently).not.toHaveBeenCalled();
+  });
+
+  it("deletes only the authenticated account", async () => {
+    const response = await createApp().request(
+      "/api/account",
+      {
+        body: JSON.stringify({ confirmation: "DELETE" }),
+        headers: {
+          Authorization: "Bearer test-token",
+          "Content-Type": "application/json",
+        },
+        method: "DELETE",
+      },
+      { DB: createFavoriteDb() }
+    );
+
+    expect(response.status).toBe(200);
+    expect(requireAuthenticatedAccountContext).toHaveBeenCalledWith(
+      expect.anything(),
+      "Bearer test-token"
+    );
+    expect(deleteAccountPermanently).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        email: "user@example.com",
+        id: "account-1",
+      }),
+      expect.objectContaining({ requireAppleRevocation: false })
+    );
   });
 });
 

@@ -17,12 +17,26 @@ import {
 export type Env = {
   ADMIN_BOOTSTRAP_PASSWORD?: string;
   ALLOWED_ORIGINS?: string;
+  APPLE_CLIENT_ID?: string;
+  APPLE_KEY_ID?: string;
+  APPLE_SIGNING_KEY?: string;
+  APPLE_TEAM_ID?: string;
   DB: D1Database;
+  EXCHANGE_ALLOWED_COUNTRIES?: string;
+  EXCHANGE_LICENSE_VALID_UNTIL?: string;
+  EXCHANGE_PROVIDER_ID?: string;
+  EXCHANGE_PROVIDER_NAME?: string;
+  EXCHANGE_PROVIDER_STATUS?: string;
+  EXCHANGE_SANDBOX_ENABLED?: string;
+  EXCHANGE_SANDBOX_PROVIDER_ID?: string;
+  EXCHANGE_UK_PROMOTIONS_APPROVED?: string;
+  EXCHANGE_US_PERMISSIONS_VERIFIED?: string;
+  EXCHANGE_VN_PILOT_LICENSE_ID?: string;
   FRIENDBOT_URL: string;
   HORIZON_MAINNET_URL: string;
   HORIZON_TESTNET_URL: string;
   PARTNER_API_KEY?: string;
-  PAYMENT_API_BASE_URL: string;
+  PAYMENT_API_BASE_URL?: string;
   PAYMENT_CALLBACK_URL?: string;
   PAYMENT_PARTNER_APP_KEY?: string;
   PRIVY_APP_ID: string;
@@ -79,6 +93,7 @@ export type AccountKycRecord = {
   accountEmail: string;
   cccdHash?: string | null;
   cccdLast4?: string | null;
+  countryCode?: string | null;
   createdAt?: string;
   dob?: string | null;
   fullName?: string | null;
@@ -90,6 +105,7 @@ export type AccountKycRecord = {
 
 export type KycSummary = {
   cccdLast4?: string;
+  countryCode?: string;
   fullName?: string;
   phone?: string;
   providerUserId?: string;
@@ -628,7 +644,14 @@ export function getEmailFromPrivyUser(user: unknown) {
     const type = String(account.type || '').toLowerCase();
 
     return (
-      ['email', 'google', 'google_oauth', 'oauth'].includes(type) &&
+      [
+        'apple',
+        'apple_oauth',
+        'email',
+        'google',
+        'google_oauth',
+        'oauth',
+      ].includes(type) &&
       getValidEmailCandidate(account.email, account.address)
     );
   });
@@ -638,6 +661,42 @@ export function getEmailFromPrivyUser(user: unknown) {
   const emailAccount = emailLinkedAccount || anyEmailLinkedAccount;
 
   return getValidEmailCandidate(emailAccount?.email, emailAccount?.address);
+}
+
+export async function getPrivyUserFromIdentityToken(
+  env: Env,
+  identityToken: string,
+) {
+  const tokenUser = await getPrivyClient(env).users().get({
+    id_token: identityToken,
+  });
+
+  if (isEmailLike(getEmailFromPrivyUser(tokenUser))) {
+    return tokenUser;
+  }
+
+  const userId = String((tokenUser as { id?: string })?.id || '').trim();
+
+  if (!userId) {
+    return tokenUser;
+  }
+
+  // Apple only supplies the email during first authorization. Privy retains
+  // the linked account, so fetch the full record when the compact identity
+  // token does not contain it on a later login.
+  return getPrivyClient(env).users()._get(userId);
+}
+
+export function hasLinkedAppleAccount(user: unknown) {
+  const value = user as {
+    linked_accounts?: Array<{ type?: string }>;
+    linkedAccounts?: Array<{ type?: string }>;
+  } | null;
+  const linkedAccounts = value?.linked_accounts || value?.linkedAccounts || [];
+
+  return linkedAccounts.some(account =>
+    ['apple', 'apple_oauth'].includes(String(account.type || '').toLowerCase()),
+  );
 }
 
 export async function findPrivyUserByEmail(env: Env, email: string) {
@@ -779,6 +838,108 @@ function bytesToBase64Url(bytes: Uint8Array) {
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/g, '');
+}
+
+function textToBase64Url(value: string) {
+  return bytesToBase64Url(new TextEncoder().encode(value));
+}
+
+function getRequiredAppleConfig(env: Env) {
+  const clientId = String(env.APPLE_CLIENT_ID || '').trim();
+  const keyId = String(env.APPLE_KEY_ID || '').trim();
+  const teamId = String(env.APPLE_TEAM_ID || '').trim();
+  const signingKey = String(env.APPLE_SIGNING_KEY || '')
+    .replace(/\\n/g, '\n')
+    .trim();
+
+  if (!clientId || !keyId || !teamId || !signingKey) {
+    throw makeError('APPLE_REVOCATION_NOT_CONFIGURED', 503);
+  }
+
+  if (
+    !signingKey.startsWith('-----BEGIN PRIVATE KEY-----') ||
+    !signingKey.endsWith('-----END PRIVATE KEY-----')
+  ) {
+    throw makeError('APPLE_SIGNING_KEY_INVALID', 503);
+  }
+
+  return { clientId, keyId, signingKey, teamId };
+}
+
+async function createAppleClientSecret(env: Env) {
+  const { clientId, keyId, signingKey, teamId } = getRequiredAppleConfig(env);
+  const encodedKey = signingKey
+    .replace('-----BEGIN PRIVATE KEY-----', '')
+    .replace('-----END PRIVATE KEY-----', '')
+    .replace(/\s+/g, '');
+  let privateKey: CryptoKey;
+
+  try {
+    privateKey = await crypto.subtle.importKey(
+      'pkcs8',
+      base64ToBytes(encodedKey),
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      false,
+      ['sign'],
+    );
+  } catch {
+    throw makeError('APPLE_SIGNING_KEY_INVALID', 503);
+  }
+
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const header = textToBase64Url(
+    JSON.stringify({ alg: 'ES256', kid: keyId, typ: 'JWT' }),
+  );
+  const payload = textToBase64Url(
+    JSON.stringify({
+      aud: 'https://appleid.apple.com',
+      exp: issuedAt + 300,
+      iat: issuedAt,
+      iss: teamId,
+      sub: clientId,
+    }),
+  );
+  const signingInput = `${header}.${payload}`;
+  const signature = await crypto.subtle.sign(
+    { hash: 'SHA-256', name: 'ECDSA' },
+    privateKey,
+    new TextEncoder().encode(signingInput),
+  );
+
+  return {
+    clientId,
+    clientSecret: `${signingInput}.${bytesToBase64Url(
+      new Uint8Array(signature),
+    )}`,
+  };
+}
+
+export async function revokeAppleAuthorization(
+  env: Env,
+  token: string,
+  tokenTypeHint: 'access_token' | 'refresh_token' = 'refresh_token',
+) {
+  const normalizedToken = String(token || '').trim();
+
+  if (!normalizedToken) {
+    throw makeError('APPLE_REVOCATION_TOKEN_REQUIRED', 409);
+  }
+
+  const { clientId, clientSecret } = await createAppleClientSecret(env);
+  const response = await fetch('https://appleid.apple.com/auth/revoke', {
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      token: normalizedToken,
+      token_type_hint: tokenTypeHint,
+    }),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    throw makeError('APPLE_AUTHORIZATION_REVOCATION_FAILED', 502);
+  }
 }
 
 function base64UrlToBytes(value: string) {
@@ -1224,6 +1385,7 @@ function normalizeKycRow(
     accountEmail,
     cccdHash: row.cccd_hash ? String(row.cccd_hash) : null,
     cccdLast4: row.cccd_last4 ? String(row.cccd_last4) : null,
+    countryCode: row.country_code ? String(row.country_code) : null,
     createdAt: row.created_at ? String(row.created_at) : undefined,
     dob: row.dob ? String(row.dob) : null,
     fullName: row.full_name ? String(row.full_name) : null,
@@ -1241,6 +1403,7 @@ export function summarizeKyc(record?: AccountKycRecord | null): KycSummary {
 
   return {
     ...(record.cccdLast4 ? { cccdLast4: record.cccdLast4 } : null),
+    ...(record.countryCode ? { countryCode: record.countryCode } : null),
     ...(record.fullName ? { fullName: record.fullName } : null),
     ...(record.phone ? { phone: record.phone } : null),
     providerUserId: record.providerUserId,
@@ -1304,11 +1467,12 @@ export async function saveAccountKyc(
        phone,
        cccd_last4,
        cccd_hash,
+       country_code,
        dob,
        created_at,
        updated_at
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(account_email) DO UPDATE SET
        provider_user_id = excluded.provider_user_id,
        status = excluded.status,
@@ -1316,6 +1480,7 @@ export async function saveAccountKyc(
        phone = excluded.phone,
        cccd_last4 = excluded.cccd_last4,
        cccd_hash = excluded.cccd_hash,
+       country_code = excluded.country_code,
        dob = excluded.dob,
        updated_at = excluded.updated_at`,
   )
@@ -1327,6 +1492,7 @@ export async function saveAccountKyc(
       item.phone || null,
       item.cccdLast4 || null,
       item.cccdHash || null,
+      item.countryCode || null,
       item.dob || null,
       existing?.createdAt || now,
       now,
@@ -1344,6 +1510,81 @@ export async function requireVerifiedKyc(env: Env, emailValue: unknown) {
   }
 
   return kyc;
+}
+
+export async function deleteAccountPermanently(
+  env: Env,
+  account: AccountRecord,
+  options: {
+    appleOAuthToken?: string;
+    appleTokenTypeHint?: 'access_token' | 'refresh_token';
+    requireAppleRevocation?: boolean;
+  } = {},
+) {
+  const email = normalizeEmail(account.email);
+  const userId = String(account.id || '').trim();
+
+  if (!isEmailLike(email) || !userId) {
+    throw makeError('Authenticated account identity is incomplete', 409);
+  }
+
+  // Check the local deletion schema before revoking external credentials. This
+  // prevents a missing migration from deleting the Privy identity first and
+  // leaving the user unable to retry removal of local PII.
+  try {
+    const schema = await env.DB.prepare(
+      `SELECT name
+       FROM sqlite_master
+       WHERE type = 'table'
+         AND name IN (
+           'account_exchange_profiles',
+           'account_kyc',
+           'account_payment_methods',
+           'account_favorite_assets',
+           'account_feedback',
+           'ramp_orders',
+           'accounts'
+         )`,
+    ).all<{ name: string }>();
+    const existingTables = new Set(
+      (schema.results || []).map(row => String(row.name || '')),
+    );
+
+    if (existingTables.size !== 7) {
+      throw new Error('Account deletion migration is incomplete');
+    }
+  } catch {
+    throw makeError('ACCOUNT_DELETION_STORAGE_NOT_READY', 503);
+  }
+
+  if (options.requireAppleRevocation) {
+    await revokeAppleAuthorization(
+      env,
+      options.appleOAuthToken || '',
+      options.appleTokenTypeHint,
+    );
+  }
+
+  // Delete the Privy user next so its linked OAuth identities and embedded
+  // wallets can no longer be used to create a new local session.
+  await getPrivyClient(env).users().delete(userId);
+
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM account_exchange_profiles WHERE account_email = ?').bind(email),
+    env.DB.prepare('DELETE FROM account_kyc WHERE account_email = ?').bind(email),
+    env.DB.prepare('DELETE FROM account_payment_methods WHERE account_email = ?').bind(email),
+    env.DB.prepare('DELETE FROM account_favorite_assets WHERE account_email = ?').bind(email),
+    env.DB.prepare('DELETE FROM account_feedback WHERE account_email = ?').bind(email),
+    env.DB.prepare('DELETE FROM ramp_orders WHERE account_email = ?').bind(email),
+    env.DB.prepare('DELETE FROM accounts WHERE email = ?').bind(email),
+  ]);
+
+  return {
+    blockchainHistoryRetained: true,
+    deleted: true,
+    appleAuthorizationRevoked: Boolean(options.requireAppleRevocation),
+    providerIdentityDeleted: true,
+  };
 }
 
 export async function saveContact(
@@ -1525,15 +1766,22 @@ export async function requireAuthenticatedAccount(
   env: Env,
   authorizationHeader: string | undefined,
 ) {
+  return (
+    await requireAuthenticatedAccountContext(env, authorizationHeader)
+  ).account;
+}
+
+export async function requireAuthenticatedAccountContext(
+  env: Env,
+  authorizationHeader: string | undefined,
+) {
   const identityToken = getBearerToken(authorizationHeader, {});
 
   if (!identityToken) {
     throw makeError('Privy session is required for this action', 401);
   }
 
-  const user = await getPrivyClient(env).users().get({
-    id_token: identityToken,
-  });
+  const user = await getPrivyUserFromIdentityToken(env, identityToken);
   const email = getEmailFromPrivyUser(user);
   const userId = String((user as { id?: string })?.id || '');
 
@@ -1547,10 +1795,12 @@ export async function requireAuthenticatedAccount(
     throw makeError('Wallet account not found', 404);
   }
 
-  return saveAccount(env, {
+  const authenticatedAccount = await saveAccount(env, {
     ...account,
     ...(userId ? { id: userId } : null),
   });
+
+  return { account: authenticatedAccount, user };
 }
 
 export async function requireAccountContext(
@@ -1564,9 +1814,7 @@ export async function requireAccountContext(
   let userId = '';
 
   if (identityToken) {
-    const user = await getPrivyClient(env).users().get({
-      id_token: identityToken,
-    });
+    const user = await getPrivyUserFromIdentityToken(env, identityToken);
 
     tokenEmail = getEmailFromPrivyUser(user);
     userId = String((user as { id?: string })?.id || '');
@@ -2684,12 +2932,16 @@ export async function quoteStellarSwap(
     toAssetIssuer?: unknown;
   },
 ) {
+  if (network !== 'testnet') {
+    throw makeError('HORIZON_MAINNET_SWAP_DISABLED', 403);
+  }
+
   const sendAmount = assertAmount(amount);
   const sourceAccount = await loadAccount(env, sourceAddress, network);
 
   if (!sourceAccount) {
     throw makeError(
-      `${network === 'mainnet' ? 'Mainnet' : 'Testnet'} wallet is not active. Deposit XLM before swapping.`,
+      'Testnet wallet is not active. Deposit XLM before swapping.',
       400,
     );
   }

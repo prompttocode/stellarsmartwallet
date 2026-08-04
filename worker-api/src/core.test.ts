@@ -62,6 +62,19 @@ describe('Privy user email parsing', () => {
       }),
     ).toBe('');
   });
+
+  it('uses the private relay address from a linked Apple account', () => {
+    expect(
+      getEmailFromPrivyUser({
+        linked_accounts: [
+          {
+            email: 'abc123@privaterelay.appleid.com',
+            type: 'apple_oauth',
+          },
+        ],
+      }),
+    ).toBe('abc123@privaterelay.appleid.com');
+  });
 });
 
 describe('Stellar payment memo', () => {

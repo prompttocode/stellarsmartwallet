@@ -519,6 +519,7 @@ export function registerKycRoutes(app: Hono<WorkerBindings>) {
         accountEmail: account.email,
         cccdHash: await sha256Hex(idNumber),
         cccdLast4: idNumber ? idNumber.slice(-4) : null,
+        countryCode: 'VN',
         dob: providerUser.dob || null,
         fullName: providerUser.name || null,
         phone: providerUser.phone || phone || null,
@@ -535,6 +536,7 @@ export function registerKycRoutes(app: Hono<WorkerBindings>) {
       return c.json({
         data: {
           cccdLast4: record.cccdLast4 || undefined,
+          countryCode: record.countryCode || undefined,
           fullName: record.fullName || undefined,
           phone: record.phone || undefined,
           providerUserId: record.providerUserId,

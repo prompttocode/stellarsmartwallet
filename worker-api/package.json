@@ -9,7 +9,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "d1:apply:local": "wrangler d1 execute privy_stellar_db --local --file=./schema.sql",
-    "d1:apply:remote": "wrangler d1 execute privy_stellar_db --remote --file=./schema.sql"
+    "d1:apply:remote": "wrangler d1 execute privy_stellar_db --remote --file=./schema.sql",
+    "d1:compliance:local": "wrangler d1 execute privy_stellar_db --local --file=./migrations/0002_exchange_compliance.sql",
+    "d1:compliance:remote": "wrangler d1 execute privy_stellar_db --remote --file=./migrations/0002_exchange_compliance.sql"
   },
   "dependencies": {
     "@privy-io/node": "^0.19.0",

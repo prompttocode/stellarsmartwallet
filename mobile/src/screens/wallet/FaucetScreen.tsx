@@ -11,10 +11,12 @@ import { formatTokenAmount } from '@utils/format';
 
 export function FaucetScreen({
   onBack,
+  onGoToReceive,
   onGoToRamp,
   wallet,
 }: {
   onBack: () => void;
+  onGoToReceive: () => void;
   onGoToRamp: () => void;
   wallet: WalletState;
 }) {
@@ -76,18 +78,18 @@ export function FaucetScreen({
             ? 'Fund this shared wallet with free Testnet assets. No real money is used.'
             : wallet.isMainnet
             ? 'Deposit assets or use VND orders for real XLM and USDC.'
-            : 'Free XLM is for wallet testing. Orders test the payment flow.'}
+            : 'Fund this wallet with free Testnet assets.'}
         </Text>
         <Text style={styles.heroSubtitle}>
           {wallet.isReviewMode
             ? 'Use Friendbot and Testnet USDC to review wallet features safely.'
             : wallet.isMainnet
             ? 'Deposit assets or use VND orders for real XLM and USDC.'
-            : 'Free XLM is for wallet testing. Orders test the payment flow.'}
+            : 'Use Friendbot and Testnet USDC to test wallet features safely.'}
         </Text>
       </View>
 
-      {!wallet.isReviewMode ? (
+      {wallet.isMainnet ? (
         <View style={[styles.receiptCard, styles.heroCard]}>
           <View style={styles.cardTopRow}>
             <View style={styles.heroIcon}>
@@ -97,9 +99,8 @@ export function FaucetScreen({
               <Text style={styles.cardEyebrow}>{networkLabel} orders</Text>
               <Text style={styles.cardTitle}>Buy with VND</Text>
               <Text style={styles.cardText}>
-                {wallet.isMainnet
-                  ? 'Buy XLM or USDC with a bank transfer. Withdraw is available from Home.'
-                  : 'Test the same buy flow as Mainnet with Testnet assets.'}
+                Buy XLM or USDC with a bank transfer. Withdraw is available
+                from Home.
               </Text>
             </View>
           </View>
@@ -122,8 +123,7 @@ export function FaucetScreen({
             <View style={styles.cardCopy}>
               <Text style={styles.cardTitle}>Free Testnet XLM</Text>
               <Text style={styles.cardText}>
-                Use Friendbot to activate the wallet and pay Testnet fees. This
-                does not test the VND order flow.
+                Use Friendbot to activate the wallet and pay Testnet fees.
               </Text>
             </View>
           </View>
@@ -147,9 +147,7 @@ export function FaucetScreen({
           <Text style={styles.cardText}>
             {wallet.isMainnet
               ? 'Send XLM or enabled Stellar assets to this wallet.'
-              : wallet.isReviewMode
-              ? 'Use this address only for Testnet sends and receives.'
-              : 'Use this address for Testnet sends, receives, and order deposits.'}
+              : 'Use this address only for Testnet sends and receives.'}
           </Text>
         </View>
         <View style={styles.qrWrapper}>
@@ -211,8 +209,10 @@ export function FaucetScreen({
               : 'Faucet'
             : needsTrustline
             ? 'Enable'
-            : wallet.isReviewMode
-            ? 'Faucet'
+            : !wallet.isMainnet
+            ? asset.assetCode === 'USDC'
+              ? 'Faucet'
+              : 'Receive'
             : 'Buy';
           const assetText = isXlm
             ? wallet.isMainnet
@@ -220,11 +220,9 @@ export function FaucetScreen({
               : 'Native Testnet asset. Friendbot can fund this for free.'
             : needsTrustline
             ? 'Enable the trustline before receiving this asset.'
-            : wallet.isReviewMode
-            ? 'Enabled for free Testnet funding and Stellar transfers.'
             : wallet.isMainnet
             ? 'Enabled for deposits and VND orders.'
-            : 'Enabled for Testnet orders and Stellar transfers.';
+            : 'Enabled for free Testnet funding and Stellar transfers.';
           const disabled =
             wallet.isBusy ||
             (isXlm
@@ -281,8 +279,12 @@ export function FaucetScreen({
                     }
                   } else if (needsTrustline) {
                     wallet.addTrustline(asset.assetCode, asset.assetIssuer);
-                  } else if (wallet.isReviewMode) {
-                    wallet.fundTestUsdc();
+                  } else if (!wallet.isMainnet) {
+                    if (asset.assetCode === 'USDC') {
+                      wallet.fundTestUsdc();
+                    } else {
+                      onGoToReceive();
+                    }
                   } else {
                     onGoToRamp();
                   }
