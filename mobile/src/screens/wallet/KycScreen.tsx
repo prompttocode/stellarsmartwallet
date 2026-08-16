@@ -1,22 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import {
   Image,
-  PermissionsAndroid,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as ImagePicker from 'expo-image-picker';
 import { Image as ImageCompressor } from 'react-native-compressor';
-import {
-  default as DocumentScanner,
-  ResponseType,
-  ScanDocumentResponseStatus,
-} from 'react-native-document-scanner-plugin';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
   SafeAreaView,
@@ -25,7 +18,6 @@ import {
 import {
   ModernScreenHeader,
   PressScale,
-  useSafeScreenInsetStyle,
 } from '@components/wallet';
 import { useAppPopup } from '@components/common/AppPopup';
 import type { WalletState } from '@hooks/useWallet';
@@ -65,7 +57,7 @@ async function getFileSizeBytes(uri: string) {
   const info = await FileSystem.getInfoAsync(uri);
 
   if (!info.exists || info.isDirectory) {
-    throw new Error('The scanned image file is unavailable.');
+    throw new Error('The selected image file is unavailable.');
   }
 
   return info.size;
@@ -79,7 +71,7 @@ async function deleteTemporaryImage(uri?: string, protectedUri?: string) {
   try {
     await FileSystem.deleteAsync(uri, { idempotent: true });
   } catch {
-    // Temporary scanner files may already have been removed by the OS.
+    // Temporary picker/compression files may already have been removed by the OS.
   }
 }
 
@@ -117,7 +109,7 @@ async function prepareKycImage(sourceUri: string): Promise<PreparedKycImage> {
   if (bestSize > MAX_IMAGE_BYTES) {
     await deleteTemporaryImage(bestUri, sourceUri);
     throw new Error(
-      'The scanned image is still too large. Please scan closer to the card and try again.',
+      'The selected image is still too large. Please choose a clearer, smaller image and try again.',
     );
   }
 
@@ -142,14 +134,13 @@ export function KycScreen({
   wallet: WalletState;
 }) {
   const insets = useSafeAreaInsets();
-  const screenInsetStyle = useSafeScreenInsetStyle();
   const { showPopup } = useAppPopup();
   const [step, setStep] = useState<Step>('intro');
   const [captureSide, setCaptureSide] = useState<CaptureSide>('front');
   const [frontImage, setFrontImage] = useState<PreparedKycImage | null>(null);
   const [backImage, setBackImage] = useState<PreparedKycImage | null>(null);
   const [phone, setPhone] = useState('');
-  const [scanning, setScanning] = useState(false);
+  const [selectingImage, setSelectingImage] = useState(false);
   const [processingImage, setProcessingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const currentImage = captureSide === 'front' ? frontImage : backImage;
@@ -167,7 +158,7 @@ export function KycScreen({
     setCaptureSide('front');
     setFrontImage(null);
     setBackImage(null);
-    setScanning(false);
+    setSelectingImage(false);
     setProcessingImage(false);
     setSubmitting(false);
   }
@@ -196,58 +187,28 @@ export function KycScreen({
     returnToIntro();
   }
 
-  async function requestScannerPermission() {
-    if (Platform.OS !== 'android') {
-      return true;
-    }
-
-    const permission = PermissionsAndroid.PERMISSIONS.CAMERA;
-    const hasPermission = await PermissionsAndroid.check(permission);
-
-    if (hasPermission) {
-      return true;
-    }
-
-    const result = await PermissionsAndroid.request(permission);
-
-    return result === PermissionsAndroid.RESULTS.GRANTED;
-  }
-
-  async function scanSide(side: CaptureSide) {
-    if (scanning) {
+  async function pickSide(side: CaptureSide) {
+    if (selectingImage) {
       return false;
     }
 
-    const hasPermission = await requestScannerPermission();
-
-    if (!hasPermission) {
-      showPopup({
-        message: 'Please allow camera access to scan your ID card.',
-        title: 'Camera permission required',
-        variant: 'warning',
-      });
-      return false;
-    }
-
-    setScanning(true);
+    setSelectingImage(true);
 
     try {
-      const result = await DocumentScanner.scanDocument({
-        croppedImageQuality: 100,
-        maxNumDocuments: 1,
-        responseType: ResponseType.ImageFilePath,
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: false,
+        allowsMultipleSelection: false,
+        mediaTypes: ['images'],
+        quality: 1,
       });
-      const scannedImageUri = result.scannedImages?.[0];
+      const selectedImageUri = result.assets?.[0]?.uri;
 
-      if (
-        result.status === ScanDocumentResponseStatus.Cancel ||
-        !scannedImageUri
-      ) {
+      if (result.canceled || !selectedImageUri) {
         return false;
       }
 
       setProcessingImage(true);
-      const preparedImage = await prepareKycImage(scannedImageUri);
+      const preparedImage = await prepareKycImage(selectedImageUri);
 
       if (side === 'front') {
         setFrontImage(current => {
@@ -273,18 +234,18 @@ export function KycScreen({
         message:
           error instanceof Error
             ? error.message
-            : 'Please try scanning your CCCD again.',
-        title: 'Unable to scan document',
+            : 'Please choose another CCCD image and try again.',
+        title: 'Unable to use image',
         variant: 'danger',
       });
       return false;
     } finally {
       setProcessingImage(false);
-      setScanning(false);
+      setSelectingImage(false);
     }
   }
 
-  async function continueToCamera() {
+  async function continueToPicker() {
     setCaptureSide('front');
     setStep('guide');
   }
@@ -300,7 +261,7 @@ export function KycScreen({
   }
 
   function retakeCurrentPhoto() {
-    scanSide(captureSide).catch(() => null);
+    pickSide(captureSide).catch(() => null);
   }
 
   async function submitKyc() {
@@ -336,18 +297,18 @@ export function KycScreen({
               deleteTemporaryImage(backImage?.uri).catch(() => null);
               setFrontImage(null);
               setBackImage(null);
-              scanSide('front').catch(() => null);
+              pickSide('front').catch(() => null);
             },
-            text: 'Retake front',
+            text: 'Choose front again',
           },
           {
             onPress: () => {
               setCaptureSide('back');
               deleteTemporaryImage(backImage?.uri).catch(() => null);
               setBackImage(null);
-              scanSide('back').catch(() => null);
+              pickSide('back').catch(() => null);
             },
-            text: 'Retake back',
+            text: 'Choose back again',
           },
         ],
         message:
@@ -379,8 +340,8 @@ export function KycScreen({
             {verified ? 'Identity verified' : 'Verify your CCCD'}
           </Text>
           <Text style={styles.heroText}>
-            Capture the front and back of your Vietnamese ID card. Keep all four
-            corners visible and avoid glare.
+            Choose clear front and back photos of your Vietnamese ID card. The
+            system picker only shares the photos you select with this app.
           </Text>
         </View>
 
@@ -411,7 +372,7 @@ export function KycScreen({
 
         <PressScale
           disabled={wallet.isBusy || submitting}
-          onPress={continueToCamera}
+          onPress={continueToPicker}
           style={[styles.primaryButton, styles.primaryButtonStretch]}
         >
           <Text style={styles.primaryButtonText}>
@@ -438,7 +399,7 @@ export function KycScreen({
         <ModernScreenHeader
           onBack={handleCaptureBack}
           subtitle={`Step ${isFront ? '1' : '2'} of 2`}
-          title={`Scan ${sideLabel(captureSide)}`}
+          title={`Choose ${sideLabel(captureSide)}`}
         />
 
         <View style={styles.guideMain}>
@@ -475,9 +436,9 @@ export function KycScreen({
 
           <View style={[styles.checklistCard, styles.guideChecklist]}>
             {[
-              'Scan only this side of the CCCD.',
+              'Choose a photo showing only this side of the CCCD.',
               'Keep all four corners visible and avoid glare.',
-              'Tap Save or the checkmark after capture.',
+              'The image will be compressed before upload.',
             ].map(item => (
               <View key={item} style={[styles.checkRow, styles.guideCheckRow]}>
                 <Ionicons color="#B8FF45" name="checkmark-circle" size={19} />
@@ -488,16 +449,16 @@ export function KycScreen({
         </View>
 
         <PressScale
-          disabled={scanning}
-          onPress={() => scanSide(captureSide)}
+          disabled={selectingImage}
+          onPress={() => pickSide(captureSide)}
           style={[styles.primaryButton, styles.primaryButtonStretch]}
         >
           <Text style={styles.primaryButtonText}>
             {processingImage
               ? 'Optimizing image...'
-              : scanning
-              ? 'Opening scanner...'
-              : `Scan ${sideLabel(captureSide)}`}
+              : selectingImage
+              ? 'Opening photo picker...'
+              : `Choose ${sideLabel(captureSide)}`}
           </Text>
         </PressScale>
       </View>
@@ -512,7 +473,7 @@ export function KycScreen({
         </PressScale>
         <View style={styles.cameraHeaderCopy}>
           <Text numberOfLines={1} style={styles.cameraTitle}>
-            Capture {sideLabel(captureSide)}
+            Review {sideLabel(captureSide)}
           </Text>
           <Text style={styles.cameraSubtitle}>{sideHint(captureSide)}</Text>
         </View>
@@ -541,25 +502,25 @@ export function KycScreen({
           </View>
         ) : (
           <View style={styles.cameraFallback}>
-            <Ionicons color="#B8FF45" name="scan-outline" size={42} />
+            <Ionicons color="#B8FF45" name="images-outline" size={42} />
             <Text style={styles.cameraFallbackTitle}>
-              Scan {sideLabel(captureSide)}
+              Choose {sideLabel(captureSide)}
             </Text>
             <Text style={styles.cameraFallbackText}>
-              The scanner will detect the CCCD edges and correct perspective
-              automatically.
+              Android's system photo picker lets you share only the image you
+              select.
             </Text>
             <PressScale
-              disabled={scanning}
-              onPress={() => scanSide(captureSide)}
+              disabled={selectingImage}
+              onPress={() => pickSide(captureSide)}
               style={[styles.primaryButton, styles.scanAgainButton]}
             >
               <Text style={styles.primaryButtonText}>
                 {processingImage
                   ? 'Optimizing image...'
-                  : scanning
-                  ? 'Opening scanner...'
-                  : 'Open scanner'}
+                  : selectingImage
+                  ? 'Opening photo picker...'
+                  : 'Choose image'}
               </Text>
             </PressScale>
           </View>
@@ -586,24 +547,24 @@ export function KycScreen({
         {currentPreviewUri ? (
           <View style={styles.actionRow}>
             <Pressable
-              disabled={scanning || submitting}
+              disabled={selectingImage || submitting}
               onPress={retakeCurrentPhoto}
               style={({ pressed }) => [
                 styles.actionButtonSlot,
-                scanning || submitting ? styles.disabledButton : null,
+                selectingImage || submitting ? styles.disabledButton : null,
                 pressed ? styles.pressedButton : null,
               ]}
             >
               <View style={styles.secondaryButton}>
-                <Text style={styles.secondaryButtonText}>Retake</Text>
+                <Text style={styles.secondaryButtonText}>Choose another</Text>
               </View>
             </Pressable>
             <Pressable
-              disabled={scanning || submitting || wallet.isBusy}
+              disabled={selectingImage || submitting || wallet.isBusy}
               onPress={acceptCurrentPhoto}
               style={({ pressed }) => [
                 styles.actionButtonSlot,
-                scanning || submitting || wallet.isBusy
+                selectingImage || submitting || wallet.isBusy
                   ? styles.disabledButton
                   : null,
                 pressed ? styles.pressedButton : null,
@@ -612,8 +573,8 @@ export function KycScreen({
               <View style={styles.primaryButton}>
                 <Text style={styles.primaryButtonText}>
                   {captureSide === 'front'
-                    ? scanning
-                      ? 'Opening scanner...'
+                    ? selectingImage
+                      ? 'Opening photo picker...'
                       : 'Use front'
                     : submitting || wallet.isBusy
                     ? 'Submitting...'

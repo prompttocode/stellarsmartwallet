@@ -1,4 +1,4 @@
-package com.privy
+package com.orbitlabs.wallet
 
 import android.app.Application
 import com.facebook.react.PackageList

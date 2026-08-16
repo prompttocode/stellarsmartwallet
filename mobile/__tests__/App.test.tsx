@@ -98,18 +98,6 @@ jest.mock('react-native-compressor', () => ({
   },
 }));
 
-jest.mock('react-native-document-scanner-plugin', () => ({
-  __esModule: true,
-  default: {
-    scanDocument: jest.fn(async () => ({
-      scannedImages: [],
-      status: 'cancel',
-    })),
-  },
-  ResponseType: { ImageFilePath: 'imageFilePath' },
-  ScanDocumentResponseStatus: { Cancel: 'cancel' },
-}));
-
 jest.mock('react-native-wagmi-charts', () => {
   const ReactModule = require('react');
   const { Text, View } = require('react-native');

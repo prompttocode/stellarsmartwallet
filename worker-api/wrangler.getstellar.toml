@@ -1,6 +1,7 @@
 name = "privy-stellar-api"
 main = "src/index.ts"
-compatibility_date = "2026-06-09"
+account_id = "6ab2bd645067bae0cb1222bd29a72642"
+compatibility_date = "2026-08-14"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
@@ -11,6 +12,7 @@ FRIENDBOT_URL = "https://friendbot.stellar.org"
 PAYMENT_API_BASE_URL = "https://payment-api.dev.seerbot.io"
 PAYMENT_CALLBACK_URL = "https://api.getstellar.shop/api/ramp/callback"
 WALLETCONNECT_PROJECT_ID = "9e31081a2d372a24f298a798a291ee67"
+PRIVY_APP_ID = "cmpi5182800mh0cjslqv5fgxt"
 
 [observability]
 enabled = true
@@ -19,4 +21,8 @@ head_sampling_rate = 1
 [[d1_databases]]
 binding = "DB"
 database_name = "privy_stellar_db"
-database_id = "582ba8ad-9a77-4330-a5f1-9b15afae4401"
+database_id = "6a5d20a8-8909-4659-bc04-aca2ea08cf5d"
+
+[[routes]]
+pattern = "api.getstellar.shop"
+custom_domain = true

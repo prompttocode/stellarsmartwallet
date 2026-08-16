@@ -2,7 +2,7 @@
 // API_BASE_URL is your backend server URL, not Stellar Horizon.
 // For local device testing, use your computer LAN IP, e.g. http://192.168.x.x:8787.
 // For production, use your deployed backend URL, e.g. https://api.your-domain.com.
-export const API_BASE_URL = 'https://privy-stellar-api.namvu3121.workers.dev';
+export const API_BASE_URL = 'https://api.getstellar.shop';
 
 // The product owner currently uses this document for both legal labels.
 // Replace TERMS_OF_SERVICE_URL with a dedicated Terms document before review.
