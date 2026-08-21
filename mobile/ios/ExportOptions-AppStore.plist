@@ -12,8 +12,8 @@
   <string>NJ63T783L2</string>
   <key>provisioningProfiles</key>
   <dict>
-    <key>com.orbitlab.stellar</key>
-    <string>Stellar Smart Wallet</string>
+    <key>com.orbitlabs.wallet</key>
+    <string>OrbitWallet — Stellar Finance</string>
   </dict>
 </dict>
 </plist>

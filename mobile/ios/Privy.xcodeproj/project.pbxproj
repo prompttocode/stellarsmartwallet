@@ -315,7 +315,7 @@
 				CODE_SIGN_ENTITLEMENTS = Privy/Privy.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = NVT68TF9A4;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Privy/Info.plist;
@@ -353,12 +353,10 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Privy/Privy.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
+				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 4;
-				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = NJ63T783L2;
+				CURRENT_PROJECT_VERSION = 5;
+				DEVELOPMENT_TEAM = NJ63T783L2;
 				INFOPLIST_FILE = Privy/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
@@ -373,10 +371,9 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
-				PRODUCT_BUNDLE_IDENTIFIER = com.orbitlab.stellar;
+				PRODUCT_BUNDLE_IDENTIFIER = com.orbitlabs.wallet;
 				PRODUCT_NAME = Privy;
-				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "Stellar Smart Wallet";
+				PROVISIONING_PROFILE_SPECIFIER = "OrbitWallet — Stellar Finance";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
