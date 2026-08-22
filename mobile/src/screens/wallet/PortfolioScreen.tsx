@@ -137,9 +137,7 @@ export function PortfolioScreen({
     valuation.positiveAssetCount > 0 && valuation.pricedAssetCount === 0
       ? '***'
       : formattedPortfolioValue;
-  const portfolioNote = wallet.isReviewMode
-    ? 'Review mode · Shared Testnet assets · No real money'
-    : !wallet.isMainnet
+  const portfolioNote = !wallet.isMainnet
     ? valuation.pricedAssetCount > 0
       ? 'Reference market price only'
       : 'Waiting for reference market prices'
@@ -152,15 +150,6 @@ export function PortfolioScreen({
     : 'Waiting for market prices';
 
   function faucetAsset(assetCode: string) {
-    if (wallet.isReviewMode) {
-      if (assetCode === 'XLM') {
-        wallet.fundWallet();
-      } else {
-        onGoToFaucet();
-      }
-      return;
-    }
-
     if (wallet.isMainnet) {
       if (assetCode === 'XLM') {
         onGoToFaucet();
@@ -196,16 +185,6 @@ export function PortfolioScreen({
   }
 
   function confirmNetworkSwitch() {
-    if (wallet.isReviewMode) {
-      showPopup({
-        message:
-          'Review mode is locked to Stellar Testnet. All assets shown here are test assets with no real value.',
-        title: 'Testnet review mode',
-        variant: 'info',
-      });
-      return;
-    }
-
     const nextNetwork = wallet.isMainnet ? 'Testnet' : 'Mainnet';
 
     showPopup({
@@ -282,30 +261,14 @@ export function PortfolioScreen({
           onNetworkPress={confirmNetworkSwitch}
           onScan={onGoToScan}
           onSearch={onGoToAssetSearch}
-          onWalletPress={() => {
-            if (wallet.isReviewMode) {
-              showPopup({
-                message:
-                  'This is a fixed shared Testnet wallet. Wallet management is disabled for reviewers.',
-                title: 'Review wallet',
-                variant: 'info',
-              });
-              return;
-            }
-
-            setIsWalletModalVisible(true);
-          }}
+          onWalletPress={() => setIsWalletModalVisible(true)}
           network={wallet.network}
           portfolioNote={portfolioNote}
           portfolioValue={portfolioValue}
           portfolioValueLoading={loading}
           walletLoading={showWalletSetupLoading}
           walletLoadingLabel={walletLoadingLabel}
-          walletName={
-            wallet.isReviewMode
-              ? 'App Review Wallet'
-              : wallet.wallet?.displayName
-          }
+          walletName={wallet.wallet?.displayName}
         >
           {showWalletSetupLoading ? (
             <WalletSetupNotice
@@ -565,13 +528,11 @@ export function PortfolioScreen({
         </View>
       </ScrollView>
 
-      {!wallet.isReviewMode ? (
-        <WalletManagerModal
-          visible={isWalletModalVisible}
-          onClose={() => setIsWalletModalVisible(false)}
-          walletState={wallet}
-        />
-      ) : null}
+      <WalletManagerModal
+        visible={isWalletModalVisible}
+        onClose={() => setIsWalletModalVisible(false)}
+        walletState={wallet}
+      />
     </View>
   );
 }

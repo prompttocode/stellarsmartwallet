@@ -517,13 +517,22 @@ export function registerKycRoutes(app: Hono<WorkerBindings>) {
 
       const record = await saveAccountKyc(c.env, {
         accountEmail: account.email,
+        address: providerUser.address || null,
         cccdHash: await sha256Hex(idNumber),
         cccdLast4: idNumber ? idNumber.slice(-4) : null,
+        cccdNumber: idNumber || null,
         countryCode: 'VN',
         dob: providerUser.dob || null,
         fullName: providerUser.name || null,
+        home: providerUser.home || null,
+        kycImageBack: providerUser.kyc_image_back || null,
+        kycImageFront: providerUser.kyc_image_front || null,
+        nationality: providerUser.nationality || null,
         phone: providerUser.phone || phone || null,
+        providerData: providerUser as Record<string, unknown>,
+        providerEmail: providerUser.email || null,
         providerUserId,
+        sex: providerUser.sex || null,
       });
 
       kycLog('info', 'kyc.completed', {

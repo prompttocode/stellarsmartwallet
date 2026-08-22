@@ -299,6 +299,50 @@ describe("removed debug routes", () => {
 
     expect(response.status).toBe(404);
   });
+
+  it.each([
+    "/api/demo/session",
+    "/api/demo/auth-session",
+    "/api/demo/account",
+    "/api/demo/receiver",
+  ])("does not expose %s", async (path) => {
+    const response = await createApp().request(
+      path,
+      {
+        body: JSON.stringify({ email: "review@example.com", network: "testnet" }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+      },
+      { DB: createFavoriteDb() }
+    );
+
+    expect(response.status).toBe(404);
+  });
+});
+
+describe("wallet session authentication", () => {
+  it.each(["/api/session", "/api/session/status"])(
+    "requires a Privy identity token for %s",
+    async (path) => {
+      const response = await createApp().request(
+        path,
+        {
+          body: JSON.stringify({
+            email: "review@example.com",
+            network: "testnet",
+          }),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+        },
+        { DB: createFavoriteDb() }
+      );
+
+      expect(response.status).toBe(401);
+      await expect(response.json()).resolves.toEqual({
+        error: "Missing Privy login token",
+      });
+    }
+  );
 });
 
 describe("account deletion route", () => {

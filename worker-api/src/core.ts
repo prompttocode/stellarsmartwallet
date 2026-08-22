@@ -91,14 +91,23 @@ export type KycStatus = 'not_started' | 'verified';
 
 export type AccountKycRecord = {
   accountEmail: string;
+  address?: string | null;
   cccdHash?: string | null;
   cccdLast4?: string | null;
+  cccdNumber?: string | null;
   countryCode?: string | null;
   createdAt?: string;
   dob?: string | null;
   fullName?: string | null;
+  home?: string | null;
+  kycImageBack?: string | null;
+  kycImageFront?: string | null;
+  nationality?: string | null;
   phone?: string | null;
+  providerData?: Record<string, unknown> | null;
+  providerEmail?: string | null;
   providerUserId: string;
+  sex?: string | null;
   status: 'verified';
   updatedAt?: string;
 };
@@ -1383,14 +1392,28 @@ function normalizeKycRow(
 
   return {
     accountEmail,
+    address: row.address ? String(row.address) : null,
     cccdHash: row.cccd_hash ? String(row.cccd_hash) : null,
     cccdLast4: row.cccd_last4 ? String(row.cccd_last4) : null,
+    cccdNumber: row.cccd_number ? String(row.cccd_number) : null,
     countryCode: row.country_code ? String(row.country_code) : null,
     createdAt: row.created_at ? String(row.created_at) : undefined,
     dob: row.dob ? String(row.dob) : null,
     fullName: row.full_name ? String(row.full_name) : null,
+    home: row.home ? String(row.home) : null,
+    kycImageBack: row.kyc_image_back ? String(row.kyc_image_back) : null,
+    kycImageFront: row.kyc_image_front ? String(row.kyc_image_front) : null,
+    nationality: row.nationality ? String(row.nationality) : null,
     phone: row.phone ? String(row.phone) : null,
+    providerData: row.provider_data
+      ? jsonParse<Record<string, unknown> | null>(
+          String(row.provider_data),
+          null,
+        )
+      : null,
+    providerEmail: row.provider_email ? String(row.provider_email) : null,
     providerUserId,
+    sex: row.sex ? String(row.sex) : null,
     status: 'verified',
     updatedAt: row.updated_at ? String(row.updated_at) : undefined,
   };
@@ -1465,23 +1488,41 @@ export async function saveAccountKyc(
        status,
        full_name,
        phone,
+       cccd_number,
        cccd_last4,
        cccd_hash,
        country_code,
        dob,
+       provider_email,
+       address,
+       home,
+       sex,
+       nationality,
+       kyc_image_front,
+       kyc_image_back,
+       provider_data,
        created_at,
        updated_at
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(account_email) DO UPDATE SET
        provider_user_id = excluded.provider_user_id,
        status = excluded.status,
        full_name = excluded.full_name,
        phone = excluded.phone,
+       cccd_number = excluded.cccd_number,
        cccd_last4 = excluded.cccd_last4,
        cccd_hash = excluded.cccd_hash,
        country_code = excluded.country_code,
        dob = excluded.dob,
+       provider_email = excluded.provider_email,
+       address = excluded.address,
+       home = excluded.home,
+       sex = excluded.sex,
+       nationality = excluded.nationality,
+       kyc_image_front = excluded.kyc_image_front,
+       kyc_image_back = excluded.kyc_image_back,
+       provider_data = excluded.provider_data,
        updated_at = excluded.updated_at`,
   )
     .bind(
@@ -1490,10 +1531,19 @@ export async function saveAccountKyc(
       item.status,
       item.fullName || null,
       item.phone || null,
+      item.cccdNumber || null,
       item.cccdLast4 || null,
       item.cccdHash || null,
       item.countryCode || null,
       item.dob || null,
+      item.providerEmail || null,
+      item.address || null,
+      item.home || null,
+      item.sex || null,
+      item.nationality || null,
+      item.kycImageFront || null,
+      item.kycImageBack || null,
+      item.providerData ? JSON.stringify(item.providerData) : null,
       existing?.createdAt || now,
       now,
     )

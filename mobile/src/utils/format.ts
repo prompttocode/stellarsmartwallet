@@ -44,7 +44,7 @@ export function getErrorMessage(error: unknown) {
     SANCTIONS_REVIEW:
       'Your exchange access is pending compliance review.',
     SANDBOX_PROVIDER_NOT_CONFIGURED:
-      'The partner sandbox is not configured for Testnet review.',
+      'The partner sandbox is not configured for Testnet transactions.',
     SWAP_PROVIDER_ADAPTER_NOT_IMPLEMENTED:
       'Mainnet Swap is unavailable until the licensed provider integration is complete.',
     UK_PROMOTIONS_NOT_APPROVED:

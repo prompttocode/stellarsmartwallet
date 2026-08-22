@@ -164,7 +164,7 @@ export function AssetDetailScreen({
   const { data: chartData, loading: chartLoading } = useHistoricalPrice(
     asset,
     timeframe,
-    !wallet.isReviewMode,
+    true,
   );
   const [favoriteNotice, setFavoriteNotice] = useState<string | null>(null);
 
@@ -250,19 +250,17 @@ export function AssetDetailScreen({
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </PressScale>
         <View style={styles.headerRight}>
-          {!wallet.isReviewMode ? (
-            <PressScale
-              disabled={wallet.isBusy}
-              onPress={toggleFavorite}
-              style={styles.headerIconBtn}
-            >
-              <Ionicons
-                name={isFavorite ? 'star' : 'star-outline'}
-                size={22}
-                color={isFavorite ? '#FFD60A' : '#FFFFFF'}
-              />
-            </PressScale>
-          ) : null}
+          <PressScale
+            disabled={wallet.isBusy}
+            onPress={toggleFavorite}
+            style={styles.headerIconBtn}
+          >
+            <Ionicons
+              name={isFavorite ? 'star' : 'star-outline'}
+              size={22}
+              color={isFavorite ? '#FFD60A' : '#FFFFFF'}
+            />
+          </PressScale>
           <PressScale onPress={shareAsset} style={styles.headerIconBtn}>
             <Ionicons name="share-social-outline" size={22} color="#FFFFFF" />
           </PressScale>

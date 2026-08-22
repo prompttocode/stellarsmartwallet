@@ -360,8 +360,7 @@ export function WalletConnectProvider({
 
   walletRef.current = wallet;
 
-  const configured =
-    !wallet.isReviewMode && Boolean(wallet.walletConnectConfig?.projectId);
+  const configured = Boolean(wallet.walletConnectConfig?.projectId);
   const activeRequestEvent = requestQueue[0] || null;
 
   const refreshSessions = useCallback((nextClient = clientRef.current) => {
@@ -400,10 +399,6 @@ export function WalletConnectProvider({
       const expectedAccount = currentWallet.wallet?.address
         ? getAccountId(currentWallet.network, currentWallet.wallet.address)
         : '';
-
-      if (currentWallet.isReviewMode) {
-        return false;
-      }
 
       if (!isSupportedMethod(method)) {
         await respondWithError(
@@ -459,7 +454,7 @@ export function WalletConnectProvider({
   useEffect(() => {
     const projectId = wallet.walletConnectConfig?.projectId;
 
-    if (wallet.isReviewMode || !projectId) {
+    if (!projectId) {
       pendingPairUriRef.current = null;
       clientRef.current = null;
       setClient(null);
@@ -609,7 +604,6 @@ export function WalletConnectProvider({
     refreshSessions,
     showPopup,
     validateRequest,
-    wallet.isReviewMode,
     wallet.walletConnectConfig?.projectId,
   ]);
 
@@ -617,17 +611,6 @@ export function WalletConnectProvider({
     async (uri: string) => {
       const currentWallet = walletRef.current;
       const normalizedUri = uri.trim();
-
-      if (currentWallet.isReviewMode) {
-        pendingPairUriRef.current = null;
-        showPopup({
-          message:
-            'WalletConnect is disabled for the shared Testnet review wallet.',
-          title: 'Unavailable in review mode',
-          variant: 'warning',
-        });
-        return false;
-      }
 
       if (!normalizedUri.startsWith('wc:')) {
         showPopup({
@@ -691,10 +674,6 @@ export function WalletConnectProvider({
   );
 
   useEffect(() => {
-    if (wallet.isReviewMode) {
-      return undefined;
-    }
-
     function handleUrl(url: string) {
       const uri = extractWalletConnectUri(url);
 
@@ -715,13 +694,9 @@ export function WalletConnectProvider({
     );
 
     return () => subscription.remove();
-  }, [pair, wallet.isReviewMode]);
+  }, [pair]);
 
   useEffect(() => {
-    if (wallet.isReviewMode) {
-      return undefined;
-    }
-
     function handleAppState(nextState: AppStateStatus) {
       if (nextState === 'active') {
         refreshSessions();
@@ -731,13 +706,9 @@ export function WalletConnectProvider({
     const subscription = AppState.addEventListener('change', handleAppState);
 
     return () => subscription.remove();
-  }, [refreshSessions, wallet.isReviewMode]);
+  }, [refreshSessions]);
 
   useEffect(() => {
-    if (wallet.isReviewMode) {
-      return;
-    }
-
     const nextClient = clientRef.current;
 
     if (!nextClient) {
@@ -772,7 +743,6 @@ export function WalletConnectProvider({
   }, [
     refreshSessions,
     wallet.account,
-    wallet.isReviewMode,
     wallet.network,
     wallet.wallet?.address,
     wallet.wallet?.canSign,
@@ -783,7 +753,7 @@ export function WalletConnectProvider({
     const event = activeRequestEvent;
     const nextClient = clientRef.current;
 
-    if (wallet.isReviewMode || !event || !nextClient) {
+    if (!event || !nextClient) {
       setRequestReview(null);
       setReviewError(null);
       reviewingKeyRef.current = null;
@@ -837,10 +807,10 @@ export function WalletConnectProvider({
         reviewingKeyRef.current = null;
       }
     };
-  }, [activeRequestEvent, wallet.isReviewMode]);
+  }, [activeRequestEvent]);
 
   const proposal = useMemo<WalletConnectProposalView | null>(() => {
-    if (wallet.isReviewMode || !proposalData) {
+    if (!proposalData) {
       return null;
     }
 
@@ -854,10 +824,10 @@ export function WalletConnectProvider({
       name: metadata.name || 'Unknown dApp',
       url: metadata.url || '',
     };
-  }, [proposalData, wallet.isReviewMode]);
+  }, [proposalData]);
 
   const request = useMemo<WalletConnectRequestView | null>(() => {
-    if (wallet.isReviewMode || !activeRequestEvent || !client) {
+    if (!activeRequestEvent || !client) {
       return null;
     }
 
@@ -881,17 +851,12 @@ export function WalletConnectProvider({
     client,
     requestReview,
     reviewError,
-    wallet.isReviewMode,
   ]);
 
   const approveProposal = useCallback(async () => {
     const nextClient = clientRef.current;
     const event = proposalData;
     const currentWallet = walletRef.current;
-
-    if (currentWallet.isReviewMode) {
-      return;
-    }
 
     if (!nextClient || !event || !currentWallet.wallet?.address) {
       return;
@@ -1026,10 +991,6 @@ export function WalletConnectProvider({
     const nextClient = clientRef.current;
     const event = activeRequestEvent;
     const currentWallet = walletRef.current;
-
-    if (currentWallet.isReviewMode) {
-      return;
-    }
 
     if (
       !nextClient ||

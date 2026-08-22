@@ -13,7 +13,7 @@
   <key>provisioningProfiles</key>
   <dict>
     <key>com.orbitlabs.wallet</key>
-    <string>OrbitWallet — Stellar Finance</string>
+		<string>OrbitWallet — Stellar Finance2</string>
   </dict>
 </dict>
 </plist>

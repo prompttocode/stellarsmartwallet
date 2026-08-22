@@ -19,6 +19,5 @@ export const TRUSTLINE_ENABLE_TIMEOUT_MS = 30_000;
 export const TRUSTLINE_SIGN_TIMEOUT_MS = 15_000;
 export const IMPORT_WALLET_TIMEOUT_MS = 8_000;
 export const PRIVY_SECURITY_SESSION_TIMEOUT_MS = 8_000;
-export const REVIEW_SESSION_EMAIL = 'app-review@getstellar.shop';
 export const APPLE_OAUTH_TOKEN_STORAGE_KEY =
   'privy-wallet-apple-oauth-revocation-v1';

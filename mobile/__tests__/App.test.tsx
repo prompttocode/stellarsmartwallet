@@ -215,12 +215,7 @@ jest.mock('@screens/wallet/WalletApp', () => {
   const { Text } = require('react-native');
 
   return {
-    WalletApp: ({ wallet }: { wallet: { isReviewMode: boolean } }) =>
-      ReactModule.createElement(
-        Text,
-        null,
-        wallet.isReviewMode ? 'Review mode' : 'Wallet',
-      ),
+    WalletApp: () => ReactModule.createElement(Text, null, 'Wallet'),
   };
 });
 
@@ -230,40 +225,12 @@ import type { WalletState } from '../src/hooks/useWallet';
 import { LoginScreen } from '../src/screens/auth/LoginScreen';
 import * as WebBrowser from 'expo-web-browser';
 
-test('renders correctly', async () => {
-  const fetchSpy = jest
+test('renders the standard sign-in screen without a hidden demo flow', async () => {
+  jest
     .spyOn(globalThis, 'fetch')
     .mockImplementation(async input => {
       const url = String(input);
-      const body = url.endsWith('/api/session')
-        ? {
-            account: {
-              email: 'app-review@getstellar.shop',
-              id: 'review-account',
-              wallet: {
-                address: 'GTESTREVIEW',
-                canSign: true,
-                chainType: 'stellar',
-                id: 'review-wallet',
-                kind: 'privy',
-                network: 'testnet',
-                publicKey: 'GTESTREVIEW',
-              },
-            },
-            activeWalletId: 'review-wallet',
-            balance: {
-              address: 'GTESTREVIEW',
-              balances: [],
-              exists: true,
-              network: 'testnet',
-              transactions: [],
-              xlm: '10000',
-            },
-            balances: [],
-            network: 'testnet',
-            transactions: [],
-          }
-        : url.includes('/api/assets?')
+      const body = url.includes('/api/assets?')
         ? {
             assets: [
               {
@@ -314,36 +281,12 @@ test('renders correctly', async () => {
     await Promise.resolve();
   });
 
-  expect(JSON.stringify(renderer.toJSON())).toContain('Explore Testnet');
+  const rendered = JSON.stringify(renderer.toJSON());
 
-  const reviewLabel = renderer.root.findByProps({
-    children: 'Explore Testnet',
-  });
-  let reviewButton = reviewLabel.parent;
-
-  while (reviewButton && typeof reviewButton.props.onPress !== 'function') {
-    reviewButton = reviewButton.parent;
-  }
-
-  expect(typeof reviewButton?.props.onPress).toBe('function');
-
-  await ReactTestRenderer.act(async () => {
-    await reviewButton?.props.onPress();
-    await Promise.resolve();
-  });
-
-  const reviewSessionRequest = fetchSpy.mock.calls.find(([input]) =>
-    String(input).endsWith('/api/session'),
-  );
-  const reviewSessionBody = JSON.parse(
-    String((reviewSessionRequest?.[1] as RequestInit | undefined)?.body),
-  );
-
-  expect(reviewSessionBody).toEqual({
-    email: 'app-review@getstellar.shop',
-    network: 'testnet',
-  });
-  expect(JSON.stringify(renderer.toJSON())).toContain('Review mode');
+  expect(rendered).toContain('Continue with Email');
+  expect(rendered).toContain('Continue with Google');
+  expect(rendered).toContain('Continue with Apple');
+  expect(rendered).not.toContain('Explore Testnet');
 
   await ReactTestRenderer.act(async () => {
     renderer.unmount();
@@ -363,7 +306,6 @@ function createLoginWallet(
     loginWithGoogle: jest.fn(async () => true),
     sessionSyncing: false,
     showErrorDialog: jest.fn(),
-    startReviewMode: jest.fn(async () => true),
     ...overrides,
   } as unknown as WalletState;
 }

@@ -7,12 +7,10 @@ import {
   buildAccountSession,
   buildTrustlineTransaction,
   completeStellarWalletSecretExport,
-  createPrivyUser,
   createSignableStellarWallet,
   decodeWalletExportChallenge,
   deleteAccountPermanently,
   encryptWalletSecret,
-  findPrivyUserByEmail,
   friendbotFund,
   getAccountBalances,
   getAccountByEmail,
@@ -732,51 +730,31 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
       body.activeWalletId || body.sourceWalletId || '',
     ).trim();
 
-    if (identityToken) {
-      const user = await timing.time('privy_user', () =>
-        getPrivyUserFromIdentityToken(c.env, identityToken),
-      );
-      const email = getEmailFromPrivyUser(user);
-
-      if (!isEmailLike(email)) {
-        throw makeError('This Privy account does not have a valid email', 400);
-      }
-
-      const verifiedClientWallet = await timing.time(
-        'privy_wallet',
-        () => getVerifiedClientStellarWallet(c, clientWallet),
-      );
-      const account = await timing.time('account', () =>
-        getOrCreateSessionAccountByEmail(
-          c.env,
-          email,
-          network,
-          String((user as { id?: string })?.id || ''),
-          verifiedClientWallet,
-        ),
-      );
-      const sessionAccount = requestedActiveWalletId
-        ? { ...account, activeWalletId: requestedActiveWalletId }
-        : account;
-      const session = await timing.time('session', () =>
-        buildAccountSession(c.env, sessionAccount, network, timing.record, {
-          includeHistory: false,
-        }),
-      );
-
-      c.header('Server-Timing', timing.getServerTimingHeader());
-      timing.log({
-        hasEmail: true,
-        identityToken: true,
-        network,
-        walletCount: session.wallets.length,
-      });
-      return c.json(session);
+    if (!identityToken) {
+      throw makeError('Missing Privy login token', 401);
     }
 
-    const email = normalizeEmail(body.email);
+    const user = await timing.time('privy_user', () =>
+      getPrivyUserFromIdentityToken(c.env, identityToken),
+    );
+    const email = getEmailFromPrivyUser(user);
+
+    if (!isEmailLike(email)) {
+      throw makeError('This Privy account does not have a valid email', 400);
+    }
+
+    const verifiedClientWallet = await timing.time(
+      'privy_wallet',
+      () => getVerifiedClientStellarWallet(c, clientWallet),
+    );
     const account = await timing.time('account', () =>
-      getOrCreateSessionAccountByEmail(c.env, email, network),
+      getOrCreateSessionAccountByEmail(
+        c.env,
+        email,
+        network,
+        String((user as { id?: string })?.id || ''),
+        verifiedClientWallet,
+      ),
     );
     const sessionAccount = requestedActiveWalletId
       ? { ...account, activeWalletId: requestedActiveWalletId }
@@ -789,8 +767,8 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
 
     c.header('Server-Timing', timing.getServerTimingHeader());
     timing.log({
-      hasEmail: Boolean(email),
-      identityToken: false,
+      hasEmail: true,
+      identityToken: true,
       network,
       walletCount: session.wallets.length,
     });
@@ -826,13 +804,12 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
     const body = await readJsonBody(c);
     const network = normalizeNetwork(body.network);
     const identityToken = String(body.identityToken || '').trim();
-    let email = normalizeEmail(body.email);
-
-    if (identityToken) {
-      const user = await getPrivyUserFromIdentityToken(c.env, identityToken);
-
-      email = getEmailFromPrivyUser(user);
+    if (!identityToken) {
+      throw makeError('Missing Privy login token', 401);
     }
+
+    const user = await getPrivyUserFromIdentityToken(c.env, identityToken);
+    const email = getEmailFromPrivyUser(user);
 
     if (!isEmailLike(email)) {
       throw makeError('This Privy account does not have a valid email', 400);
@@ -848,77 +825,6 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
       network,
       walletCount: networkWallets.length,
     });
-  });
-
-  app.post('/api/demo/session', async c => {
-    const body = await readJsonBody(c);
-    const network = normalizeNetwork(body.network);
-    const account = await getOrCreateSessionAccountByEmail(c.env, body.email, network);
-
-    return c.json(await buildAccountSession(c.env, account, network));
-  });
-
-  app.post('/api/demo/auth-session', async c => {
-    const body = await readJsonBody(c);
-    const network = normalizeNetwork(body.network);
-    const identityToken = String(body.identityToken || '').trim();
-
-    if (!identityToken) {
-      throw makeError('Missing Privy login token', 401);
-    }
-
-    const user = await getPrivyUserFromIdentityToken(c.env, identityToken);
-    const email = getEmailFromPrivyUser(user);
-
-    if (!isEmailLike(email)) {
-      throw makeError('This Privy account does not have a valid email', 400);
-    }
-
-    const account = await getOrCreateSessionAccountByEmail(
-      c.env,
-      email,
-      network,
-      String((user as { id?: string })?.id || ''),
-    );
-
-    return c.json(await buildAccountSession(c.env, account, network));
-  });
-
-  app.post('/api/demo/account', async c => {
-    const body = await readJsonBody(c);
-    const network = normalizeNetwork(body.network);
-    const email =
-      normalizeEmail(body.email) || `stellar-demo-${Date.now()}@example.com`;
-
-    if (!isEmailLike(email)) {
-      throw makeError('Invalid email', 400);
-    }
-
-    const user =
-      ((await findPrivyUserByEmail(c.env, email)) as { id?: string } | null) ||
-      (await createPrivyUser(c.env, email));
-    const wallet = normalizeWallet(
-      await createSignableStellarWallet(c.env, email, `Stellar ${network} 1`),
-      {
-        canSign: true,
-        kind: 'privy',
-        network,
-      },
-    );
-    const account = await saveAccount(
-      c.env,
-      normalizeAccountWallets(
-        {
-          id: user?.id,
-          email,
-          wallet,
-          wallets: [wallet],
-        },
-        network,
-      ),
-    );
-
-    return c.json({ account }, 201);
   });
 
   app.post('/api/wallets', async c => {
@@ -1533,9 +1439,15 @@ export function registerBaseRoutes(app: Hono<WorkerBindings>) {
   app.post('/api/wallets/archive', archiveWallet);
   app.post('/api/wallets/restore', restoreWallet);
 
-  app.post('/api/demo/receiver', async c => {
+  app.post('/api/testnet/receiver', async c => {
     const body = await readJsonBody(c);
     const network: StellarNetwork = 'testnet';
+    await requireAccountContext(
+      c.env,
+      c.req.header('authorization'),
+      body,
+      { network, requireAuth: true },
+    );
     const receiverKeypair = Keypair.random();
     const receiverAddress = receiverKeypair.publicKey();
     const wallet = normalizeWallet(

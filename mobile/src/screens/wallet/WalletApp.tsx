@@ -85,33 +85,6 @@ async function clearClosedRampOrder(wallet: WalletState) {
   }
 }
 
-function ReviewModeRouteGuard({
-  children,
-  feature,
-  navigation,
-  wallet,
-}: {
-  children: ReactNode;
-  feature: string;
-  navigation: any;
-  wallet: WalletState;
-}) {
-  const { isReviewMode, setMessage } = wallet;
-
-  useEffect(() => {
-    if (!isReviewMode) {
-      return;
-    }
-
-    setMessage(
-      `${feature} is unavailable in Testnet review mode. No real money is used.`,
-    );
-    navigation.replace('MainTabs');
-  }, [feature, isReviewMode, navigation, setMessage]);
-
-  return isReviewMode ? null : children;
-}
-
 function MainnetRouteGuard({
   children,
   feature,
@@ -147,7 +120,6 @@ type RampNavigationPreset = {
 const GLOBAL_LOADING_BUSY_EXACT = new Set([
   'Verifying Privy code',
   'Sign in with Google',
-  'Opening Testnet demo',
   'Submitting KYC',
   'Funding test XLM',
   'Getting Testnet USDC',
@@ -217,7 +189,6 @@ function getCompletedStatusText(label: string) {
     'Funding test XLM': 'Funded test XLM',
     'Getting Testnet USDC': 'Got Testnet USDC',
     'Opening secure export': 'Secure export ready',
-    'Opening Testnet demo': 'Testnet demo ready',
     'Sign in with Google': 'Signed in',
     'Submitting KYC': 'KYC submitted',
     'Switching network': 'Network switched',
@@ -327,12 +298,6 @@ function MainTabs({
 }) {
   function showMainnetRestriction(feature: string) {
     wallet.setMessage(`${feature} is available on Mainnet only.`);
-  }
-
-  function showReviewRestriction(feature: string) {
-    wallet.setMessage(
-      `${feature} is unavailable in Testnet review mode. No real money is used.`,
-    );
   }
 
   function getAssetParams(asset: BalanceItem) {
@@ -466,11 +431,7 @@ function MainTabs({
                 : navigation.navigate('Kyc')
             }
             onOpenTutorial={onOpenTutorial}
-            onOpenWalletConnect={() =>
-              wallet.isReviewMode
-                ? showReviewRestriction('WalletConnect')
-                : navigation.navigate('WalletConnect')
-            }
+            onOpenWalletConnect={() => navigation.navigate('WalletConnect')}
             wallet={wallet}
           />
         )}
@@ -700,25 +661,16 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
               </Stack.Screen>
               <Stack.Screen name="Scan">
                 {({ navigation }: any) => (
-                  <ScanScreen
-                    isReviewMode={wallet.isReviewMode}
-                    navigation={navigation}
-                  />
+                  <ScanScreen navigation={navigation} />
                 )}
               </Stack.Screen>
               <Stack.Screen name="WalletConnect">
                 {({ navigation }: any) => (
-                  <ReviewModeRouteGuard
-                    feature="WalletConnect"
-                    navigation={navigation}
+                  <WalletConnectScreen
+                    onBack={() => navigation.goBack()}
+                    onScan={() => navigation.navigate('Scan')}
                     wallet={wallet}
-                  >
-                    <WalletConnectScreen
-                      onBack={() => navigation.goBack()}
-                      onScan={() => navigation.navigate('Scan')}
-                      wallet={wallet}
-                    />
-                  </ReviewModeRouteGuard>
+                  />
                 )}
               </Stack.Screen>
               <Stack.Screen name="Kyc">
@@ -750,9 +702,7 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
             onClose={closeTutorial}
             visible={shouldShowTutorial}
           />
-          {!wallet.isReviewMode ? (
-            <WalletConnectOverlays wallet={wallet} />
-          ) : null}
+          <WalletConnectOverlays wallet={wallet} />
         </View>
       </WalletConnectProvider>
     </CurrencyProvider>

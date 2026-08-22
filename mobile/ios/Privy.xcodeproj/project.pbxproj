@@ -373,7 +373,7 @@
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = com.orbitlabs.wallet;
 				PRODUCT_NAME = Privy;
-				PROVISIONING_PROFILE_SPECIFIER = "OrbitWallet — Stellar Finance";
+				PROVISIONING_PROFILE_SPECIFIER = "OrbitWallet — Stellar Finance2";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;

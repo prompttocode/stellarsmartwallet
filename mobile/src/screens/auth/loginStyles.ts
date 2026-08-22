@@ -163,13 +163,6 @@ export const loginStyles = StyleSheet.create({
     width: 20,
     height: 20,
   },
-  reviewHint: {
-    color: '#8E8E93',
-    fontSize: 12,
-    lineHeight: 17,
-    textAlign: 'center',
-  },
-
   // Footer
   footerContainer: {
     alignItems: 'center',

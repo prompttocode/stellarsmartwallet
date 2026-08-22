@@ -35,13 +35,7 @@ function parseScannedValue(value: string) {
   return { type: 'address' as const, value };
 }
 
-export function ScanScreen({
-  isReviewMode = false,
-  navigation,
-}: {
-  isReviewMode?: boolean;
-  navigation: any;
-}) {
+export function ScanScreen({ navigation }: { navigation: any }) {
   const insets = useSafeAreaInsets();
   const headerStyle = useMemo(
     () => [styles.header, { top: insets.top + 12 }],
@@ -77,15 +71,6 @@ export function ScanScreen({
     const parsed = parseScannedValue(value);
 
     if (parsed.type === 'walletconnect') {
-      if (isReviewMode) {
-        Alert.alert(
-          'WalletConnect unavailable',
-          'WalletConnect is disabled for the shared Testnet review wallet.',
-        );
-        setScanned(false);
-        return;
-      }
-
       const paired = await walletConnect.pair(parsed.value);
 
       if (paired) {

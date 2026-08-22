@@ -22,10 +22,10 @@ export function WalletScreen() {
     isRestoringWithoutWallet || (!splashTimedOut && !wallet.isReady);
 
   useEffect(() => {
-    if (wallet.account && !wallet.isReviewMode) {
+    if (wallet.account) {
       prefetchHistoricalPrices().catch(() => null);
     }
-  }, [wallet.account, wallet.isReviewMode]);
+  }, [wallet.account]);
 
   useEffect(() => {
     const maxTimer = setTimeout(

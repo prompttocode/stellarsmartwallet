@@ -169,9 +169,9 @@ Phần server:
 Các API chính:
 
 - `GET /api/health`: kiểm tra server và mạng Stellar Testnet.
-- `POST /api/demo/auth-session`: mở phiên demo bằng token Privy.
-- `POST /api/demo/session`: mở phiên demo bằng email, dùng cho demo và fallback.
-- `POST /api/demo/receiver`: tạo người nhận demo.
+- `POST /api/session`: mở phiên ví bằng Privy identity token.
+- `POST /api/session/status`: kiểm tra ví theo Privy identity token trước khi bootstrap.
+- `POST /api/testnet/receiver`: tạo người nhận Testnet phục vụ luồng test sau đăng nhập.
 - `GET /api/stellar/:address`: xem số dư ví Stellar.
 - `POST /api/stellar/fund`: nạp XLM test bằng Friendbot.
 - `POST /api/stellar/send`: gửi XLM test.

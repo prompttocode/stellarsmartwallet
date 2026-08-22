@@ -226,7 +226,6 @@ function WelcomeStep({
 }) {
   const appleBusy = wallet.busy === 'Sign in with Apple';
   const googleBusy = wallet.busy === 'Sign in with Google';
-  const reviewBusy = wallet.busy === 'Opening Testnet demo';
   const restoringSession = wallet.sessionSyncing && !wallet.account;
   const preparingPrivy = !wallet.isReady;
   const status = restoringSession
@@ -311,15 +310,6 @@ function WelcomeStep({
             onPress={wallet.loginWithApple}
             variant="dark"
           />
-          {__DEV__ ? (
-            <ActionButton
-              disabled={restoringSession || wallet.isBusy}
-              icon="flask-outline"
-              label={reviewBusy ? 'Opening Testnet demo...' : 'Explore Testnet'}
-              onPress={wallet.startReviewMode}
-              variant="dark"
-            />
-          ) : null}
         </View>
 
         <View style={styles.footerContainer}>

@@ -74,16 +74,12 @@ export function FaucetScreen({
             marginTop: 8,
           }}
         >
-          {wallet.isReviewMode
-            ? 'Fund this shared wallet with free Testnet assets. No real money is used.'
-            : wallet.isMainnet
+          {wallet.isMainnet
             ? 'Deposit assets or use VND orders for real XLM and USDC.'
             : 'Fund this wallet with free Testnet assets.'}
         </Text>
         <Text style={styles.heroSubtitle}>
-          {wallet.isReviewMode
-            ? 'Use Friendbot and Testnet USDC to review wallet features safely.'
-            : wallet.isMainnet
+          {wallet.isMainnet
             ? 'Deposit assets or use VND orders for real XLM and USDC.'
             : 'Use Friendbot and Testnet USDC to test wallet features safely.'}
         </Text>

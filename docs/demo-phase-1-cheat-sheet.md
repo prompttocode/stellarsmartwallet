@@ -27,11 +27,7 @@ Không nói backend hiện tại là Go.
 
 > Trong authenticated flow, backend không tin email do client tự gửi lên. Worker xác minh Privy identity token rồi lấy email trực tiếp từ Privy user profile. D1 chỉ lưu account và wallet metadata, không lưu raw private key. Việc ký giao dịch được yêu cầu qua Privy.
 
-Hiện vẫn còn email fallback và các route `/api/demo/*` để phục vụ phát triển trên Testnet. Trước khi chạy production cần:
-
-- Tắt demo routes.
-- Bắt buộc Bearer token cho mọi thao tác nhạy cảm.
-- Giới hạn CORS và thêm rate limiting.
+Email fallback và các route tạo session/account demo đã được gỡ. `/api/session` và `/api/session/status` bắt buộc Privy identity token; tiện ích tạo receiver Testnet cũng bắt buộc Bearer token. Việc giới hạn CORS và bổ sung rate limiting vẫn cần được theo dõi như hạng mục vận hành production.
 
 ## Bằng chứng
 
