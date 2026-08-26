@@ -45,7 +45,7 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Ứng dụng cần quyền truy cập Camera để quét mã QR địa chỉ ví.</string>
+	<string>Ứng dụng cần quyền truy cập Camera để quét mã QR và chụp căn cước phục vụ xác minh danh tính.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Ứng dụng cần FaceID để xác thực bảo mật trước khi giao dịch.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

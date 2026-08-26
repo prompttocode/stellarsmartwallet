@@ -13,6 +13,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import {
   assertCanAddTrustline,
+  assertStellarSwapPreparationMatches,
   assertSufficientBalance,
   assertStellarMemo,
   buildPaymentTransaction,
@@ -21,6 +22,7 @@ import {
   getEmailFromPrivyUser,
   getStellarSubmissionErrorMessage,
   getTransactionFeeFields,
+  parseStellarSwapQuote,
   reviewStellarXdr,
   stroopsToXlm,
   type Env,
@@ -246,6 +248,78 @@ describe('Stellar network fees', () => {
       feeEstimateStroops: '200',
       feeEstimateXlm: '0.00002',
     });
+  });
+});
+
+describe('Stellar swap preparation cache validation', () => {
+  const quote = {
+    destMin: '0.9950000',
+    feeEstimateStroops: '100',
+    feeEstimateXlm: '0.00001',
+    fromAmount: '1',
+    fromAssetCode: 'XLM',
+    fromAssetIssuer: null,
+    path: [],
+    rate: 1,
+    toAmount: '1.0000000',
+    toAssetCode: 'USDC',
+    toAssetIssuer: 'GISSUER',
+  };
+  const preparation = {
+    amount: '1',
+    expiresAt: Date.now() + 60_000,
+    fromAssetCode: 'XLM',
+    fromAssetIssuer: '',
+    network: 'testnet' as const,
+    quote,
+    signingHash: `0x${'a'.repeat(64)}`,
+    sourceAddress: 'GSOURCE',
+    sourceWalletId: 'wallet-1',
+    toAssetCode: 'USDC',
+    toAssetIssuer: 'GISSUER',
+    transactionXdr: 'server-prepared-xdr',
+  };
+  const request = {
+    amount: '1',
+    fromAssetCode: 'xlm',
+    fromAssetIssuer: null,
+    network: 'testnet' as const,
+    sourceAddress: 'GSOURCE',
+    sourceWalletId: 'wallet-1',
+    toAssetCode: 'usdc',
+    toAssetIssuer: 'GISSUER',
+    transactionXdr: 'server-prepared-xdr',
+  };
+
+  it('round-trips a complete cached quote', () => {
+    expect(parseStellarSwapQuote(JSON.stringify(quote))).toEqual(quote);
+  });
+
+  it('accepts only the original prepared request and XDR', () => {
+    expect(() =>
+      assertStellarSwapPreparationMatches(preparation, request),
+    ).not.toThrow();
+
+    expect(() =>
+      assertStellarSwapPreparationMatches(preparation, {
+        ...request,
+        transactionXdr: 'client-modified-xdr',
+      }),
+    ).toThrow('Swap preparation changed or expired');
+  });
+
+  it('rejects an expired preparation instead of using stale quote data', () => {
+    expect(() =>
+      assertStellarSwapPreparationMatches(
+        { ...preparation, expiresAt: Date.now() - 1 },
+        request,
+      ),
+    ).toThrow('Swap preparation changed or expired');
+  });
+
+  it('rejects incomplete cached quote JSON', () => {
+    expect(parseStellarSwapQuote('{"fromAmount":"1"}')).toBeNull();
+    expect(parseStellarSwapQuote('not-json')).toBeNull();
   });
 });
 

@@ -686,6 +686,9 @@ async function handleSwapExecute(c: Context<WorkerBindings>, fallbackNetwork?: S
   const clientSignatureHex = normalizeClientSignature(
     body.clientSignature || body.signature,
   );
+  const expectedSigningHash = String(
+    body.signingHash || body.hash || '',
+  ).trim();
 
   const result = await executeStellarSwap(c.env, {
     amount: body.amount,
@@ -694,6 +697,7 @@ async function handleSwapExecute(c: Context<WorkerBindings>, fallbackNetwork?: S
     fromAssetCode: body.fromAssetCode,
     fromAssetIssuer: body.fromAssetIssuer,
     network,
+    expectedSigningHash,
     sourceAddress,
     sourceWallet,
     sourceWalletId,
@@ -701,19 +705,6 @@ async function handleSwapExecute(c: Context<WorkerBindings>, fallbackNetwork?: S
     toAssetCode: body.toAssetCode,
     toAssetIssuer: body.toAssetIssuer,
   });
-
-  const expectedSigningHash = String(
-    body.signingHash || body.hash || '',
-  ).trim();
-
-  if (
-    clientSignatureHex &&
-    expectedSigningHash &&
-    result.hash &&
-    expectedSigningHash.toLowerCase() !== result.hash.toLowerCase()
-  ) {
-    throw makeError('Transaction changed before signing. Please try again.', 409);
-  }
 
   if (result.requiresClientSignature) {
     return c.json(

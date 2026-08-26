@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -8,8 +8,12 @@ import {
   View,
 } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as ImagePicker from 'expo-image-picker';
 import { Image as ImageCompressor } from 'react-native-compressor';
+import {
+  Camera as VisionCamera,
+  useCameraDevice,
+  useCameraPermission,
+} from 'react-native-vision-camera';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
   SafeAreaView,
@@ -57,7 +61,7 @@ async function getFileSizeBytes(uri: string) {
   const info = await FileSystem.getInfoAsync(uri);
 
   if (!info.exists || info.isDirectory) {
-    throw new Error('The selected image file is unavailable.');
+    throw new Error('The captured image file is unavailable.');
   }
 
   return info.size;
@@ -71,7 +75,7 @@ async function deleteTemporaryImage(uri?: string, protectedUri?: string) {
   try {
     await FileSystem.deleteAsync(uri, { idempotent: true });
   } catch {
-    // Temporary picker/compression files may already have been removed by the OS.
+    // Temporary camera/compression files may already have been removed by the OS.
   }
 }
 
@@ -109,7 +113,7 @@ async function prepareKycImage(sourceUri: string): Promise<PreparedKycImage> {
   if (bestSize > MAX_IMAGE_BYTES) {
     await deleteTemporaryImage(bestUri, sourceUri);
     throw new Error(
-      'The selected image is still too large. Please choose a clearer, smaller image and try again.',
+      'The captured image is still too large. Please retake it with the card closer to the frame.',
     );
   }
 
@@ -135,12 +139,17 @@ export function KycScreen({
 }) {
   const insets = useSafeAreaInsets();
   const { showPopup } = useAppPopup();
+  const cameraRef = useRef<VisionCamera>(null);
+  const cameraDevice = useCameraDevice('back');
+  const { hasPermission, requestPermission } = useCameraPermission();
   const [step, setStep] = useState<Step>('intro');
   const [captureSide, setCaptureSide] = useState<CaptureSide>('front');
   const [frontImage, setFrontImage] = useState<PreparedKycImage | null>(null);
   const [backImage, setBackImage] = useState<PreparedKycImage | null>(null);
   const [phone, setPhone] = useState('');
-  const [selectingImage, setSelectingImage] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [takingPhoto, setTakingPhoto] = useState(false);
+  const [torchEnabled, setTorchEnabled] = useState(false);
   const [processingImage, setProcessingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const currentImage = captureSide === 'front' ? frontImage : backImage;
@@ -158,7 +167,9 @@ export function KycScreen({
     setCaptureSide('front');
     setFrontImage(null);
     setBackImage(null);
-    setSelectingImage(false);
+    setCameraReady(false);
+    setTakingPhoto(false);
+    setTorchEnabled(false);
     setProcessingImage(false);
     setSubmitting(false);
   }
@@ -180,6 +191,7 @@ export function KycScreen({
     }
 
     if (step === 'preview') {
+      setCameraReady(false);
       setStep('guide');
       return;
     }
@@ -187,30 +199,32 @@ export function KycScreen({
     returnToIntro();
   }
 
-  async function pickSide(side: CaptureSide) {
-    if (selectingImage) {
+  async function captureCurrentSide() {
+    if (
+      takingPhoto ||
+      processingImage ||
+      !cameraReady ||
+      !cameraDevice ||
+      !cameraRef.current
+    ) {
       return false;
     }
 
-    setSelectingImage(true);
+    setTakingPhoto(true);
 
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        allowsEditing: false,
-        allowsMultipleSelection: false,
-        mediaTypes: ['images'],
-        quality: 1,
+      const photo = await cameraRef.current.takePhoto({
+        enableShutterSound: true,
+        flash: 'off',
       });
-      const selectedImageUri = result.assets?.[0]?.uri;
-
-      if (result.canceled || !selectedImageUri) {
-        return false;
-      }
+      const capturedImageUri = photo.path.startsWith('file://')
+        ? photo.path
+        : `file://${photo.path}`;
 
       setProcessingImage(true);
-      const preparedImage = await prepareKycImage(selectedImageUri);
+      const preparedImage = await prepareKycImage(capturedImageUri);
 
-      if (side === 'front') {
+      if (captureSide === 'front') {
         setFrontImage(current => {
           deleteTemporaryImage(current?.uri, preparedImage.uri).catch(
             () => null,
@@ -226,7 +240,6 @@ export function KycScreen({
         });
       }
 
-      setCaptureSide(side);
       setStep('preview');
       return true;
     } catch (error) {
@@ -234,25 +247,40 @@ export function KycScreen({
         message:
           error instanceof Error
             ? error.message
-            : 'Please choose another CCCD image and try again.',
-        title: 'Unable to use image',
+            : 'Please retake the CCCD image and try again.',
+        title: 'Unable to capture image',
         variant: 'danger',
       });
       return false;
     } finally {
       setProcessingImage(false);
-      setSelectingImage(false);
+      setTakingPhoto(false);
     }
   }
 
-  async function continueToPicker() {
+  async function continueToCamera() {
+    const granted = hasPermission || (await requestPermission());
+
+    if (!granted) {
+      showPopup({
+        message:
+          'Camera access is required to photograph your CCCD. Enable Camera permission in device settings and try again.',
+        title: 'Camera permission needed',
+        variant: 'warning',
+      });
+      return;
+    }
+
     setCaptureSide('front');
+    setCameraReady(false);
     setStep('guide');
   }
 
   async function acceptCurrentPhoto() {
     if (captureSide === 'front') {
       setCaptureSide('back');
+      setCameraReady(false);
+      setTorchEnabled(false);
       setStep('guide');
       return;
     }
@@ -261,7 +289,16 @@ export function KycScreen({
   }
 
   function retakeCurrentPhoto() {
-    pickSide(captureSide).catch(() => null);
+    const image = captureSide === 'front' ? frontImage : backImage;
+
+    deleteTemporaryImage(image?.uri).catch(() => null);
+    if (captureSide === 'front') {
+      setFrontImage(null);
+    } else {
+      setBackImage(null);
+    }
+    setCameraReady(false);
+    setStep('guide');
   }
 
   async function submitKyc() {
@@ -297,18 +334,20 @@ export function KycScreen({
               deleteTemporaryImage(backImage?.uri).catch(() => null);
               setFrontImage(null);
               setBackImage(null);
-              pickSide('front').catch(() => null);
+              setCameraReady(false);
+              setStep('guide');
             },
-            text: 'Choose front again',
+            text: 'Retake front',
           },
           {
             onPress: () => {
               setCaptureSide('back');
               deleteTemporaryImage(backImage?.uri).catch(() => null);
               setBackImage(null);
-              pickSide('back').catch(() => null);
+              setCameraReady(false);
+              setStep('guide');
             },
-            text: 'Choose back again',
+            text: 'Retake back',
           },
         ],
         message:
@@ -340,8 +379,9 @@ export function KycScreen({
             {verified ? 'Identity verified' : 'Verify your CCCD'}
           </Text>
           <Text style={styles.heroText}>
-            Choose clear front and back photos of your Vietnamese ID card. The
-            system picker only shares the photos you select with this app.
+            Capture clear front and back photos of your Vietnamese ID card.
+            Photos stay in the app's temporary storage until verification is
+            submitted.
           </Text>
         </View>
 
@@ -372,7 +412,7 @@ export function KycScreen({
 
         <PressScale
           disabled={wallet.isBusy || submitting}
-          onPress={continueToPicker}
+          onPress={continueToCamera}
           style={[styles.primaryButton, styles.primaryButtonStretch]}
         >
           <Text style={styles.primaryButtonText}>
@@ -385,82 +425,160 @@ export function KycScreen({
 
   if (step === 'guide') {
     const isFront = captureSide === 'front';
+    const cameraBusy = takingPhoto || processingImage;
+    const torchAvailable = Boolean(cameraDevice?.hasTorch);
 
     return (
-      <View
-        style={[
-          styles.guideScreen,
-          {
-            paddingBottom: insets.bottom + 16,
-            paddingTop: insets.top + 12,
-          },
-        ]}
-      >
-        <ModernScreenHeader
-          onBack={handleCaptureBack}
-          subtitle={`Step ${isFront ? '1' : '2'} of 2`}
-          title={`Choose ${sideLabel(captureSide)}`}
-        />
-
-        <View style={styles.guideMain}>
-          <View style={styles.sideGuide}>
-            <View
-              style={[
-                styles.sideGuideCard,
-                { aspectRatio: ID_CARD_ASPECT_RATIO },
-              ]}
-            >
-              <Ionicons
-                color="#111827"
-                name={isFront ? 'person-outline' : 'finger-print-outline'}
-                size={44}
-              />
-              <View style={styles.sideGuideLines}>
-                <View style={styles.sideGuideLineLong} />
-                <View style={styles.sideGuideLineShort} />
-                <View style={styles.sideGuideLineMedium} />
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.guideCopy}>
-            <Text style={styles.guideTitle}>
-              {isFront ? 'Prepare the front side' : 'Prepare the back side'}
+      <View style={styles.cameraScreen}>
+        <View style={cameraHeaderStyle}>
+          <PressScale
+            onPress={handleCaptureBack}
+            style={styles.cameraBackButton}
+          >
+            <Ionicons color="#FFFFFF" name="chevron-back" size={25} />
+          </PressScale>
+          <View style={styles.cameraHeaderCopy}>
+            <Text numberOfLines={1} style={styles.cameraTitle}>
+              Capture {sideLabel(captureSide)}
             </Text>
-            <Text style={styles.guideText}>
-              {isFront
-                ? 'Place the portrait and ID-number side facing up.'
-                : 'Place the fingerprints and MRZ-code side facing up.'}
+            <Text style={styles.cameraSubtitle}>
+              Step {isFront ? '1' : '2'} of 2 · {sideHint(captureSide)}
             </Text>
-          </View>
-
-          <View style={[styles.checklistCard, styles.guideChecklist]}>
-            {[
-              'Choose a photo showing only this side of the CCCD.',
-              'Keep all four corners visible and avoid glare.',
-              'The image will be compressed before upload.',
-            ].map(item => (
-              <View key={item} style={[styles.checkRow, styles.guideCheckRow]}>
-                <Ionicons color="#B8FF45" name="checkmark-circle" size={19} />
-                <Text style={styles.checkText}>{item}</Text>
-              </View>
-            ))}
           </View>
         </View>
 
-        <PressScale
-          disabled={selectingImage}
-          onPress={() => pickSide(captureSide)}
-          style={[styles.primaryButton, styles.primaryButtonStretch]}
+        <View style={styles.cameraFrame}>
+          {hasPermission && cameraDevice ? (
+            <VisionCamera
+              ref={cameraRef}
+              device={cameraDevice}
+              isActive={!processingImage}
+              onInitialized={() => setCameraReady(true)}
+              photo
+              resizeMode="cover"
+              style={StyleSheet.absoluteFill}
+              torch={torchEnabled && torchAvailable ? 'on' : 'off'}
+            />
+          ) : (
+            <View style={styles.cameraFallback}>
+              <Ionicons color="#B8FF45" name="camera-outline" size={42} />
+              <Text style={styles.cameraFallbackTitle}>
+                {cameraDevice
+                  ? 'Camera permission required'
+                  : 'No rear camera found'}
+              </Text>
+              <Text style={styles.cameraFallbackText}>
+                {cameraDevice
+                  ? 'Allow camera access to continue identity verification.'
+                  : 'Use a device with a rear camera to photograph your CCCD.'}
+              </Text>
+            </View>
+          )}
+
+          <View pointerEvents="none" style={styles.captureGuideLayer}>
+            <View
+              style={[
+                styles.idCardCaptureGuide,
+                { aspectRatio: ID_CARD_ASPECT_RATIO },
+              ]}
+            >
+              <View style={styles.cornerTopLeft} />
+              <View style={styles.cornerTopRight} />
+              <View style={styles.cornerBottomLeft} />
+              <View style={styles.cornerBottomRight} />
+            </View>
+            <Text style={styles.captureGuideTitle}>
+              Keep all four corners inside the frame
+            </Text>
+            <Text style={styles.captureGuideText}>
+              Hold steady · avoid glare · make every line readable
+            </Text>
+          </View>
+
+          {cameraBusy ? (
+            <View style={styles.captureBusyOverlay}>
+              <Ionicons color="#B8FF45" name="sparkles-outline" size={28} />
+              <Text style={styles.captureBusyText}>
+                {processingImage ? 'Optimizing image...' : 'Capturing...'}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        <View
+          style={[styles.cameraActions, { paddingBottom: insets.bottom + 16 }]}
         >
-          <Text style={styles.primaryButtonText}>
-            {processingImage
-              ? 'Optimizing image...'
-              : selectingImage
-              ? 'Opening photo picker...'
-              : `Choose ${sideLabel(captureSide)}`}
-          </Text>
-        </PressScale>
+          <View style={styles.progressRow}>
+            <View
+              style={[
+                styles.progressDot,
+                frontImage ? styles.progressDone : null,
+              ]}
+            />
+            <Text style={styles.progressText}>Front</Text>
+            <View
+              style={[
+                styles.progressDot,
+                backImage ? styles.progressDone : null,
+              ]}
+            />
+            <Text style={styles.progressText}>Back</Text>
+          </View>
+
+          <View style={styles.captureControlRow}>
+            <Pressable
+              disabled={!torchAvailable || cameraBusy}
+              onPress={() => setTorchEnabled(value => !value)}
+              style={({ pressed }) => [
+                styles.captureSideControl,
+                torchEnabled ? styles.captureSideControlActive : null,
+                !torchAvailable || cameraBusy ? styles.disabledButton : null,
+                pressed ? styles.pressedButton : null,
+              ]}
+            >
+              <Ionicons
+                color={torchEnabled ? '#111827' : '#FFFFFF'}
+                name={torchEnabled ? 'flash' : 'flash-outline'}
+                size={22}
+              />
+              <Text
+                style={[
+                  styles.captureSideControlText,
+                  torchEnabled ? styles.captureSideControlTextActive : null,
+                ]}
+              >
+                {torchAvailable ? 'Light' : 'No light'}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityLabel={`Capture ${sideLabel(captureSide)}`}
+              accessibilityRole="button"
+              disabled={cameraBusy || !cameraReady || !cameraDevice}
+              onPress={() => captureCurrentSide().catch(() => null)}
+              style={({ pressed }) => [
+                styles.shutterButton,
+                cameraBusy || !cameraReady || !cameraDevice
+                  ? styles.disabledButton
+                  : null,
+                pressed ? styles.shutterButtonPressed : null,
+              ]}
+            >
+              <View style={styles.shutterButtonInner} />
+            </Pressable>
+
+            <View style={styles.captureSideControl}>
+              <Ionicons
+                color="#B8FF45"
+                name={isFront ? 'person-outline' : 'finger-print-outline'}
+                size={22}
+              />
+              <Text style={styles.captureSideControlText}>
+                {isFront ? 'Front' : 'Back'}
+              </Text>
+            </View>
+          </View>
+        </View>
       </View>
     );
   }
@@ -482,46 +600,41 @@ export function KycScreen({
       <View style={styles.cameraFrame}>
         {currentPreviewUri ? (
           <View style={styles.capturedPreviewLayer}>
+            <Image
+              source={{ uri: currentPreviewUri }}
+              style={StyleSheet.absoluteFill}
+              resizeMode="cover"
+            />
             <View
               style={[
-                styles.capturedCardPreview,
+                styles.idCardCaptureGuide,
                 { aspectRatio: ID_CARD_ASPECT_RATIO },
               ]}
             >
-              <Image
-                source={{ uri: currentPreviewUri }}
-                style={styles.previewImage}
-              />
-              <View pointerEvents="none" style={styles.capturedGuideBorder}>
-                <View style={styles.cornerTopLeft} />
-                <View style={styles.cornerTopRight} />
-                <View style={styles.cornerBottomLeft} />
-                <View style={styles.cornerBottomRight} />
-              </View>
+              <View style={styles.cornerTopLeft} />
+              <View style={styles.cornerTopRight} />
+              <View style={styles.cornerBottomLeft} />
+              <View style={styles.cornerBottomRight} />
             </View>
+            <Text style={styles.captureGuideTitle}>
+              Confirm all four corners are visible and readable
+            </Text>
           </View>
         ) : (
           <View style={styles.cameraFallback}>
-            <Ionicons color="#B8FF45" name="images-outline" size={42} />
+            <Ionicons color="#B8FF45" name="camera-outline" size={42} />
             <Text style={styles.cameraFallbackTitle}>
-              Choose {sideLabel(captureSide)}
+              Capture {sideLabel(captureSide)} again
             </Text>
             <Text style={styles.cameraFallbackText}>
-              Android's system photo picker lets you share only the image you
-              select.
+              No preview is available. Return to the camera and retake this
+              side.
             </Text>
             <PressScale
-              disabled={selectingImage}
-              onPress={() => pickSide(captureSide)}
+              onPress={retakeCurrentPhoto}
               style={[styles.primaryButton, styles.scanAgainButton]}
             >
-              <Text style={styles.primaryButtonText}>
-                {processingImage
-                  ? 'Optimizing image...'
-                  : selectingImage
-                  ? 'Opening photo picker...'
-                  : 'Choose image'}
-              </Text>
+              <Text style={styles.primaryButtonText}>Open camera</Text>
             </PressScale>
           </View>
         )}
@@ -547,24 +660,28 @@ export function KycScreen({
         {currentPreviewUri ? (
           <View style={styles.actionRow}>
             <Pressable
-              disabled={selectingImage || submitting}
+              disabled={takingPhoto || processingImage || submitting}
               onPress={retakeCurrentPhoto}
               style={({ pressed }) => [
                 styles.actionButtonSlot,
-                selectingImage || submitting ? styles.disabledButton : null,
+                takingPhoto || processingImage || submitting
+                  ? styles.disabledButton
+                  : null,
                 pressed ? styles.pressedButton : null,
               ]}
             >
               <View style={styles.secondaryButton}>
-                <Text style={styles.secondaryButtonText}>Choose another</Text>
+                <Text style={styles.secondaryButtonText}>Retake</Text>
               </View>
             </Pressable>
             <Pressable
-              disabled={selectingImage || submitting || wallet.isBusy}
+              disabled={
+                takingPhoto || processingImage || submitting || wallet.isBusy
+              }
               onPress={acceptCurrentPhoto}
               style={({ pressed }) => [
                 styles.actionButtonSlot,
-                selectingImage || submitting || wallet.isBusy
+                takingPhoto || processingImage || submitting || wallet.isBusy
                   ? styles.disabledButton
                   : null,
                 pressed ? styles.pressedButton : null,
@@ -573,9 +690,7 @@ export function KycScreen({
               <View style={styles.primaryButton}>
                 <Text style={styles.primaryButtonText}>
                   {captureSide === 'front'
-                    ? selectingImage
-                      ? 'Opening photo picker...'
-                      : 'Use front'
+                    ? 'Use front'
                     : submitting || wallet.isBusy
                     ? 'Submitting...'
                     : 'Submit'}
@@ -667,20 +782,67 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
     lineHeight: 34,
   },
-  capturedCardPreview: {
-    backgroundColor: '#111827',
-    borderColor: 'rgba(255,255,255,0.3)',
-    borderRadius: 0,
-    borderWidth: 1,
-    maxWidth: GUIDE_MAX_WIDTH,
-    overflow: 'hidden',
-    width: `${GUIDE_WIDTH_RATIO * 100}%`,
-  },
-  capturedGuideBorder: {
+  captureBusyOverlay: {
     ...StyleSheet.absoluteFillObject,
-    borderColor: 'rgba(255,255,255,0.55)',
-    borderRadius: 0,
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.58)',
+    gap: 10,
+    justifyContent: 'center',
+  },
+  captureBusyText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  captureControlRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 76,
+    width: '100%',
+  },
+  captureGuideLayer: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  captureGuideText: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 5,
+    textAlign: 'center',
+  },
+  captureGuideTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+    marginTop: 18,
+    textAlign: 'center',
+  },
+  captureSideControl: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 18,
     borderWidth: 1,
+    gap: 3,
+    justifyContent: 'center',
+    minHeight: 62,
+    width: 76,
+  },
+  captureSideControlActive: {
+    backgroundColor: '#B8FF45',
+    borderColor: '#B8FF45',
+  },
+  captureSideControlText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  captureSideControlTextActive: {
+    color: '#111827',
   },
   capturedPreviewLayer: {
     alignItems: 'center',
@@ -710,10 +872,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     gap: 8,
     padding: 16,
-  },
-  content: {
-    gap: 14,
-    paddingHorizontal: 16,
   },
   cornerBottomLeft: {
     borderBottomColor: '#B8FF45',
@@ -788,43 +946,6 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '900',
   },
-  guideChecklist: {
-    borderRadius: 16,
-    gap: 4,
-    padding: 12,
-  },
-  guideCheckRow: {
-    minHeight: 29,
-  },
-  guideCopy: {
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-  },
-  guideMain: {
-    flex: 1,
-    gap: 12,
-    justifyContent: 'center',
-    minHeight: 0,
-  },
-  guideScreen: {
-    backgroundColor: '#000000',
-    flex: 1,
-    gap: 12,
-    paddingHorizontal: 16,
-  },
-  guideText: {
-    color: '#A1B0C8',
-    fontSize: 14,
-    lineHeight: 19,
-    textAlign: 'center',
-  },
-  guideTitle: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '900',
-    textAlign: 'center',
-  },
   input: {
     backgroundColor: '#000000',
     borderColor: 'rgba(255,255,255,0.1)',
@@ -846,11 +967,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
-  previewImage: {
-    backgroundColor: '#000000',
-    height: '100%',
-    resizeMode: 'contain',
-    width: '100%',
+  idCardCaptureGuide: {
+    backgroundColor: 'rgba(0,0,0,0.06)',
+    borderColor: 'rgba(255,255,255,0.78)',
+    borderRadius: 12,
+    borderWidth: 1,
+    maxWidth: GUIDE_MAX_WIDTH,
+    width: `${GUIDE_WIDTH_RATIO * 100}%`,
   },
   pressedButton: {
     opacity: 0.78,
@@ -916,39 +1039,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
   },
-  sideGuide: {
+  shutterButton: {
     alignItems: 'center',
-    paddingVertical: 4,
-  },
-  sideGuideCard: {
-    alignItems: 'center',
-    backgroundColor: '#E8EDF2',
     borderColor: '#FFFFFF',
-    borderRadius: 0,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 16,
-    maxWidth: 380,
-    paddingHorizontal: 24,
-    width: '78%',
+    borderRadius: 39,
+    borderWidth: 4,
+    height: 78,
+    justifyContent: 'center',
+    width: 78,
   },
-  sideGuideLineLong: {
-    backgroundColor: '#667085',
-    height: 8,
-    width: '100%',
+  shutterButtonInner: {
+    backgroundColor: '#B8FF45',
+    borderRadius: 31,
+    height: 62,
+    width: 62,
   },
-  sideGuideLineMedium: {
-    backgroundColor: '#98A2B3',
-    height: 8,
-    width: '76%',
-  },
-  sideGuideLines: {
-    flex: 1,
-    gap: 12,
-  },
-  sideGuideLineShort: {
-    backgroundColor: '#98A2B3',
-    height: 8,
-    width: '58%',
+  shutterButtonPressed: {
+    transform: [{ scale: 0.94 }],
   },
 });

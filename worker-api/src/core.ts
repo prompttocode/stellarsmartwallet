@@ -57,6 +57,7 @@ type BuildAccountSessionOptions = {
 export type StellarNetwork = 'testnet' | 'mainnet';
 
 const WALLET_EXPORT_REQUEST_TTL_MS = 5 * 60 * 1000;
+const STELLAR_SWAP_PREPARATION_TTL_MS = 60 * 1000;
 
 export type WalletKind = 'privy' | 'watch_only' | 'imported_privy';
 
@@ -136,6 +137,35 @@ export type AssetDefinition = {
   rating?: number | null;
   trustLevel: 'verified' | 'discovered' | 'unverified';
   volume7d?: number | null;
+};
+
+export type StellarSwapQuote = {
+  destMin: string;
+  feeEstimateStroops?: string | null;
+  feeEstimateXlm?: string | null;
+  fromAmount: string;
+  fromAssetCode: string;
+  fromAssetIssuer: string | null;
+  path: Array<Record<string, unknown>>;
+  rate: number;
+  toAmount: string;
+  toAssetCode: string;
+  toAssetIssuer: string | null;
+};
+
+type StellarSwapPreparation = {
+  amount: string;
+  expiresAt: number;
+  fromAssetCode: string;
+  fromAssetIssuer: string;
+  network: StellarNetwork;
+  quote: StellarSwapQuote;
+  signingHash: string;
+  sourceAddress: string;
+  sourceWalletId: string;
+  toAssetCode: string;
+  toAssetIssuer: string;
+  transactionXdr: string;
 };
 
 export type DemoIssuer = {
@@ -2954,58 +2984,300 @@ export async function submitPrivySignedTransaction({
   }
 }
 
-export function parsePathAsset(assetRecord: Record<string, any>) {
+export function parsePathAsset(assetRecord: Record<string, unknown>) {
   if (assetRecord.asset_type === 'native') {
     return Asset.native();
   }
 
-  return new Asset(assetRecord.asset_code, assetRecord.asset_issuer);
+  return new Asset(
+    String(assetRecord.asset_code || ''),
+    String(assetRecord.asset_issuer || ''),
+  );
 }
 
-export async function quoteStellarSwap(
+type StellarSwapInput = {
+  amount: unknown;
+  fromAssetCode: unknown;
+  fromAssetIssuer?: unknown;
+  network: StellarNetwork;
+  sourceAddress: string;
+  toAssetCode: unknown;
+  toAssetIssuer?: unknown;
+};
+
+type StellarSwapQuoteResolution = {
+  fromDefinition: AssetDefinition;
+  quote: StellarSwapQuote;
+  toDefinition: AssetDefinition;
+};
+
+function logSwapPreparationCache(
+  level: 'info' | 'error',
+  event: string,
+  details: Record<string, unknown>,
+) {
+  const entry = JSON.stringify({
+    event,
+    service: 'stellar-swap-preparation',
+    timestamp: new Date().toISOString(),
+    ...details,
+  });
+
+  if (level === 'error') {
+    console.error(entry);
+    return;
+  }
+
+  console.info(entry);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+export function parseStellarSwapQuote(value: unknown): StellarSwapQuote | null {
+  let parsed = value;
+
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+
+  if (!isRecord(parsed) || !Array.isArray(parsed.path)) {
+    return null;
+  }
+
+  const rate = Number(parsed.rate);
+  const requiredStrings = [
+    parsed.destMin,
+    parsed.fromAmount,
+    parsed.fromAssetCode,
+    parsed.toAmount,
+    parsed.toAssetCode,
+  ];
+
+  if (
+    requiredStrings.some((item) => typeof item !== 'string' || !item) ||
+    !Number.isFinite(rate) ||
+    rate <= 0 ||
+    !parsed.path.every(isRecord)
+  ) {
+    return null;
+  }
+
+  return {
+    destMin: parsed.destMin as string,
+    feeEstimateStroops:
+      typeof parsed.feeEstimateStroops === 'string'
+        ? parsed.feeEstimateStroops
+        : null,
+    feeEstimateXlm:
+      typeof parsed.feeEstimateXlm === 'string'
+        ? parsed.feeEstimateXlm
+        : null,
+    fromAmount: parsed.fromAmount as string,
+    fromAssetCode: parsed.fromAssetCode as string,
+    fromAssetIssuer:
+      typeof parsed.fromAssetIssuer === 'string'
+        ? parsed.fromAssetIssuer
+        : null,
+    path: parsed.path,
+    rate,
+    toAmount: parsed.toAmount as string,
+    toAssetCode: parsed.toAssetCode as string,
+    toAssetIssuer:
+      typeof parsed.toAssetIssuer === 'string' ? parsed.toAssetIssuer : null,
+  };
+}
+
+async function saveStellarSwapPreparation(
   env: Env,
+  preparation: StellarSwapPreparation,
+) {
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        'DELETE FROM stellar_swap_preparations WHERE expires_at < ?',
+      ).bind(Date.now()),
+      env.DB.prepare(
+        `INSERT INTO stellar_swap_preparations (
+          signing_hash,
+          transaction_xdr,
+          network,
+          source_address,
+          source_wallet_id,
+          amount,
+          from_asset_code,
+          from_asset_issuer,
+          to_asset_code,
+          to_asset_issuer,
+          quote_json,
+          expires_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(signing_hash) DO UPDATE SET
+          transaction_xdr = excluded.transaction_xdr,
+          network = excluded.network,
+          source_address = excluded.source_address,
+          source_wallet_id = excluded.source_wallet_id,
+          amount = excluded.amount,
+          from_asset_code = excluded.from_asset_code,
+          from_asset_issuer = excluded.from_asset_issuer,
+          to_asset_code = excluded.to_asset_code,
+          to_asset_issuer = excluded.to_asset_issuer,
+          quote_json = excluded.quote_json,
+          expires_at = excluded.expires_at`,
+      ).bind(
+        preparation.signingHash,
+        preparation.transactionXdr,
+        preparation.network,
+        preparation.sourceAddress,
+        preparation.sourceWalletId,
+        preparation.amount,
+        preparation.fromAssetCode,
+        preparation.fromAssetIssuer,
+        preparation.toAssetCode,
+        preparation.toAssetIssuer,
+        JSON.stringify(preparation.quote),
+        preparation.expiresAt,
+      ),
+    ]);
+  } catch (error) {
+    // Safe rollout fallback: an old database schema must not break swaps.
+    logSwapPreparationCache('error', 'swap_preparation_store_failed', {
+      error: error instanceof Error ? error.message : String(error),
+      network: preparation.network,
+      signingHash: preparation.signingHash,
+    });
+  }
+}
+
+async function loadStellarSwapPreparation(
+  env: Env,
+  signingHash: string,
+): Promise<StellarSwapPreparation | null> {
+  try {
+    const row = await env.DB.prepare(
+      `SELECT
+        signing_hash,
+        transaction_xdr,
+        network,
+        source_address,
+        source_wallet_id,
+        amount,
+        from_asset_code,
+        from_asset_issuer,
+        to_asset_code,
+        to_asset_issuer,
+        quote_json,
+        expires_at
+      FROM stellar_swap_preparations
+      WHERE signing_hash = ? AND expires_at >= ?
+      LIMIT 1`,
+    )
+      .bind(signingHash, Date.now())
+      .first<Record<string, unknown>>();
+
+    if (!row) {
+      return null;
+    }
+
+    const quote = parseStellarSwapQuote(row.quote_json);
+    const expiresAt = Number(row.expires_at);
+    const network = String(row.network || '');
+
+    if (
+      !quote ||
+      !Number.isFinite(expiresAt) ||
+      (network !== 'mainnet' && network !== 'testnet')
+    ) {
+      logSwapPreparationCache('error', 'swap_preparation_invalid', {
+        signingHash,
+      });
+      return null;
+    }
+
+    return {
+      amount: String(row.amount || ''),
+      expiresAt,
+      fromAssetCode: String(row.from_asset_code || ''),
+      fromAssetIssuer: String(row.from_asset_issuer || ''),
+      network,
+      quote,
+      signingHash: String(row.signing_hash || ''),
+      sourceAddress: String(row.source_address || ''),
+      sourceWalletId: String(row.source_wallet_id || ''),
+      toAssetCode: String(row.to_asset_code || ''),
+      toAssetIssuer: String(row.to_asset_issuer || ''),
+      transactionXdr: String(row.transaction_xdr || ''),
+    };
+  } catch (error) {
+    // Missing table or a transient D1 failure falls back to the legacy path.
+    logSwapPreparationCache('error', 'swap_preparation_load_failed', {
+      error: error instanceof Error ? error.message : String(error),
+      signingHash,
+    });
+    return null;
+  }
+}
+
+export function assertStellarSwapPreparationMatches(
+  preparation: StellarSwapPreparation,
   {
     amount,
     fromAssetCode,
     fromAssetIssuer,
     network,
     sourceAddress,
+    sourceWalletId,
     toAssetCode,
     toAssetIssuer,
-  }: {
-    amount: unknown;
-    fromAssetCode: unknown;
-    fromAssetIssuer?: unknown;
-    network: StellarNetwork;
-    sourceAddress: string;
-    toAssetCode: unknown;
-    toAssetIssuer?: unknown;
+    transactionXdr,
+  }: StellarSwapInput & {
+    sourceWalletId: string;
+    transactionXdr: string;
   },
 ) {
-  if (network !== 'testnet') {
-    throw makeError('HORIZON_MAINNET_SWAP_DISABLED', 403);
-  }
+  const matches =
+    preparation.expiresAt >= Date.now() &&
+    preparation.transactionXdr === transactionXdr &&
+    preparation.network === network &&
+    preparation.sourceAddress === sourceAddress &&
+    preparation.sourceWalletId === sourceWalletId &&
+    preparation.amount === assertAmount(amount) &&
+    preparation.fromAssetCode === normalizeAssetCode(fromAssetCode) &&
+    preparation.fromAssetIssuer === String(fromAssetIssuer || '').trim() &&
+    preparation.toAssetCode === normalizeAssetCode(toAssetCode) &&
+    preparation.toAssetIssuer === String(toAssetIssuer || '').trim();
 
-  const sendAmount = assertAmount(amount);
-  const sourceAccount = await loadAccount(env, sourceAddress, network);
-
-  if (!sourceAccount) {
+  if (!matches) {
     throw makeError(
-      'Testnet wallet is not active. Deposit XLM before swapping.',
-      400,
+      'Swap preparation changed or expired. Please request a new quote.',
+      409,
     );
   }
+}
 
-  const fromDefinition = await getSupportedAsset(env, {
-    assetCode: fromAssetCode,
-    assetIssuer: fromAssetIssuer,
-    network,
-  });
-  const toDefinition = await getSupportedAsset(env, {
-    assetCode: toAssetCode,
-    assetIssuer: toAssetIssuer,
-    network,
-  });
+async function resolveStellarSwapQuote(
+  env: Env,
+  input: StellarSwapInput,
+  sourceAccount: NonNullable<Awaited<ReturnType<typeof loadAccount>>>,
+): Promise<StellarSwapQuoteResolution> {
+  const sendAmount = assertAmount(input.amount);
+  const [fromDefinition, toDefinition] = await Promise.all([
+    getSupportedAsset(env, {
+      assetCode: input.fromAssetCode,
+      assetIssuer: input.fromAssetIssuer,
+      network: input.network,
+    }),
+    getSupportedAsset(env, {
+      assetCode: input.toAssetCode,
+      assetIssuer: input.toAssetIssuer,
+      network: input.network,
+    }),
+  ]);
 
   if (fromDefinition.assetCode === toDefinition.assetCode) {
     throw makeError('Choose two different tokens to swap', 400);
@@ -3014,32 +3286,102 @@ export async function quoteStellarSwap(
   ensureTrustline(sourceAccount, fromDefinition, 'Source wallet');
   assertSufficientBalance(sourceAccount, fromDefinition, sendAmount);
 
-  const records = await getStellarServer(env, network)
+  const records = await getStellarServer(env, input.network)
     .strictSendPaths(getAssetForOperation(fromDefinition), sendAmount, [
       getAssetForOperation(toDefinition),
     ])
     .call();
-  const bestPath = (records as any)?.records?.[0];
+  const bestPath = records.records?.[0];
 
   if (!bestPath) {
     throw makeError('No swap path found on Stellar DEX', 400);
   }
 
-  const destinationAmount = bestPath.destination_amount;
-  const destMin = formatStellarAmount(Number(destinationAmount) * 0.995);
+  const destinationAmount = String(bestPath.destination_amount || '');
+  const destinationValue = Number(destinationAmount);
+
+  if (!Number.isFinite(destinationValue) || destinationValue <= 0) {
+    throw makeError('Stellar returned an invalid swap quote', 502);
+  }
+
+  const destMin = formatStellarAmount(destinationValue * 0.995);
+  const path = (bestPath.path || []).map((asset) => ({
+    asset_code: asset.asset_code,
+    asset_issuer: asset.asset_issuer,
+    asset_type: asset.asset_type,
+  }));
 
   return {
-    destMin,
-    ...getDefaultFeeEstimateFields(1),
-    fromAmount: sendAmount,
-    fromAssetCode: fromDefinition.assetCode,
-    fromAssetIssuer: fromDefinition.assetIssuer,
-    path: bestPath.path || [],
-    rate: Number(destinationAmount) / Number(sendAmount),
-    toAmount: destinationAmount,
-    toAssetCode: toDefinition.assetCode,
-    toAssetIssuer: toDefinition.assetIssuer,
+    fromDefinition,
+    quote: {
+      destMin,
+      ...getDefaultFeeEstimateFields(1),
+      fromAmount: sendAmount,
+      fromAssetCode: fromDefinition.assetCode,
+      fromAssetIssuer: fromDefinition.assetIssuer,
+      path,
+      rate: destinationValue / Number(sendAmount),
+      toAmount: destinationAmount,
+      toAssetCode: toDefinition.assetCode,
+      toAssetIssuer: toDefinition.assetIssuer,
+    },
+    toDefinition,
   };
+}
+
+export async function quoteStellarSwap(env: Env, input: StellarSwapInput) {
+  const sourceAccount = await loadAccount(
+    env,
+    input.sourceAddress,
+    input.network,
+  );
+
+  if (!sourceAccount) {
+    throw makeError(
+      `${input.network === 'mainnet' ? 'Mainnet' : 'Testnet'} wallet is not active. Deposit XLM before swapping.`,
+      400,
+    );
+  }
+
+  const { quote } = await resolveStellarSwapQuote(env, input, sourceAccount);
+  return quote;
+}
+
+function assertSignedSwapTransaction({
+  fromDefinition,
+  quote,
+  sourceAddress,
+  toDefinition,
+  transaction,
+}: {
+  fromDefinition: AssetDefinition;
+  quote: StellarSwapQuote;
+  sourceAddress: string;
+  toDefinition: AssetDefinition;
+  transaction: ReturnType<TransactionBuilder['build']>;
+}) {
+  const operation = (transaction.operations || [])[0] as
+    | Record<string, any>
+    | undefined;
+  const operationSource = operation?.source
+    ? String(operation.source)
+    : sourceAddress;
+  const destMinAmount = Number(operation?.destMin || 0);
+
+  if (
+    transaction.source !== sourceAddress ||
+    transaction.operations.length !== 1 ||
+    operation?.type !== 'pathPaymentStrictSend' ||
+    operationSource !== sourceAddress ||
+    String(operation.destination || '') !== sourceAddress ||
+    !stellarAmountsEqual(operation.sendAmount, quote.fromAmount) ||
+    !Number.isFinite(destMinAmount) ||
+    destMinAmount <= 0 ||
+    !operationAssetMatches(operation.sendAsset, fromDefinition) ||
+    !operationAssetMatches(operation.destAsset, toDefinition)
+  ) {
+    throw makeError('Signed transaction does not match the swap request', 400);
+  }
 }
 
 export async function executeStellarSwap(
@@ -3051,6 +3393,7 @@ export async function executeStellarSwap(
     fromAssetCode,
     fromAssetIssuer,
     network,
+    expectedSigningHash,
     sourceAddress,
     sourceWallet,
     sourceWalletId,
@@ -3064,6 +3407,7 @@ export async function executeStellarSwap(
     fromAssetCode: unknown;
     fromAssetIssuer?: unknown;
     network: StellarNetwork;
+    expectedSigningHash?: unknown;
     sourceAddress: string;
     sourceWallet?: WalletRecord;
     sourceWalletId: string;
@@ -3076,7 +3420,14 @@ export async function executeStellarSwap(
     throw makeError('Missing Privy wallet id for swap', 400);
   }
 
-  const quote = await quoteStellarSwap(env, {
+  if (Boolean(clientSignatureHex) !== Boolean(transactionXdr)) {
+    throw makeError(
+      'Both the Stellar transaction and its signature are required',
+      400,
+    );
+  }
+
+  const swapInput: StellarSwapInput = {
     amount,
     fromAssetCode,
     fromAssetIssuer,
@@ -3084,75 +3435,125 @@ export async function executeStellarSwap(
     sourceAddress,
     toAssetCode,
     toAssetIssuer,
-  });
-  const sourceAccount = await loadAccount(env, sourceAddress, network);
-
-  if (!sourceAccount) {
-    throw makeError(
-      `${network === 'mainnet' ? 'Mainnet' : 'Testnet'} wallet is not active. Deposit XLM first.`,
-      400,
-    );
-  }
-
-  const fromDefinition = await getSupportedAsset(env, {
-    assetCode: fromAssetCode,
-    assetIssuer: fromAssetIssuer,
-    network,
-  });
-  const toDefinition = await getSupportedAsset(env, {
-    assetCode: toAssetCode,
-    assetIssuer: toAssetIssuer,
-    network,
-  });
-  ensureTrustline(sourceAccount, toDefinition, 'Recipient wallet');
-  const config = getNetworkConfig(env, network);
-  const preparedTransaction = new TransactionBuilder(sourceAccount, {
-    fee: BASE_FEE,
-    networkPassphrase: config.passphrase,
-  })
-    .addOperation(
-      Operation.pathPaymentStrictSend({
-        destAsset: getAssetForOperation(toDefinition),
-        destination: sourceAddress,
-        destMin: quote.destMin,
-        path: quote.path.map(parsePathAsset),
-        sendAmount: quote.fromAmount,
-        sendAsset: getAssetForOperation(fromDefinition),
-      }),
-    )
-    .setTimeout(60)
-    .build();
-  const transaction =
-    clientSignatureHex && transactionXdr
-      ? requireClassicTransaction(parseStellarXdr(env, transactionXdr, network))
-      : preparedTransaction;
-  const signingHash = `0x${bytesToHex(transaction.hash() as Uint8Array)}`;
+  };
+  let quote: StellarSwapQuote;
+  let fromDefinition: AssetDefinition;
+  let toDefinition: AssetDefinition;
+  let transaction: ReturnType<TransactionBuilder['build']>;
+  let signingHash: string;
 
   if (clientSignatureHex && transactionXdr) {
-    const operation = (transaction.operations || [])[0] as
-      Record<string, any> | undefined;
-    const operationSource = operation?.source
-      ? String(operation.source)
-      : sourceAddress;
-    const destMinAmount = Number(operation?.destMin || 0);
+    const normalizedXdr = String(transactionXdr).trim();
+    transaction = requireClassicTransaction(
+      parseStellarXdr(env, normalizedXdr, network),
+    );
+    signingHash = `0x${bytesToHex(transaction.hash() as Uint8Array)}`;
+    const normalizedExpectedHash = String(expectedSigningHash || '')
+      .trim()
+      .toLowerCase();
 
     if (
-      transaction.source !== sourceAddress ||
-      transaction.operations.length !== 1 ||
-      operation?.type !== 'pathPaymentStrictSend' ||
-      operationSource !== sourceAddress ||
-      String(operation.destination || '') !== sourceAddress ||
-      !stellarAmountsEqual(operation.sendAmount, quote.fromAmount) ||
-      !Number.isFinite(destMinAmount) ||
-      destMinAmount <= 0 ||
-      !operationAssetMatches(operation.sendAsset, fromDefinition) ||
-      !operationAssetMatches(operation.destAsset, toDefinition)
+      normalizedExpectedHash &&
+      normalizedExpectedHash !== signingHash.toLowerCase()
     ) {
+      throw makeError('Transaction changed before signing. Please try again.', 409);
+    }
+
+    const preparation = await loadStellarSwapPreparation(env, signingHash);
+
+    if (preparation) {
+      assertStellarSwapPreparationMatches(preparation, {
+        ...swapInput,
+        sourceWalletId,
+        transactionXdr: normalizedXdr,
+      });
+      quote = preparation.quote;
+      [fromDefinition, toDefinition] = await Promise.all([
+        getSupportedAsset(env, {
+          assetCode: fromAssetCode,
+          assetIssuer: fromAssetIssuer,
+          network,
+        }),
+        getSupportedAsset(env, {
+          assetCode: toAssetCode,
+          assetIssuer: toAssetIssuer,
+          network,
+        }),
+      ]);
+      logSwapPreparationCache('info', 'swap_preparation_hit', {
+        network,
+        signingHash,
+      });
+    } else {
+      const sourceAccount = await loadAccount(env, sourceAddress, network);
+
+      if (!sourceAccount) {
+        throw makeError(
+          `${network === 'mainnet' ? 'Mainnet' : 'Testnet'} wallet is not active. Deposit XLM first.`,
+          400,
+        );
+      }
+
+      const resolution = await resolveStellarSwapQuote(
+        env,
+        swapInput,
+        sourceAccount,
+      );
+      quote = resolution.quote;
+      fromDefinition = resolution.fromDefinition;
+      toDefinition = resolution.toDefinition;
+      ensureTrustline(sourceAccount, toDefinition, 'Recipient wallet');
+      logSwapPreparationCache('info', 'swap_preparation_miss', {
+        network,
+        signingHash,
+      });
+    }
+
+    assertSignedSwapTransaction({
+      fromDefinition,
+      quote,
+      sourceAddress,
+      toDefinition,
+      transaction,
+    });
+  } else {
+    const sourceAccount = await loadAccount(env, sourceAddress, network);
+
+    if (!sourceAccount) {
       throw makeError(
-        'Signed transaction does not match the swap request',
+        `${network === 'mainnet' ? 'Mainnet' : 'Testnet'} wallet is not active. Deposit XLM first.`,
         400,
       );
     }
+
+    const resolution = await resolveStellarSwapQuote(
+      env,
+      swapInput,
+      sourceAccount,
+    );
+    quote = resolution.quote;
+    fromDefinition = resolution.fromDefinition;
+    toDefinition = resolution.toDefinition;
+    ensureTrustline(sourceAccount, toDefinition, 'Recipient wallet');
+
+    const config = getNetworkConfig(env, network);
+    transaction = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: config.passphrase,
+    })
+      .addOperation(
+        Operation.pathPaymentStrictSend({
+          destAsset: getAssetForOperation(toDefinition),
+          destination: sourceAddress,
+          destMin: quote.destMin,
+          path: quote.path.map(parsePathAsset),
+          sendAmount: quote.fromAmount,
+          sendAsset: getAssetForOperation(fromDefinition),
+        }),
+      )
+      .setTimeout(60)
+      .build();
+    signingHash = `0x${bytesToHex(transaction.hash() as Uint8Array)}`;
   }
 
   if (
@@ -3160,13 +3561,29 @@ export async function executeStellarSwap(
     !clientSignatureHex &&
     clientSigningSupported
   ) {
+    const preparedXdr = transaction.toEnvelope().toXDR('base64');
+    await saveStellarSwapPreparation(env, {
+      amount: quote.fromAmount,
+      expiresAt: Date.now() + STELLAR_SWAP_PREPARATION_TTL_MS,
+      fromAssetCode: quote.fromAssetCode,
+      fromAssetIssuer: quote.fromAssetIssuer || '',
+      network,
+      quote,
+      signingHash,
+      sourceAddress,
+      sourceWalletId,
+      toAssetCode: quote.toAssetCode,
+      toAssetIssuer: quote.toAssetIssuer || '',
+      transactionXdr: preparedXdr,
+    });
+
     return {
       ...quote,
       hash: signingHash,
       payoutAddress: sourceAddress,
       requiresClientSignature: true,
       submitted: null,
-      transactionXdr: transaction.toEnvelope().toXDR('base64'),
+      transactionXdr: preparedXdr,
     };
   }
 
