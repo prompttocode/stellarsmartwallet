@@ -72,6 +72,46 @@ CREATE TABLE IF NOT EXISTS transactions (
 CREATE INDEX IF NOT EXISTS idx_transactions_account
   ON transactions(network, from_address, to_address);
 
+CREATE TABLE IF NOT EXISTS account_wallets (
+  account_email TEXT NOT NULL,
+  wallet_id TEXT NOT NULL,
+  wallet_address TEXT NOT NULL,
+  network TEXT NOT NULL,
+  archived INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (account_email, wallet_id, network)
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_wallets_address
+  ON account_wallets(network, wallet_address, archived);
+
+CREATE TABLE IF NOT EXISTS account_transactions (
+  account_email TEXT NOT NULL,
+  wallet_id TEXT NOT NULL,
+  wallet_address TEXT NOT NULL,
+  network TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  transaction_hash TEXT NOT NULL,
+  direction TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  asset_code TEXT NOT NULL,
+  asset_issuer TEXT,
+  amount TEXT NOT NULL,
+  from_address TEXT,
+  to_address TEXT,
+  ledger INTEGER,
+  data TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (account_email, wallet_id, network, operation_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_transactions_history
+  ON account_transactions(account_email, wallet_id, network, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_account_transactions_hash
+  ON account_transactions(network, transaction_hash);
+
 CREATE TABLE IF NOT EXISTS stellar_swap_preparations (
   signing_hash TEXT PRIMARY KEY,
   transaction_xdr TEXT NOT NULL,

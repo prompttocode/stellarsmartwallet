@@ -36,6 +36,7 @@ export type Env = {
   HORIZON_MAINNET_URL: string;
   HORIZON_TESTNET_URL: string;
   PARTNER_API_KEY?: string;
+  PARTNER_TRANSACTIONS_API_KEY?: string;
   PAYMENT_API_BASE_URL?: string;
   PAYMENT_CALLBACK_URL?: string;
   PAYMENT_PARTNER_APP_KEY?: string;
@@ -86,6 +87,35 @@ export type AccountRecord = {
   updatedAt?: string;
   wallet?: WalletRecord | null;
   wallets?: WalletRecord[];
+};
+
+export type AccountWalletMapping = {
+  accountEmail: string;
+  archived: boolean;
+  network: StellarNetwork;
+  walletAddress: string;
+  walletId: string;
+};
+
+export type StellarTransactionHistoryItem = {
+  amount: string;
+  assetCode: string;
+  assetIssuer: string | null;
+  createdAt: string;
+  direction: string;
+  explorerUrl: string;
+  feeChargedStroops?: string | null;
+  feeChargedXlm?: string | null;
+  from: string;
+  hash: string;
+  id: string;
+  ledger: number;
+  maxFeeStroops?: string | null;
+  maxFeeXlm?: string | null;
+  network: StellarNetwork;
+  operation: string;
+  operationCount?: number | null;
+  to: string;
 };
 
 export type KycStatus = 'not_started' | 'verified';
@@ -1339,6 +1369,105 @@ export async function getAccountByEmail(env: Env, emailValue: unknown) {
   return row?.data ? jsonParse<AccountRecord | null>(row.data, null) : null;
 }
 
+export function getAccountWalletMappings(
+  account: AccountRecord,
+): AccountWalletMapping[] {
+  const accountEmail = normalizeEmail(account.email);
+  const candidates = [
+    ...(Array.isArray(account.wallets) ? account.wallets : []),
+    ...(account.wallet ? [account.wallet] : []),
+  ];
+  const seen = new Set<string>();
+
+  return candidates.flatMap(wallet => {
+    const walletId = String(wallet?.id || '').trim();
+    const walletAddress = String(wallet?.address || '')
+      .trim()
+      .toUpperCase();
+    const network = normalizeNetwork(wallet?.network);
+    const key = `${walletId}:${network}`;
+
+    if (!accountEmail || !walletId || !walletAddress || seen.has(key)) {
+      return [];
+    }
+
+    seen.add(key);
+
+    return [
+      {
+        accountEmail,
+        archived: Boolean(wallet.archived),
+        network,
+        walletAddress,
+        walletId,
+      },
+    ];
+  });
+}
+
+async function syncAccountWalletMappings(env: Env, account: AccountRecord) {
+  const accountEmail = normalizeEmail(account.email);
+  const mappings = getAccountWalletMappings(account);
+
+  if (!accountEmail) {
+    return;
+  }
+
+  try {
+    const deleteSql = mappings.length
+      ? `DELETE FROM account_wallets
+         WHERE account_email = ?
+           AND NOT (${mappings
+             .map(() => '(wallet_id = ? AND network = ?)')
+             .join(' OR ')})`
+      : 'DELETE FROM account_wallets WHERE account_email = ?';
+    const deleteValues = mappings.flatMap(mapping => [
+      mapping.walletId,
+      mapping.network,
+    ]);
+    const statements = [
+      env.DB.prepare(deleteSql).bind(accountEmail, ...deleteValues),
+      ...mappings.map(mapping =>
+        env.DB.prepare(
+          `INSERT INTO account_wallets (
+             account_email,
+             wallet_id,
+             wallet_address,
+             network,
+             archived,
+             updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(account_email, wallet_id, network) DO UPDATE SET
+             wallet_address = excluded.wallet_address,
+             archived = excluded.archived,
+             updated_at = excluded.updated_at
+           WHERE account_wallets.wallet_address <> excluded.wallet_address
+              OR account_wallets.archived <> excluded.archived`,
+        ).bind(
+          mapping.accountEmail,
+          mapping.walletId,
+          mapping.walletAddress,
+          mapping.network,
+          mapping.archived ? 1 : 0,
+          nowIso(),
+        ),
+      ),
+    ];
+
+    await env.DB.batch(statements);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        error: error instanceof Error ? error.message : String(error),
+        event: 'account_wallet_mapping.sync_failed',
+        service: 'transaction-history',
+        timestamp: nowIso(),
+        walletCount: mappings.length,
+      }),
+    );
+  }
+}
+
 export async function saveAccount(env: Env, account: AccountRecord) {
   const now = nowIso();
   const email = normalizeEmail(account.email);
@@ -1367,6 +1496,8 @@ export async function saveAccount(env: Env, account: AccountRecord) {
       item.updatedAt || now,
     )
     .run();
+
+  await syncAccountWalletMappings(env, item);
 
   return item;
 }
@@ -1617,11 +1748,13 @@ export async function deleteAccountPermanently(
        FROM sqlite_master
        WHERE type = 'table'
          AND name IN (
+           'account_transactions',
            'account_exchange_profiles',
            'account_kyc',
            'account_payment_methods',
            'account_favorite_assets',
            'account_feedback',
+           'account_wallets',
            'ramp_orders',
            'accounts'
          )`,
@@ -1630,7 +1763,7 @@ export async function deleteAccountPermanently(
       (schema.results || []).map(row => String(row.name || '')),
     );
 
-    if (existingTables.size !== 7) {
+    if (existingTables.size !== 9) {
       throw new Error('Account deletion migration is incomplete');
     }
   } catch {
@@ -1650,11 +1783,13 @@ export async function deleteAccountPermanently(
   await getPrivyClient(env).users().delete(userId);
 
   await env.DB.batch([
+    env.DB.prepare('DELETE FROM account_transactions WHERE account_email = ?').bind(email),
     env.DB.prepare('DELETE FROM account_exchange_profiles WHERE account_email = ?').bind(email),
     env.DB.prepare('DELETE FROM account_kyc WHERE account_email = ?').bind(email),
     env.DB.prepare('DELETE FROM account_payment_methods WHERE account_email = ?').bind(email),
     env.DB.prepare('DELETE FROM account_favorite_assets WHERE account_email = ?').bind(email),
     env.DB.prepare('DELETE FROM account_feedback WHERE account_email = ?').bind(email),
+    env.DB.prepare('DELETE FROM account_wallets WHERE account_email = ?').bind(email),
     env.DB.prepare('DELETE FROM ramp_orders WHERE account_email = ?').bind(email),
     env.DB.prepare('DELETE FROM accounts WHERE email = ?').bind(email),
   ]);
@@ -3660,7 +3795,7 @@ export function normalizeOperationRecord(
   address: string,
   operation: Record<string, any>,
   network: StellarNetwork,
-) {
+): StellarTransactionHistoryItem | null {
   const hash = operation.transaction_hash;
 
   if (!hash) {
@@ -3774,6 +3909,155 @@ export function normalizeOperationRecord(
   };
 }
 
+async function saveRegisteredWalletTransactions(
+  env: Env,
+  address: string,
+  network: StellarNetwork,
+  transactions: StellarTransactionHistoryItem[],
+) {
+  if (!transactions.length) {
+    return;
+  }
+
+  try {
+    const owners = await env.DB.prepare(
+      `SELECT account_email, wallet_id, wallet_address
+       FROM account_wallets
+       WHERE network = ? AND wallet_address = ? AND archived = 0`,
+    )
+      .bind(network, address.trim().toUpperCase())
+      .all<{
+        account_email: string;
+        wallet_address: string;
+        wallet_id: string;
+      }>();
+    const registeredWallets = (owners.results || []).filter(
+      owner => owner.account_email && owner.wallet_id && owner.wallet_address,
+    );
+
+    if (!registeredWallets.length) {
+      return;
+    }
+
+    const syncedAt = nowIso();
+    const statements: D1PreparedStatement[] = [];
+    const storedHashes = new Set<string>();
+
+    for (const transaction of transactions) {
+      const transactionHash = String(transaction.hash || '').trim();
+      const operationId = String(transaction.id || transactionHash).trim();
+
+      if (!transactionHash || !operationId) {
+        continue;
+      }
+
+      const data = JSON.stringify(transaction);
+      const ledger = Number(transaction.ledger);
+      const createdAt = String(transaction.createdAt || syncedAt);
+
+      if (!storedHashes.has(transactionHash)) {
+        storedHashes.add(transactionHash);
+        statements.push(
+          env.DB.prepare(
+            `INSERT INTO transactions (
+               hash,
+               network,
+               from_address,
+               to_address,
+               data,
+               created_at
+             ) VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(hash) DO NOTHING`,
+          ).bind(
+            transactionHash,
+            network,
+            transaction.from || null,
+            transaction.to || null,
+            data,
+            createdAt,
+          ),
+        );
+      }
+
+      for (const owner of registeredWallets) {
+        statements.push(
+          env.DB.prepare(
+            `INSERT INTO account_transactions (
+               account_email,
+               wallet_id,
+               wallet_address,
+               network,
+               operation_id,
+               transaction_hash,
+               direction,
+               operation,
+               asset_code,
+               asset_issuer,
+               amount,
+               from_address,
+               to_address,
+               ledger,
+               data,
+               created_at,
+               synced_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(account_email, wallet_id, network, operation_id)
+             DO UPDATE SET
+               transaction_hash = excluded.transaction_hash,
+               direction = excluded.direction,
+               operation = excluded.operation,
+               asset_code = excluded.asset_code,
+               asset_issuer = excluded.asset_issuer,
+               amount = excluded.amount,
+               from_address = excluded.from_address,
+               to_address = excluded.to_address,
+               ledger = excluded.ledger,
+               data = excluded.data,
+               created_at = excluded.created_at,
+               synced_at = excluded.synced_at
+             WHERE account_transactions.data <> excluded.data`,
+          ).bind(
+            owner.account_email,
+            owner.wallet_id,
+            owner.wallet_address,
+            network,
+            operationId,
+            transactionHash,
+            transaction.direction,
+            transaction.operation,
+            transaction.assetCode,
+            transaction.assetIssuer || null,
+            transaction.amount,
+            transaction.from || null,
+            transaction.to || null,
+            Number.isFinite(ledger) ? ledger : null,
+            data,
+            createdAt,
+            syncedAt,
+          ),
+        );
+      }
+    }
+
+    const maxBatchSize = 400;
+
+    for (let index = 0; index < statements.length; index += maxBatchSize) {
+      await env.DB.batch(statements.slice(index, index + maxBatchSize));
+    }
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        error: error instanceof Error ? error.message : String(error),
+        event: 'transaction_history.store_failed',
+        network,
+        service: 'transaction-history',
+        timestamp: nowIso(),
+        transactionCount: transactions.length,
+      }),
+    );
+  }
+}
+
 export async function getAccountHistory(
   env: Env,
   address: string,
@@ -3782,12 +4066,18 @@ export async function getAccountHistory(
 ) {
   const network = normalizeNetwork(networkValue);
   const records = await fetchAccountOperations(env, address, network, limit);
-
-  return records
+  const transactions = records
     .map((operation) =>
       normalizeOperationRecord(env, address, operation, network),
     )
-    .filter(Boolean);
+    .filter(
+      (transaction): transaction is StellarTransactionHistoryItem =>
+        Boolean(transaction),
+    );
+
+  await saveRegisteredWalletTransactions(env, address, network, transactions);
+
+  return transactions;
 }
 
 export function parseStellarXdr(env: Env, xdr: unknown, networkValue: unknown) {

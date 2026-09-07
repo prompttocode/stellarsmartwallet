@@ -10,7 +10,7 @@ import {
   TransactionBuilder,
   nativeToScVal,
 } from '@stellar/stellar-sdk';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   assertCanAddTrustline,
   assertStellarSwapPreparationMatches,
@@ -20,6 +20,8 @@ import {
   getAvailableNativeBalance,
   getDefaultFeeEstimateFields,
   getEmailFromPrivyUser,
+  getAccountHistory,
+  getAccountWalletMappings,
   getStellarSubmissionErrorMessage,
   getTransactionFeeFields,
   parseStellarSwapQuote,
@@ -76,6 +78,139 @@ describe('Privy user email parsing', () => {
         ],
       }),
     ).toBe('abc123@privaterelay.appleid.com');
+  });
+});
+
+describe('Stellar transaction history storage', () => {
+  it('normalizes and deduplicates account wallet mappings', () => {
+    const wallet = {
+      address: 'gexamplewallet',
+      canSign: true,
+      id: 'wallet-1',
+      kind: 'privy',
+      network: 'mainnet',
+      publicKey: 'gexamplewallet',
+    } as const;
+
+    expect(
+      getAccountWalletMappings({
+        email: ' User@Example.com ',
+        wallet,
+        wallets: [wallet, { ...wallet, archived: true }],
+      }),
+    ).toEqual([
+      {
+        accountEmail: 'user@example.com',
+        archived: false,
+        network: 'mainnet',
+        walletAddress: 'GEXAMPLEWALLET',
+        walletId: 'wallet-1',
+      },
+    ]);
+  });
+
+  it('stores Horizon operations for every registered owner of the wallet', async () => {
+    const statements: Array<{ sql: string; values: unknown[] }> = [];
+    const database = {
+      batch: async (batch: Array<{ sql: string; values: unknown[] }>) => {
+        statements.push(...batch);
+        return [];
+      },
+      prepare(sql: string) {
+        const statement = {
+          sql,
+          values: [] as unknown[],
+          bind(...values: unknown[]) {
+            this.values = values;
+            return this;
+          },
+          async all() {
+            if (sql.includes('FROM account_wallets')) {
+              return {
+                results: [
+                  {
+                    account_email: 'user@example.com',
+                    wallet_address: 'GDESTINATION',
+                    wallet_id: 'wallet-1',
+                  },
+                ],
+              };
+            }
+
+            return { results: [] };
+          },
+        };
+
+        return statement;
+      },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          _embedded: {
+            records: [
+              {
+                amount: '2.5000000',
+                asset_type: 'native',
+                created_at: '2026-09-07T01:02:03Z',
+                from: 'GSOURCE',
+                id: 'operation-1',
+                to: 'GDESTINATION',
+                transaction_attr: {
+                  fee_charged: '100',
+                  ledger: 123,
+                  max_fee: '100',
+                  operation_count: 1,
+                },
+                transaction_hash: 'transaction-hash-1',
+                type: 'payment',
+              },
+            ],
+          },
+        }),
+      ),
+    );
+
+    try {
+      const history = await getAccountHistory(
+        { ...env, DB: database } as never,
+        'GDESTINATION',
+        'testnet',
+      );
+
+      expect(history).toHaveLength(1);
+      expect(history[0]).toMatchObject({
+        amount: '2.5000000',
+        direction: 'received',
+        hash: 'transaction-hash-1',
+        id: 'operation-1',
+      });
+
+      const accountInsert = statements.find(statement =>
+        statement.sql.includes('INSERT INTO account_transactions'),
+      );
+
+      expect(accountInsert?.values.slice(0, 10)).toEqual([
+        'user@example.com',
+        'wallet-1',
+        'GDESTINATION',
+        'testnet',
+        'operation-1',
+        'transaction-hash-1',
+        'received',
+        'payment',
+        'XLM',
+        null,
+      ]);
+      expect(
+        statements.some(statement =>
+          statement.sql.includes('INSERT INTO transactions'),
+        ),
+      ).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
