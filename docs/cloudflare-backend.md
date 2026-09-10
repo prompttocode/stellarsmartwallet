@@ -58,9 +58,7 @@ Nhom he thong:
 Nhom session/wallet:
 
 - `POST /api/session`
-- `POST /api/demo/session`
-- `POST /api/demo/auth-session`
-- `POST /api/demo/account`
+- `POST /api/session/status`
 - `POST /api/wallets`
 - `POST /api/wallets/import`
 - `POST /api/wallets/watch-only`
@@ -68,7 +66,7 @@ Nhom session/wallet:
 - `POST /api/wallets/select` (Privy Bearer token required)
 - `POST /api/wallets/rename` (Privy Bearer token required)
 - `POST /api/wallets/archive` (Privy Bearer token required)
-- `POST /api/demo/receiver`
+- `POST /api/testnet/receiver` (Testnet utility for authenticated users)
 
 Nhom Stellar:
 

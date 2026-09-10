@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { AssetItem, StellarNetwork } from '@app-types';
+import type { AssetItem } from '@app-types';
 
 export type Timeframe = '7D';
 
@@ -59,8 +59,9 @@ function parseRecordIdentity(record: StellarExpertAssetRecord) {
   }
 
   const parts = assetId.split('-');
-  const issuer = String(toml.issuer || parts.find(part => part.startsWith('G')) || '')
-    .trim();
+  const issuer = String(
+    toml.issuer || parts.find(part => part.startsWith('G')) || '',
+  ).trim();
   const assetCode = String(toml.code || parts[0] || '').trim();
 
   if (!assetCode) {
@@ -119,7 +120,9 @@ function mapPrice7d(record: StellarExpertAssetRecord) {
     }));
 }
 
-function getReferenceAsset(asset: HistoricalPriceAsset): HistoricalPriceAsset | null {
+function getReferenceAsset(
+  asset: HistoricalPriceAsset,
+): HistoricalPriceAsset | null {
   if (asset.network === 'mainnet') {
     return asset;
   }
@@ -178,9 +181,12 @@ async function writeCachedHistoricalPrices(
 }
 
 async function fetchStellarExpertRecords(params: URLSearchParams) {
-  const response = await fetch(`${STELLAR_EXPERT_BASE_URL}?${params.toString()}`, {
-    headers: { Accept: 'application/json' },
-  });
+  const response = await fetch(
+    `${STELLAR_EXPERT_BASE_URL}?${params.toString()}`,
+    {
+      headers: { Accept: 'application/json' },
+    },
+  );
 
   if (!response.ok) {
     throw new Error('Failed to fetch from Stellar Expert');
@@ -263,7 +269,9 @@ async function findAssetChart(asset: HistoricalPriceAsset) {
         sort: 'rating',
       }),
     );
-    const matchedRecord = records.find(record => getRecordChartKey(record) === targetKey);
+    const matchedRecord = records.find(
+      record => getRecordChartKey(record) === targetKey,
+    );
 
     if (matchedRecord) {
       return mapPrice7d(matchedRecord);
@@ -307,6 +315,7 @@ export async function getHistoricalPriceData(asset: HistoricalPriceAsset) {
 export function useHistoricalPrice(
   asset: HistoricalPriceAsset,
   timeframe: Timeframe = '7D',
+  enabled = true,
 ) {
   const [data, setData] = useState<ChartDataPoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -316,6 +325,13 @@ export function useHistoricalPrice(
   }:${asset.isNative ? 'native' : 'issued'}`;
 
   useEffect(() => {
+    if (!enabled) {
+      setData([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     let isMounted = true;
 
     async function loadPriceData() {
@@ -345,7 +361,7 @@ export function useHistoricalPrice(
     return () => {
       isMounted = false;
     };
-  }, [assetKey, timeframe]);
+  }, [asset, assetKey, enabled, timeframe]);
 
   return { data, error, loading };
 }

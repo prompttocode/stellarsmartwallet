@@ -6,6 +6,7 @@ module.exports = {
     '^@components$': '<rootDir>/src/components',
     '^@components/(.*)$': '<rootDir>/src/components/$1',
     '^@config$': '<rootDir>/src/config',
+    '^@constants/(.*)$': '<rootDir>/src/constants/$1',
     '^@contexts/(.*)$': '<rootDir>/src/contexts/$1',
     '^@hooks/(.*)$': '<rootDir>/src/hooks/$1',
     '^@screens/(.*)$': '<rootDir>/src/screens/$1',

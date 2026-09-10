@@ -35,7 +35,7 @@ function parseScannedValue(value: string) {
   return { type: 'address' as const, value };
 }
 
-export function ScanScreen({ navigation }: any) {
+export function ScanScreen({ navigation }: { navigation: any }) {
   const insets = useSafeAreaInsets();
   const headerStyle = useMemo(
     () => [styles.header, { top: insets.top + 12 }],

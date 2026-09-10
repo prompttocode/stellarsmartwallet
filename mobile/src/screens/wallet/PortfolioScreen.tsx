@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Image, RefreshControl, ScrollView, Text, View } from 'react-native';
-import type { ImageSourcePropType } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,7 +12,6 @@ import {
 import {
   ActivateWalletNotice,
   AssetListItem,
-  HomeBannerCarousel,
   QuickActionGrid,
   SectionHeader,
   WalletHero,
@@ -44,12 +42,6 @@ const CRYPTO_PREVIEW_LIMIT = 5;
 const portfolioAssetTabs: { key: PortfolioAssetTab; label: string }[] = [
   { key: 'crypto', label: 'Crypto' },
   { key: 'nft', label: "NFT's" },
-];
-
-const homeBanners: ImageSourcePropType[] = [
-  require('@assets/images/banner/banner1.png'),
-  require('@assets/images/banner/banner2.png'),
-  require('@assets/images/banner/bannner3.png'),
 ];
 
 export function PortfolioScreen({
@@ -172,7 +164,7 @@ export function PortfolioScreen({
       return;
     }
 
-    onGoToRamp();
+    onGoToFaucet();
   }
 
   async function refreshPortfolio() {
@@ -317,18 +309,22 @@ export function PortfolioScreen({
                   label: wallet.isMainnet ? 'Deposit' : 'Faucet',
                   onPress: onGoToFaucet,
                 },
-                {
-                  icon: (
-                    <MaterialCommunityIcons
-                      color="#FFFFFF"
-                      name="bank-transfer-out"
-                      size={25}
-                    />
-                  ),
-                  key: 'withdraw',
-                  label: 'Withdraw',
-                  onPress: onGoToWithdraw,
-                },
+                ...(wallet.isMainnet
+                  ? [
+                      {
+                        icon: (
+                          <MaterialCommunityIcons
+                            color="#FFFFFF"
+                            name="bank-transfer-out"
+                            size={25}
+                          />
+                        ),
+                        key: 'withdraw',
+                        label: 'Withdraw',
+                        onPress: onGoToWithdraw,
+                      },
+                    ]
+                  : []),
               ]}
             />
           )}

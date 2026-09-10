@@ -9,7 +9,15 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "d1:apply:local": "wrangler d1 execute privy_stellar_db --local --file=./schema.sql",
-    "d1:apply:remote": "wrangler d1 execute privy_stellar_db --remote --file=./schema.sql"
+    "d1:apply:remote": "wrangler d1 execute privy_stellar_db --remote --file=./schema.sql",
+    "d1:compliance:local": "wrangler d1 execute privy_stellar_db --local --file=./migrations/0002_exchange_compliance.sql",
+    "d1:compliance:remote": "wrangler d1 execute privy_stellar_db --remote --file=./migrations/0002_exchange_compliance.sql",
+    "d1:full-kyc:local": "wrangler d1 execute privy_stellar_db --local --file=./migrations/0003_full_kyc_provider_data.sql",
+    "d1:full-kyc:remote": "wrangler d1 execute privy_stellar_db --remote --file=./migrations/0003_full_kyc_provider_data.sql",
+    "d1:swap-preparations:local": "wrangler d1 execute privy_stellar_db --config wrangler.getstellar.toml --local --file=./migrations/0004_stellar_swap_preparations.sql",
+    "d1:swap-preparations:remote": "wrangler d1 execute privy_stellar_db --config wrangler.getstellar.toml --remote --file=./migrations/0004_stellar_swap_preparations.sql",
+    "d1:transaction-history:local": "wrangler d1 execute privy_stellar_db --config wrangler.getstellar.toml --local --file=./migrations/0005_account_transaction_history.sql",
+    "d1:transaction-history:remote": "wrangler d1 execute privy_stellar_db --config wrangler.getstellar.toml --remote --file=./migrations/0005_account_transaction_history.sql"
   },
   "dependencies": {
     "@privy-io/node": "^0.19.0",

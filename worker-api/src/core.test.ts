@@ -10,17 +10,21 @@ import {
   TransactionBuilder,
   nativeToScVal,
 } from '@stellar/stellar-sdk';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   assertCanAddTrustline,
+  assertStellarSwapPreparationMatches,
   assertSufficientBalance,
   assertStellarMemo,
   buildPaymentTransaction,
   getAvailableNativeBalance,
   getDefaultFeeEstimateFields,
   getEmailFromPrivyUser,
+  getAccountHistory,
+  getAccountWalletMappings,
   getStellarSubmissionErrorMessage,
   getTransactionFeeFields,
+  parseStellarSwapQuote,
   reviewStellarXdr,
   stroopsToXlm,
   type Env,
@@ -61,6 +65,152 @@ describe('Privy user email parsing', () => {
         ],
       }),
     ).toBe('');
+  });
+
+  it('uses the private relay address from a linked Apple account', () => {
+    expect(
+      getEmailFromPrivyUser({
+        linked_accounts: [
+          {
+            email: 'abc123@privaterelay.appleid.com',
+            type: 'apple_oauth',
+          },
+        ],
+      }),
+    ).toBe('abc123@privaterelay.appleid.com');
+  });
+});
+
+describe('Stellar transaction history storage', () => {
+  it('normalizes and deduplicates account wallet mappings', () => {
+    const wallet = {
+      address: 'gexamplewallet',
+      canSign: true,
+      id: 'wallet-1',
+      kind: 'privy',
+      network: 'mainnet',
+      publicKey: 'gexamplewallet',
+    } as const;
+
+    expect(
+      getAccountWalletMappings({
+        email: ' User@Example.com ',
+        wallet,
+        wallets: [wallet, { ...wallet, archived: true }],
+      }),
+    ).toEqual([
+      {
+        accountEmail: 'user@example.com',
+        archived: false,
+        network: 'mainnet',
+        walletAddress: 'GEXAMPLEWALLET',
+        walletId: 'wallet-1',
+      },
+    ]);
+  });
+
+  it('stores Horizon operations for every registered owner of the wallet', async () => {
+    const statements: Array<{ sql: string; values: unknown[] }> = [];
+    const database = {
+      batch: async (batch: Array<{ sql: string; values: unknown[] }>) => {
+        statements.push(...batch);
+        return [];
+      },
+      prepare(sql: string) {
+        const statement = {
+          sql,
+          values: [] as unknown[],
+          bind(...values: unknown[]) {
+            this.values = values;
+            return this;
+          },
+          async all() {
+            if (sql.includes('FROM account_wallets')) {
+              return {
+                results: [
+                  {
+                    account_email: 'user@example.com',
+                    wallet_address: 'GDESTINATION',
+                    wallet_id: 'wallet-1',
+                  },
+                ],
+              };
+            }
+
+            return { results: [] };
+          },
+        };
+
+        return statement;
+      },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          _embedded: {
+            records: [
+              {
+                amount: '2.5000000',
+                asset_type: 'native',
+                created_at: '2026-09-07T01:02:03Z',
+                from: 'GSOURCE',
+                id: 'operation-1',
+                to: 'GDESTINATION',
+                transaction_attr: {
+                  fee_charged: '100',
+                  ledger: 123,
+                  max_fee: '100',
+                  operation_count: 1,
+                },
+                transaction_hash: 'transaction-hash-1',
+                type: 'payment',
+              },
+            ],
+          },
+        }),
+      ),
+    );
+
+    try {
+      const history = await getAccountHistory(
+        { ...env, DB: database } as never,
+        'GDESTINATION',
+        'testnet',
+      );
+
+      expect(history).toHaveLength(1);
+      expect(history[0]).toMatchObject({
+        amount: '2.5000000',
+        direction: 'received',
+        hash: 'transaction-hash-1',
+        id: 'operation-1',
+      });
+
+      const accountInsert = statements.find(statement =>
+        statement.sql.includes('INSERT INTO account_transactions'),
+      );
+
+      expect(accountInsert?.values.slice(0, 10)).toEqual([
+        'user@example.com',
+        'wallet-1',
+        'GDESTINATION',
+        'testnet',
+        'operation-1',
+        'transaction-hash-1',
+        'received',
+        'payment',
+        'XLM',
+        null,
+      ]);
+      expect(
+        statements.some(statement =>
+          statement.sql.includes('INSERT INTO transactions'),
+        ),
+      ).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
@@ -233,6 +383,78 @@ describe('Stellar network fees', () => {
       feeEstimateStroops: '200',
       feeEstimateXlm: '0.00002',
     });
+  });
+});
+
+describe('Stellar swap preparation cache validation', () => {
+  const quote = {
+    destMin: '0.9950000',
+    feeEstimateStroops: '100',
+    feeEstimateXlm: '0.00001',
+    fromAmount: '1',
+    fromAssetCode: 'XLM',
+    fromAssetIssuer: null,
+    path: [],
+    rate: 1,
+    toAmount: '1.0000000',
+    toAssetCode: 'USDC',
+    toAssetIssuer: 'GISSUER',
+  };
+  const preparation = {
+    amount: '1',
+    expiresAt: Date.now() + 60_000,
+    fromAssetCode: 'XLM',
+    fromAssetIssuer: '',
+    network: 'testnet' as const,
+    quote,
+    signingHash: `0x${'a'.repeat(64)}`,
+    sourceAddress: 'GSOURCE',
+    sourceWalletId: 'wallet-1',
+    toAssetCode: 'USDC',
+    toAssetIssuer: 'GISSUER',
+    transactionXdr: 'server-prepared-xdr',
+  };
+  const request = {
+    amount: '1',
+    fromAssetCode: 'xlm',
+    fromAssetIssuer: null,
+    network: 'testnet' as const,
+    sourceAddress: 'GSOURCE',
+    sourceWalletId: 'wallet-1',
+    toAssetCode: 'usdc',
+    toAssetIssuer: 'GISSUER',
+    transactionXdr: 'server-prepared-xdr',
+  };
+
+  it('round-trips a complete cached quote', () => {
+    expect(parseStellarSwapQuote(JSON.stringify(quote))).toEqual(quote);
+  });
+
+  it('accepts only the original prepared request and XDR', () => {
+    expect(() =>
+      assertStellarSwapPreparationMatches(preparation, request),
+    ).not.toThrow();
+
+    expect(() =>
+      assertStellarSwapPreparationMatches(preparation, {
+        ...request,
+        transactionXdr: 'client-modified-xdr',
+      }),
+    ).toThrow('Swap preparation changed or expired');
+  });
+
+  it('rejects an expired preparation instead of using stale quote data', () => {
+    expect(() =>
+      assertStellarSwapPreparationMatches(
+        { ...preparation, expiresAt: Date.now() - 1 },
+        request,
+      ),
+    ).toThrow('Swap preparation changed or expired');
+  });
+
+  it('rejects incomplete cached quote JSON', () => {
+    expect(parseStellarSwapQuote('{"fromAmount":"1"}')).toBeNull();
+    expect(parseStellarSwapQuote('not-json')).toBeNull();
   });
 });
 

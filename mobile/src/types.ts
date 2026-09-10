@@ -45,6 +45,7 @@ export type KycStatus = 'not_started' | 'verified';
 
 export type KycSummary = {
   cccdLast4?: string;
+  countryCode?: string;
   fullName?: string;
   phone?: string;
   providerUserId?: string;

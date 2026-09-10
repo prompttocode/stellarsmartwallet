@@ -20,6 +20,11 @@ Mainnet that chi bat dau khi:
 - Backend dung Stellar public network/Horizon mainnet.
 - Vi mainnet duoc nap XLM that de active.
 
+Lưu ý cho bản App Store: Mainnet Send vẫn dùng Stellar, nhưng Mainnet Swap và
+fiat Ramp bị khóa cho tới khi có licensed provider, country matrix và production
+adapter. Không dùng Horizon DEX hoặc payment sandbox để phát hành production;
+xem `docs/app-store-resubmission.md`.
+
 Khong can dua private key, seed phrase, hay secret vi cho agent/code reviewer.
 
 ## 2. Can dien gi vao dau?

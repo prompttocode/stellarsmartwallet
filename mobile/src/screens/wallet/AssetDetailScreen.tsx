@@ -142,6 +142,7 @@ function mergeRouteAsset(
 
 export function AssetDetailScreen({
   onBack,
+  onGoToReceive,
   onGoToRamp,
   route,
   wallet,
@@ -163,6 +164,7 @@ export function AssetDetailScreen({
   const { data: chartData, loading: chartLoading } = useHistoricalPrice(
     asset,
     timeframe,
+    true,
   );
   const [favoriteNotice, setFavoriteNotice] = useState<string | null>(null);
 
@@ -350,6 +352,24 @@ export function AssetDetailScreen({
             </LineChart.Provider>
           ) : chartLoading ? (
             <ChartSkeleton />
+          ) : !wallet.isMainnet ? (
+            <PressScale
+              disabled={wallet.isBusy}
+              onPress={() => {
+                if (asset.isNative) {
+                  wallet.fundWallet();
+                } else if (asset.assetCode === 'USDC') {
+                  wallet.fundTestUsdc();
+                } else {
+                  onGoToReceive();
+                }
+              }}
+              style={styles.buyButton}
+            >
+              <Text style={styles.buyButtonText}>
+                Get Testnet {asset.assetCode}
+              </Text>
+            </PressScale>
           ) : (
             <View
               style={{
@@ -387,6 +407,30 @@ export function AssetDetailScreen({
               disabled={wallet.isBusy}
             >
               <Text style={styles.buyButtonText}>Enable Crypto</Text>
+            </PressScale>
+          ) : !wallet.isMainnet ? (
+            <PressScale
+              disabled={wallet.isBusy}
+              onPress={() => {
+                if (asset.isNative) {
+                  wallet.fundWallet();
+                  return;
+                }
+
+                if (asset.assetCode === 'USDC') {
+                  wallet.fundTestUsdc();
+                  return;
+                }
+
+                onGoToReceive();
+              }}
+              style={styles.buyButton}
+            >
+              <Text style={styles.buyButtonText}>
+                {asset.isNative || asset.assetCode === 'USDC'
+                  ? `Get Testnet ${asset.assetCode}`
+                  : `Receive ${asset.assetCode}`}
+              </Text>
             </PressScale>
           ) : (
             <PressScale

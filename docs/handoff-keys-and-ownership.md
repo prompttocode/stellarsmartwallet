@@ -46,7 +46,6 @@ ALLOWED_ORIGINS = "*"
 HORIZON_TESTNET_URL = "https://horizon-testnet.stellar.org"
 HORIZON_MAINNET_URL = "https://horizon.stellar.org"
 FRIENDBOT_URL = "https://friendbot.stellar.org"
-PAYMENT_API_BASE_URL = "https://payment-api.dev.seerbot.io"
 PAYMENT_CALLBACK_URL = "https://<new-worker-url>/api/ramp/callback"
 WALLETCONNECT_PROJECT_ID = "<new-reown-project-id>"
 
@@ -233,9 +232,11 @@ Neu doi Reown account:
 Project ID nay la public identifier, khong phai secret, nhung van nen dung dung
 project cua minh de theo doi quota/analytics.
 
-## 6. Payment Provider / SeerBOT
+## 6. Licensed Payment Provider
 
-Neu doi payment provider hoac doi SeerBOT account, thay:
+Chỉ cấu hình production provider sau khi đã hoàn tất license/contract gate trong
+`docs/app-store-resubmission.md`. Không dùng endpoint development cho App Store.
+Khi đổi provider account, thay:
 
 ```text
 worker-api/wrangler.toml

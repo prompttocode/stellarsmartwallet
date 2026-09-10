@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Linking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import ReactNativeBiometrics from 'react-native-biometrics';
 import {
   useIdentityToken,
   useLoginWithEmail,
   useLoginWithOAuth,
+  useOAuthTokens,
   usePrivy,
 } from '@privy-io/expo';
 import {
@@ -79,6 +81,7 @@ import {
 } from './wallet/assets';
 import {
   ASSETS_CACHE_TTL_MS,
+  APPLE_OAUTH_TOKEN_STORAGE_KEY,
   DEFAULT_KYC,
   DEFAULT_NETWORK,
   IMPORT_WALLET_TIMEOUT_MS,
@@ -117,11 +120,14 @@ type ApplySessionOptions = {
   activeWalletId?: string | null;
   cache?: boolean;
   clearPortfolioOnActiveWalletMismatch?: boolean;
+  generation?: number;
+  persistNetwork?: boolean;
   source?: 'cache' | 'server';
 };
 
 type FinishPrivySessionOptions = {
   cache?: boolean;
+  generation?: number;
   message?: string;
   privyUser?: unknown;
 };
@@ -246,6 +252,7 @@ export function useWallet() {
   const [privySessionReady, setPrivySessionReady] = useState(false);
   const [serverSessionReady, setServerSessionReady] = useState(false);
   const [sessionSyncing, setSessionSyncing] = useState(false);
+  const sessionGenerationRef = useRef(0);
   const restoreAttemptedForUserRef = useRef<string | null>(null);
   const { user, isReady, error: privyError, logout: logoutPrivy } = usePrivy();
   const { getIdentityToken } = useIdentityToken();
@@ -263,6 +270,29 @@ export function useWallet() {
     },
   });
   const { login: loginWithOAuth, state: oauthState } = useLoginWithOAuth();
+  useOAuthTokens({
+    onOAuthTokenGrant: tokens => {
+      if (String(tokens.provider || '').toLowerCase() !== 'apple') {
+        return;
+      }
+
+      const token = tokens.refresh_token || tokens.access_token;
+
+      if (!token) {
+        return;
+      }
+
+      SecureStore.setItemAsync(
+        APPLE_OAUTH_TOKEN_STORAGE_KEY,
+        JSON.stringify({
+          token,
+          tokenTypeHint: tokens.refresh_token
+            ? 'refresh_token'
+            : 'access_token',
+        }),
+      ).catch(() => undefined);
+    },
+  });
   const { createWallet: createPrivyExtendedWallet } = useCreateExtendedWallet();
   const { signRawHash } = useSignRawHash();
 
@@ -275,6 +305,7 @@ export function useWallet() {
 
   const checkServer = useCallback(async () => {
     try {
+      const requestGeneration = sessionGenerationRef.current;
       const [
         result,
         networkResult,
@@ -285,7 +316,7 @@ export function useWallet() {
         api<Health>('/api/health'),
         api<{ networks: StellarNetworkInfo[] }>('/api/networks'),
         api<AssetsResponse>(`/api/assets?network=${network}`),
-        api<RampProvidersResponse>('/api/ramp/providers'),
+        api<RampProvidersResponse>(`/api/ramp/providers?network=${network}`),
         api<WalletConnectConfig>('/api/walletconnect/config'),
       ]);
 
@@ -297,8 +328,10 @@ export function useWallet() {
         nextAssets.some(hasMarketPrice) ? Date.now() : null,
       );
       cacheSet(getAssetsCacheKey(network), nextAssets).catch(() => null);
-      setRampProviders(rampResult.providers || []);
-      setWalletConnectConfig(walletConnectResult);
+      if (requestGeneration === sessionGenerationRef.current) {
+        setRampProviders(rampResult.providers || []);
+        setWalletConnectConfig(walletConnectResult);
+      }
     } catch (error) {
       setMessage(getErrorMessage(error));
     }
@@ -643,6 +676,13 @@ export function useWallet() {
       nextMessage = 'Your Stellar wallet is ready.',
       options: ApplySessionOptions = {},
     ) => {
+      if (
+        options.generation !== undefined &&
+        options.generation !== sessionGenerationRef.current
+      ) {
+        return false;
+      }
+
       const sessionWallets = getSessionWallets(session);
       const sessionActiveWalletId = getSessionActiveWalletId(session);
       const requestedActiveWalletId = options.activeWalletId || null;
@@ -656,7 +696,11 @@ export function useWallet() {
       const sessionNetwork =
         session.network || session.account.wallet?.network || network;
 
-      setPreferredNetwork(sessionNetwork);
+      if (options.persistNetwork === false) {
+        setNetwork(sessionNetwork);
+      } else {
+        setPreferredNetwork(sessionNetwork);
+      }
       setEmail(session.account.email);
       setAccount(session.account);
       setKyc(session.kyc || DEFAULT_KYC);
@@ -678,6 +722,8 @@ export function useWallet() {
       if (options.source !== 'cache' && options.cache !== false) {
         writeCachedSession(session, userKey, sessionNetwork).catch(() => null);
       }
+
+      return true;
     },
     [network, setPreferredNetwork, userKey],
   );
@@ -846,20 +892,24 @@ export function useWallet() {
       return undefined;
     }
 
+    const identityToken = await getRequiredIdentityToken();
+
+    return {
+      Authorization: `Bearer ${identityToken}`,
+    };
+  }
+
+  async function getRequiredIdentityToken() {
     const identityToken = await getTokenWithRetry(getIdentityToken);
     setPrivySessionReady(Boolean(identityToken));
 
-    if (!identityToken && required) {
+    if (!identityToken) {
       throw new Error(
         'Privy session is not ready. Sign out and sign in again before using this security action.',
       );
     }
 
-    return identityToken
-      ? {
-          Authorization: `Bearer ${identityToken}`,
-        }
-      : undefined;
+    return identityToken;
   }
 
   async function createClientStellarWalletPayload(): Promise<ClientStellarWalletPayload> {
@@ -1073,6 +1123,13 @@ export function useWallet() {
       sessionNetwork: StellarNetwork = network,
       options: FinishPrivySessionOptions = {},
     ) => {
+      if (
+        options.generation !== undefined &&
+        options.generation !== sessionGenerationRef.current
+      ) {
+        return false;
+      }
+
       const identityToken =
         existingIdentityToken ||
         (await withTimeout(
@@ -1084,7 +1141,7 @@ export function useWallet() {
         .trim()
         .toLowerCase();
 
-      if (!identityToken && !isEmailLike(sessionEmail)) {
+      if (!identityToken) {
         throw new Error(
           'Privy session is not ready or has expired. Please sign out and sign in again.',
         );
@@ -1096,34 +1153,32 @@ export function useWallet() {
           )
         : null;
 
-      const bootstrapWallet = identityToken
-        ? await getSessionBootstrapWallet(
-            identityToken,
-            sessionNetwork,
-            options.privyUser || user,
-          )
-        : undefined;
-      const session = identityToken
-        ? await api<SessionResponse>('/api/session', {
-            method: 'POST',
-            body: JSON.stringify({
-              activeWalletId: requestedActiveWalletId || undefined,
-              identityToken,
-              network: sessionNetwork,
-              wallet: bootstrapWallet,
-            }),
-          })
-        : await api<SessionResponse>('/api/session', {
-            method: 'POST',
-            body: JSON.stringify({
-              activeWalletId: requestedActiveWalletId || undefined,
-              email: sessionEmail,
-              network: sessionNetwork,
-            }),
-          });
+      const bootstrapWallet = await getSessionBootstrapWallet(
+        identityToken,
+        sessionNetwork,
+        options.privyUser || user,
+      );
 
-      applySession(session, options.message, {
+      if (
+        options.generation !== undefined &&
+        options.generation !== sessionGenerationRef.current
+      ) {
+        return false;
+      }
+
+      const session = await api<SessionResponse>('/api/session', {
+        method: 'POST',
+        body: JSON.stringify({
+          activeWalletId: requestedActiveWalletId || undefined,
+          identityToken,
+          network: sessionNetwork,
+          wallet: bootstrapWallet,
+        }),
+      });
+
+      return applySession(session, options.message, {
         cache: options.cache,
+        generation: options.generation,
         source: 'server',
       });
     },
@@ -1132,6 +1187,7 @@ export function useWallet() {
 
   useEffect(() => {
     const restoreAttemptKey = userKey ? `${userKey}:${network}` : null;
+    const restoreGeneration = sessionGenerationRef.current;
 
     if (
       isReady &&
@@ -1154,7 +1210,9 @@ export function useWallet() {
           restoreNetwork,
         ).catch(() => null);
 
-        if (cancelled) {
+        if (
+          cancelled || restoreGeneration !== sessionGenerationRef.current
+        ) {
           return;
         }
 
@@ -1164,7 +1222,9 @@ export function useWallet() {
             restoreNetwork,
           ).catch(() => null);
 
-          if (cancelled) {
+          if (
+            cancelled || restoreGeneration !== sessionGenerationRef.current
+          ) {
             return;
           }
 
@@ -1183,6 +1243,7 @@ export function useWallet() {
               activeWalletId: cachedActiveWalletId,
               cache: false,
               clearPortfolioOnActiveWalletMismatch: true,
+              generation: restoreGeneration,
               source: 'cache',
             },
           );
@@ -1195,10 +1256,12 @@ export function useWallet() {
             undefined,
             getEmailFromPrivyUser(user),
             restoreNetwork,
-            { privyUser: user },
+            { generation: restoreGeneration, privyUser: user },
           );
         } catch (error) {
-          if (!cancelled) {
+          if (
+            !cancelled && restoreGeneration === sessionGenerationRef.current
+          ) {
             const errorMessage = getErrorMessage(error);
             setMessage(
               cached
@@ -1207,7 +1270,10 @@ export function useWallet() {
             );
           }
         } finally {
-          if (!cancelled) {
+          if (
+            !cancelled &&
+            restoreGeneration === sessionGenerationRef.current
+          ) {
             setSessionSyncing(false);
           }
         }
@@ -1220,10 +1286,19 @@ export function useWallet() {
         if (restoreAttemptedForUserRef.current === restoreAttemptKey) {
           restoreAttemptedForUserRef.current = null;
         }
-        setSessionSyncing(false);
+        if (restoreGeneration === sessionGenerationRef.current) {
+          setSessionSyncing(false);
+        }
       };
     }
-  }, [finishPrivySession, applySession, isReady, network, user, userKey]);
+  }, [
+    finishPrivySession,
+    applySession,
+    isReady,
+    network,
+    user,
+    userKey,
+  ]);
 
   async function sendEmailCode() {
     return run('Sending Privy code', async () => {
@@ -1333,6 +1408,54 @@ export function useWallet() {
     });
   }
 
+  async function loginWithApple() {
+    await run('Sign in with Apple', async () => {
+      if (user) {
+        await signOutAndClearWalletSession();
+      }
+
+      let oauthUser: Awaited<ReturnType<typeof loginWithOAuth>>;
+
+      try {
+        oauthUser = await loginWithOAuth({
+          provider: 'apple',
+          redirectUri: '/',
+        });
+      } catch (error) {
+        const reason = getErrorMessage(error);
+
+        if (/cancel/i.test(reason)) {
+          setMessage('Sign in with Apple was cancelled.');
+          return false;
+        }
+
+        throw error;
+      }
+
+      const identityToken = await getTokenWithRetry(getIdentityToken);
+
+      if (!oauthUser && !identityToken) {
+        setMessage('Sign in with Apple was cancelled.');
+        return false;
+      }
+
+      const oauthEmail = getEmailFromPrivyUser(oauthUser);
+
+      setCode('');
+      setCodeSent(false);
+      await finishPrivySession(
+        identityToken || undefined,
+        oauthEmail,
+        network,
+        {
+          privyUser: oauthUser || user,
+        },
+      );
+
+      return true;
+    });
+  }
+
   function resetLoginCode() {
     setCode('');
     setCodeSent(false);
@@ -1342,6 +1465,7 @@ export function useWallet() {
   async function signOutAndClearWalletSession(nextMessage?: string) {
     const cacheUserKey = userKey;
 
+    sessionGenerationRef.current += 1;
     await logoutPrivy();
     await clearCachedSessions(cacheUserKey).catch(() => null);
     clearWalletSession(nextMessage);
@@ -1358,17 +1482,20 @@ export function useWallet() {
         setSessionSyncing(true);
 
         try {
+          const identityToken = await getRequiredIdentityToken();
           const session = await api<SessionResponse>('/api/session', {
             method: 'POST',
             body: JSON.stringify({
               activeWalletId: activeNetworkWalletId,
-              email: account.email,
+              identityToken,
               network,
               sourceAddress: wallet?.address,
               sourceWalletId: wallet?.id,
             }),
           });
-          applySession(session);
+          applySession(session, undefined, {
+            source: 'server',
+          });
           const sessionWalletAddress = session.account.wallet?.address;
 
           if (sessionWalletAddress) {
@@ -1785,10 +1912,12 @@ export function useWallet() {
       }
 
       await ensureWalletTrustline('USDC', usdc.assetIssuer);
+      const headers = await getAuthHeaders(true);
 
       const result = await api<SwapResult>(
         '/api/stellar/testnet/swap/execute',
         {
+          headers,
           method: 'POST',
           body: JSON.stringify({
             accountId: account.id,
@@ -1912,8 +2041,11 @@ export function useWallet() {
         );
       }
 
-      const result = await api<ReceiverResponse>('/api/demo/receiver', {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const result = await api<ReceiverResponse>('/api/testnet/receiver', {
         method: 'POST',
+        headers,
         body: JSON.stringify({ label: 'Test receiver' }),
       });
 
@@ -2062,11 +2194,13 @@ export function useWallet() {
     fromAssetCode: string;
     toAssetCode: string;
   }) {
-    if (!wallet) {
+    if (!account || !wallet) {
       return null;
     }
 
     return run(`Quote ${fromAssetCode}`, async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
       const fromAsset = visibleAssets.find(
         asset => asset.assetCode === fromAssetCode,
       );
@@ -2115,11 +2249,15 @@ export function useWallet() {
 
       return api<SwapQuoteResult>(`/api/stellar/${network}/swap/quote`, {
         method: 'POST',
+        headers,
         body: JSON.stringify({
+          accountId: account.id,
           amount: amountCheck.normalized,
+          email: account.email,
           fromAssetCode,
           fromAssetIssuer: fromAsset?.assetIssuer || null,
           sourceAddress: wallet.address,
+          sourceWalletId: wallet.id,
           toAssetCode,
           toAssetIssuer: toAsset?.assetIssuer || null,
         }),
@@ -2164,7 +2302,7 @@ export function useWallet() {
 
     return run(`Swap ${fromAssetCode}`, async () => {
       requireFreshServerSession();
-      const headers = await getAuthHeaders(isMainnet);
+      const headers = await getAuthHeaders(true);
       const fromAsset = visibleAssets.find(
         asset => asset.assetCode === fromAssetCode,
       );
@@ -2713,9 +2851,15 @@ export function useWallet() {
   }
 
   async function openRampOrder(order: RampOrder) {
-    await persistRampOrder(order);
+    return run(
+      'Opening VND order',
+      async () => {
+        await persistRampOrder(order);
 
-    return order;
+        return order;
+      },
+      { showBusy: false },
+    );
   }
 
   async function quoteRamp({
@@ -2727,9 +2871,15 @@ export function useWallet() {
     assetCode: RampAssetCode;
     direction: RampDirection;
   }) {
+    if (!account || !wallet) {
+      return null;
+    }
+
     return run(
       `Quote ${direction}`,
       async () => {
+        requireFreshServerSession();
+        const headers = await getAuthHeaders(true);
         const amountCheck = validateStellarAmount(rampAmount, 'Ramp amount');
 
         if (!amountCheck.valid) {
@@ -2740,10 +2890,15 @@ export function useWallet() {
           '/api/ramp/quote',
           {
             method: 'POST',
+            headers,
             body: JSON.stringify({
               amount: amountCheck.normalized,
               assetCode,
               direction,
+              email: account.email,
+              network,
+              sourceAddress: wallet.address,
+              sourceWalletId: wallet.id,
             }),
           },
         );
@@ -2900,11 +3055,12 @@ export function useWallet() {
     upsertRampOrderHistory(nextOrder);
 
     if (completedNow && account) {
+      const identityToken = await getRequiredIdentityToken();
       const session = await api<SessionResponse>('/api/session', {
         method: 'POST',
         body: JSON.stringify({
           activeWalletId: activeNetworkWalletId,
-          email: account.email,
+          identityToken,
           network,
           sourceAddress: wallet?.address,
           sourceWalletId: wallet?.id,
@@ -3186,11 +3342,76 @@ export function useWallet() {
   }
 
   async function clearRampOrder() {
-    await persistRampOrder(null);
+    return run(
+      'Clearing VND order',
+      async () => {
+        await persistRampOrder(null);
+      },
+      { showBusy: false },
+    );
   }
 
   async function logout() {
     await signOutAndClearWalletSession('Signed out.');
+  }
+
+  async function deleteAccount() {
+    if (!account) {
+      return false;
+    }
+
+    return run('Deleting account', async () => {
+      requireFreshServerSession();
+      await requireBiometric('Confirm permanent account deletion');
+      const headers = await getAuthHeaders(true);
+      const storedAppleToken = await SecureStore.getItemAsync(
+        APPLE_OAUTH_TOKEN_STORAGE_KEY,
+      ).catch(() => null);
+      let appleOAuthToken: string | undefined;
+      let appleTokenTypeHint: 'access_token' | 'refresh_token' | undefined;
+
+      if (storedAppleToken) {
+        try {
+          const parsed = JSON.parse(storedAppleToken) as {
+            token?: string;
+            tokenTypeHint?: string;
+          };
+
+          appleOAuthToken = String(parsed.token || '').trim() || undefined;
+          appleTokenTypeHint =
+            parsed.tokenTypeHint === 'access_token'
+              ? 'access_token'
+              : parsed.tokenTypeHint === 'refresh_token'
+              ? 'refresh_token'
+              : undefined;
+        } catch {
+          appleOAuthToken = undefined;
+        }
+      }
+
+      await api('/api/account', {
+        body: JSON.stringify({
+          appleOAuthToken,
+          appleTokenTypeHint,
+          confirmation: 'DELETE',
+        }),
+        headers,
+        method: 'DELETE',
+      });
+
+      const cacheUserKey = userKey;
+
+      sessionGenerationRef.current += 1;
+      await logoutPrivy().catch(() => undefined);
+      await clearCachedSessions(cacheUserKey).catch(() => null);
+      await SecureStore.deleteItemAsync(APPLE_OAUTH_TOKEN_STORAGE_KEY).catch(
+        () => undefined,
+      );
+      clearWalletSession('Your account and stored personal data were deleted.');
+      setEmail('');
+
+      return true;
+    });
   }
 
   async function switchNetwork(nextNetwork: StellarNetwork) {
@@ -3258,32 +3479,16 @@ export function useWallet() {
       const bootstrapWallet = hasTargetNetworkWallet
         ? undefined
         : await createClientStellarWalletPayload();
-      const identityToken = bootstrapWallet
-        ? await getTokenWithRetry(getIdentityToken)
-        : null;
-
-      if (bootstrapWallet && !identityToken) {
-        throw new Error(
-          'Privy session is not ready. Sign out and sign in again before creating a wallet on this network.',
-        );
-      }
+      const identityToken = await getRequiredIdentityToken();
 
       const session = await api<SessionResponse>('/api/session', {
         method: 'POST',
-        body: JSON.stringify(
-          identityToken
-            ? {
-                activeWalletId: requestedActiveWalletId,
-                identityToken,
-                network: nextNetwork,
-                wallet: bootstrapWallet,
-              }
-            : {
-                activeWalletId: requestedActiveWalletId,
-                email: account.email,
-                network: nextNetwork,
-              },
-        ),
+        body: JSON.stringify({
+          activeWalletId: requestedActiveWalletId,
+          identityToken,
+          network: nextNetwork,
+          wallet: bootstrapWallet,
+        }),
       });
       applySession(
         session,
@@ -3486,6 +3691,7 @@ export function useWallet() {
     createRampOrder,
     createTestReceiver,
     createWallet,
+    deleteAccount,
     deletePaymentMethod,
     email,
     isRestoringSession: Boolean(user) && (!account || sessionSyncing),
@@ -3502,6 +3708,7 @@ export function useWallet() {
     isReady,
     importWallet,
     kyc,
+    loginWithApple,
     loginWithGoogle,
     loginState,
     loadArchivedWallets,

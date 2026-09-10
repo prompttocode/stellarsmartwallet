@@ -889,12 +889,6 @@ export const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
   },
-  reviewCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    gap: 14,
-    padding: 16,
-  },
   receiveCard: {
     alignItems: 'stretch',
     backgroundColor: '#FFFFFF',

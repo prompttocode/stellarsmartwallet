@@ -9,7 +9,7 @@ Cloudflare, D1, Privy secret, hoac deploy backend.
 Cloudflare account
   Workers & Pages
     Worker: privy-stellar-api
-      URL: https://privy-stellar-api.namvu3121.workers.dev
+      URL: https://api.getstellar.shop
       Entry: worker-api/src/index.ts
       Runtime: Cloudflare Workers
       Framework: Hono
@@ -95,7 +95,7 @@ DB
 Neu doi binding name, code se loi vi backend dang doc database qua:
 
 ```ts
-c.env.DB
+c.env.DB;
 ```
 
 Schema hien co:
@@ -185,14 +185,14 @@ npm run deploy
 Sau deploy, test:
 
 ```sh
-curl https://privy-stellar-api.namvu3121.workers.dev/api/health
-curl "https://privy-stellar-api.namvu3121.workers.dev/api/assets?network=testnet"
+curl https://api.getstellar.shop/api/health
+curl "https://api.getstellar.shop/api/assets?network=testnet"
 ```
 
 Ket qua tot la `/api/health` co:
 
 ```json
-{"ok":true}
+{ "ok": true }
 ```
 
 ## Cap nhat mobile backend URL
@@ -206,13 +206,13 @@ mobile/src/config.ts
 Gia tri production hien tai:
 
 ```ts
-export const API_BASE_URL = 'https://privy-stellar-api.namvu3121.workers.dev';
+export const API_BASE_URL = "https://api.getstellar.shop";
 ```
 
 Neu chay backend local bang Wrangler dev, co the tam doi thanh:
 
 ```ts
-export const API_BASE_URL = 'http://<LAN-IP-cua-may>:8787';
+export const API_BASE_URL = "http://<LAN-IP-cua-may>:8787";
 ```
 
 Sau khi doi config mobile, restart Metro/app de bundle moi duoc load.
@@ -319,7 +319,7 @@ mobile/src/config.ts
 Phai la:
 
 ```ts
-export const API_BASE_URL = 'https://privy-stellar-api.namvu3121.workers.dev';
+export const API_BASE_URL = "https://api.getstellar.shop";
 ```
 
 Sau do restart Metro/app.

@@ -215,7 +215,10 @@ export function RampScreen({
     resultKey && !openedFromHistory && dismissedResultKey !== resultKey,
   );
   const providerConfigured = wallet.rampProviders.some(
-    provider => provider.id === 'seerbot-vnd' && provider.configured,
+    provider =>
+      provider.type === 'fiat' &&
+      provider.configured &&
+      provider.supports.includes(direction),
   );
   const selectedAsset = wallet.visibleAssets.find(
     asset => asset.assetCode === assetCode,

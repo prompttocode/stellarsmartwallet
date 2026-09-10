@@ -27,17 +27,13 @@ Không nói backend hiện tại là Go.
 
 > Trong authenticated flow, backend không tin email do client tự gửi lên. Worker xác minh Privy identity token rồi lấy email trực tiếp từ Privy user profile. D1 chỉ lưu account và wallet metadata, không lưu raw private key. Việc ký giao dịch được yêu cầu qua Privy.
 
-Hiện vẫn còn email fallback và các route `/api/demo/*` để phục vụ phát triển trên Testnet. Trước khi chạy production cần:
-
-- Tắt demo routes.
-- Bắt buộc Bearer token cho mọi thao tác nhạy cảm.
-- Giới hạn CORS và thêm rate limiting.
+Email fallback và các route tạo session/account demo đã được gỡ. `/api/session` và `/api/session/status` bắt buộc Privy identity token; tiện ích tạo receiver Testnet cũng bắt buộc Bearer token. Việc giới hạn CORS và bổ sung rate limiting vẫn cần được theo dõi như hạng mục vận hành production.
 
 ## Bằng chứng
 
-- Worker health: <https://privy-stellar-api.namvu3121.workers.dev/api/health>
-- Networks: <https://privy-stellar-api.namvu3121.workers.dev/api/networks>
-- Testnet assets: <https://privy-stellar-api.namvu3121.workers.dev/api/assets?network=testnet>
+- Worker health: <https://api.getstellar.shop/api/health>
+- Networks: <https://api.getstellar.shop/api/networks>
+- Testnet assets: <https://api.getstellar.shop/api/assets?network=testnet>
 - Giao dịch 1: <https://stellar.expert/explorer/testnet/tx/800852ee4278b12c16ebd0ec80f7946d0be3b645e370b79feb30423099fd740b>
 - Giao dịch 2: <https://stellar.expert/explorer/testnet/tx/b1c2c763b3cfb7cd01a271abf4e5d0ccc8e05ab98e6f0138d09792240bb8cd3a>
 - Automated tests: `3 test files`, `28 tests`, tất cả đều pass.
@@ -99,4 +95,3 @@ Không nên nói:
 ## Kết thúc
 
 > Phase 1 đã hoàn thành về mặt chức năng: backend đã được triển khai public, Privy authentication đã được xác minh, Stellar Horizon đã được kết nối, account-to-wallet mapping được lưu ổn định và các giao dịch Testnet đã được submit thành công.
-
