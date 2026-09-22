@@ -315,7 +315,7 @@
 				CODE_SIGN_ENTITLEMENTS = Privy/Privy.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = NJ63T783L2;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Privy/Info.plist;
@@ -355,7 +355,7 @@
 				CODE_SIGN_ENTITLEMENTS = Privy/Privy.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 7;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = NJ63T783L2;
 				INFOPLIST_FILE = Privy/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";

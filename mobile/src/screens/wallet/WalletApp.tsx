@@ -27,7 +27,6 @@ import { isRampOrderTerminal } from '@utils/ramp';
 import { PortfolioScreen } from '@screens/wallet/PortfolioScreen';
 import { ReceiveScreen } from '@screens/wallet/ReceiveScreen';
 import { SendScreen } from '@screens/wallet/SendScreen';
-import { SwapScreen } from '@screens/wallet/SwapScreen';
 import { FaucetScreen } from '@screens/wallet/FaucetScreen';
 import { RampScreen } from '@screens/wallet/RampScreen';
 import { SettingsScreen } from '@screens/wallet/SettingsScreen';
@@ -396,22 +395,6 @@ function MainTabs({
             }
           />
         )}
-      </Tab.Screen>
-
-      <Tab.Screen
-        name="SwapTab"
-        options={{
-          tabBarLabel: 'Swap',
-          tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons
-              name="swap-horizontal"
-              size={size}
-              color={color}
-            />
-          ),
-        }}
-      >
-        {() => <SwapScreen wallet={wallet} />}
       </Tab.Screen>
 
       <Tab.Screen

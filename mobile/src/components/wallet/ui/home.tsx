@@ -524,16 +524,6 @@ export function PromoCarousel({
           : 'Friendbot funds XLM; buy or receive official Testnet USDC',
       title: network === 'mainnet' ? 'On-chain deposit' : 'Testnet assets',
     },
-    {
-      accent: '#8A2BE2',
-      iconName: 'swap-horizontal',
-      iconSet: 'material' as const,
-      subtitle:
-        network === 'mainnet'
-          ? 'Swap through Stellar DEX/path payment'
-          : 'Swap XLM and USDC through Stellar Testnet paths',
-      title: network === 'mainnet' ? 'Stellar DEX swap' : 'Swap test assets',
-    },
   ];
 
   return (
