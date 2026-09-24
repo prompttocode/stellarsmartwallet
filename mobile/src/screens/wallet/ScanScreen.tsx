@@ -11,6 +11,7 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useWalletConnect } from '@contexts/WalletConnectContext';
+import { DAPP_CONNECTIONS_ENABLED } from '@config';
 
 function parseScannedValue(value: string) {
   if (value.startsWith('wc:')) {
@@ -71,6 +72,15 @@ export function ScanScreen({ navigation }: { navigation: any }) {
     const parsed = parseScannedValue(value);
 
     if (parsed.type === 'walletconnect') {
+      if (!DAPP_CONNECTIONS_ENABLED) {
+        Alert.alert(
+          'Unsupported QR code',
+          'This iOS version only supports Stellar wallet addresses.',
+        );
+        setScanned(false);
+        return;
+      }
+
       const paired = await walletConnect.pair(parsed.value);
 
       if (paired) {

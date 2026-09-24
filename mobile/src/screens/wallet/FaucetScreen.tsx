@@ -8,6 +8,7 @@ import QRCode from 'react-native-qrcode-styled';
 import { PressScale, TokenIcon, getModernAssets } from '@components/wallet';
 import type { WalletState } from '@hooks/useWallet';
 import { formatTokenAmount } from '@utils/format';
+import { EXCHANGE_FEATURES_ENABLED } from '@config';
 
 export function FaucetScreen({
   onBack,
@@ -75,17 +76,21 @@ export function FaucetScreen({
           }}
         >
           {wallet.isMainnet
-            ? 'Deposit assets or use VND orders for real XLM and USDC.'
+            ? EXCHANGE_FEATURES_ENABLED
+              ? 'Deposit assets or use VND orders for real XLM and USDC.'
+              : 'Deposit XLM directly to activate your Mainnet wallet.'
             : 'Fund this wallet with free Testnet assets.'}
         </Text>
         <Text style={styles.heroSubtitle}>
           {wallet.isMainnet
-            ? 'Deposit assets or use VND orders for real XLM and USDC.'
+            ? EXCHANGE_FEATURES_ENABLED
+              ? 'Deposit assets or use VND orders for real XLM and USDC.'
+              : 'Copy your address or QR code and send assets from another Stellar wallet.'
             : 'Use Friendbot and Testnet USDC to test wallet features safely.'}
         </Text>
       </View>
 
-      {wallet.isMainnet ? (
+      {wallet.isMainnet && EXCHANGE_FEATURES_ENABLED ? (
         <View style={[styles.receiptCard, styles.heroCard]}>
           <View style={styles.cardTopRow}>
             <View style={styles.heroIcon}>
@@ -95,8 +100,8 @@ export function FaucetScreen({
               <Text style={styles.cardEyebrow}>{networkLabel} orders</Text>
               <Text style={styles.cardTitle}>Buy with VND</Text>
               <Text style={styles.cardText}>
-                Buy XLM or USDC with a bank transfer. Withdraw is available
-                from Home.
+                Buy XLM or USDC with a bank transfer. Withdraw is available from
+                Home.
               </Text>
             </View>
           </View>
@@ -199,9 +204,12 @@ export function FaucetScreen({
         {assets.map(asset => {
           const needsTrustline = !asset.isNative && !asset.trusted;
           const isXlm = asset.isNative;
+          const depositOnly = wallet.isMainnet && !EXCHANGE_FEATURES_ENABLED;
           const actionLabel = isXlm
             ? wallet.isMainnet
-              ? 'Explorer'
+              ? depositOnly
+                ? 'Receive'
+                : 'Explorer'
               : 'Faucet'
             : needsTrustline
             ? 'Enable'
@@ -209,6 +217,8 @@ export function FaucetScreen({
             ? asset.assetCode === 'USDC'
               ? 'Faucet'
               : 'Receive'
+            : depositOnly
+            ? 'Receive'
             : 'Buy';
           const assetText = isXlm
             ? wallet.isMainnet
@@ -217,13 +227,17 @@ export function FaucetScreen({
             : needsTrustline
             ? 'Enable the trustline before receiving this asset.'
             : wallet.isMainnet
-            ? 'Enabled for deposits and VND orders.'
+            ? depositOnly
+              ? 'Enabled for direct on-chain deposits.'
+              : 'Enabled for deposits and VND orders.'
             : 'Enabled for free Testnet funding and Stellar transfers.';
           const disabled =
             wallet.isBusy ||
             (isXlm
               ? wallet.isMainnet
-                ? !canOpenExplorer
+                ? depositOnly
+                  ? !wallet.wallet
+                  : !canOpenExplorer
                 : !wallet.wallet
               : wallet.isMainnet && needsTrustline
               ? !wallet.walletActive
@@ -269,7 +283,11 @@ export function FaucetScreen({
                 onPress={() => {
                   if (isXlm) {
                     if (wallet.isMainnet) {
-                      wallet.openUrl(wallet.explorerAddressUrl);
+                      if (depositOnly) {
+                        onGoToReceive();
+                      } else {
+                        wallet.openUrl(wallet.explorerAddressUrl);
+                      }
                     } else {
                       wallet.fundWallet();
                     }
@@ -282,7 +300,11 @@ export function FaucetScreen({
                       onGoToReceive();
                     }
                   } else {
-                    onGoToRamp();
+                    if (depositOnly) {
+                      onGoToReceive();
+                    } else {
+                      onGoToRamp();
+                    }
                   }
                 }}
                 style={

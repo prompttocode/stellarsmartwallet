@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 // Public mobile app config.
 // API_BASE_URL is your backend server URL, not Stellar Horizon.
 // For local device testing, use your computer LAN IP, e.g. http://192.168.x.x:8787.
@@ -17,3 +19,8 @@ export const PRIVY_CLIENT_ID =
   'client-WY6ZYnJ25Wu5vL7JMW7raUWLuxLqgvL6pjFRrVMhvbR32';
 export const PRIVY_WEB_EXPORT_CLIENT_ID =
   'client-WY6ZYnJ25Wu5vL7JMW7raUWLuxLqgvL6pjDbMih7h4ng6';
+
+// The iOS App Store build is wallet-only: deposits, receives and direct sends.
+// Android keeps the existing exchange, ramp and dApp connection features.
+export const EXCHANGE_FEATURES_ENABLED = Platform.OS !== 'ios';
+export const DAPP_CONNECTIONS_ENABLED = Platform.OS !== 'ios';

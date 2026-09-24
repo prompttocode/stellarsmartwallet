@@ -27,6 +27,7 @@ import { isRampOrderTerminal } from '@utils/ramp';
 import { PortfolioScreen } from '@screens/wallet/PortfolioScreen';
 import { ReceiveScreen } from '@screens/wallet/ReceiveScreen';
 import { SendScreen } from '@screens/wallet/SendScreen';
+import { SwapScreen } from '@screens/wallet/SwapScreen';
 import { FaucetScreen } from '@screens/wallet/FaucetScreen';
 import { RampScreen } from '@screens/wallet/RampScreen';
 import { SettingsScreen } from '@screens/wallet/SettingsScreen';
@@ -43,6 +44,7 @@ import type {
   RampDirection,
   RampOrder,
 } from '@app-types';
+import { DAPP_CONNECTIONS_ENABLED, EXCHANGE_FEATURES_ENABLED } from '@config';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -397,6 +399,24 @@ function MainTabs({
         )}
       </Tab.Screen>
 
+      {EXCHANGE_FEATURES_ENABLED ? (
+        <Tab.Screen
+          name="SwapTab"
+          options={{
+            tabBarLabel: 'Swap',
+            tabBarIcon: ({ color, size }) => (
+              <MaterialCommunityIcons
+                name="swap-horizontal"
+                size={size}
+                color={color}
+              />
+            ),
+          }}
+        >
+          {() => <SwapScreen wallet={wallet} />}
+        </Tab.Screen>
+      ) : null}
+
       <Tab.Screen
         name="SettingsTab"
         options={{
@@ -562,31 +582,33 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                   />
                 )}
               </Stack.Screen>
-              <Stack.Screen name="Ramp">
-                {({ route, navigation }: any) => (
-                  <MainnetRouteGuard
-                    feature="VND buy and sell"
-                    navigation={navigation}
-                    wallet={wallet}
-                  >
-                    <RampScreen
-                      onOpenKyc={() => navigation.navigate('Kyc')}
-                      route={route}
+              {EXCHANGE_FEATURES_ENABLED ? (
+                <Stack.Screen name="Ramp">
+                  {({ route, navigation }: any) => (
+                    <MainnetRouteGuard
+                      feature="VND buy and sell"
+                      navigation={navigation}
                       wallet={wallet}
-                      onBack={() => {
-                        if (
-                          route?.params?.source === 'history' &&
-                          isRampOrderTerminal(wallet.activeRampOrder)
-                        ) {
-                          wallet.clearRampOrder().catch(() => null);
-                        }
+                    >
+                      <RampScreen
+                        onOpenKyc={() => navigation.navigate('Kyc')}
+                        route={route}
+                        wallet={wallet}
+                        onBack={() => {
+                          if (
+                            route?.params?.source === 'history' &&
+                            isRampOrderTerminal(wallet.activeRampOrder)
+                          ) {
+                            wallet.clearRampOrder().catch(() => null);
+                          }
 
-                        navigation.goBack();
-                      }}
-                    />
-                  </MainnetRouteGuard>
-                )}
-              </Stack.Screen>
+                          navigation.goBack();
+                        }}
+                      />
+                    </MainnetRouteGuard>
+                  )}
+                </Stack.Screen>
+              ) : null}
               <Stack.Screen name="AssetSearch">
                 {({ navigation }: any) => (
                   <AssetSearchScreen
@@ -647,29 +669,33 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                   <ScanScreen navigation={navigation} />
                 )}
               </Stack.Screen>
-              <Stack.Screen name="WalletConnect">
-                {({ navigation }: any) => (
-                  <WalletConnectScreen
-                    onBack={() => navigation.goBack()}
-                    onScan={() => navigation.navigate('Scan')}
-                    wallet={wallet}
-                  />
-                )}
-              </Stack.Screen>
-              <Stack.Screen name="Kyc">
-                {({ navigation }: any) => (
-                  <MainnetRouteGuard
-                    feature="Identity verification"
-                    navigation={navigation}
-                    wallet={wallet}
-                  >
-                    <KycScreen
+              {DAPP_CONNECTIONS_ENABLED ? (
+                <Stack.Screen name="WalletConnect">
+                  {({ navigation }: any) => (
+                    <WalletConnectScreen
                       onBack={() => navigation.goBack()}
+                      onScan={() => navigation.navigate('Scan')}
                       wallet={wallet}
                     />
-                  </MainnetRouteGuard>
-                )}
-              </Stack.Screen>
+                  )}
+                </Stack.Screen>
+              ) : null}
+              {EXCHANGE_FEATURES_ENABLED ? (
+                <Stack.Screen name="Kyc">
+                  {({ navigation }: any) => (
+                    <MainnetRouteGuard
+                      feature="Identity verification"
+                      navigation={navigation}
+                      wallet={wallet}
+                    >
+                      <KycScreen
+                        onBack={() => navigation.goBack()}
+                        wallet={wallet}
+                      />
+                    </MainnetRouteGuard>
+                  )}
+                </Stack.Screen>
+              ) : null}
             </Stack.Navigator>
           </NavigationContainer>
 
@@ -685,7 +711,9 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
             onClose={closeTutorial}
             visible={shouldShowTutorial}
           />
-          <WalletConnectOverlays wallet={wallet} />
+          {DAPP_CONNECTIONS_ENABLED ? (
+            <WalletConnectOverlays wallet={wallet} />
+          ) : null}
         </View>
       </WalletConnectProvider>
     </CurrencyProvider>

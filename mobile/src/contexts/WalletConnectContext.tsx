@@ -30,6 +30,7 @@ import { useAppPopup } from '@components/common/AppPopup';
 import type { StellarNetwork } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
 import { getWalletKit } from '../walletconnect/client';
+import { DAPP_CONNECTIONS_ENABLED } from '@config';
 
 const STELLAR_METHODS = [
   'stellar_signXDR',
@@ -452,7 +453,9 @@ export function WalletConnectProvider({
   );
 
   useEffect(() => {
-    const projectId = wallet.walletConnectConfig?.projectId;
+    const projectId = DAPP_CONNECTIONS_ENABLED
+      ? wallet.walletConnectConfig?.projectId
+      : undefined;
 
     if (!projectId) {
       pendingPairUriRef.current = null;
@@ -612,6 +615,10 @@ export function WalletConnectProvider({
       const currentWallet = walletRef.current;
       const normalizedUri = uri.trim();
 
+      if (!DAPP_CONNECTIONS_ENABLED) {
+        return false;
+      }
+
       if (!normalizedUri.startsWith('wc:')) {
         showPopup({
           message: 'This is not a WalletConnect URI.',
@@ -674,6 +681,10 @@ export function WalletConnectProvider({
   );
 
   useEffect(() => {
+    if (!DAPP_CONNECTIONS_ENABLED) {
+      return undefined;
+    }
+
     function handleUrl(url: string) {
       const uri = extractWalletConnectUri(url);
 
@@ -846,12 +857,7 @@ export function WalletConnectProvider({
       reviewing: !requestReview && !reviewError,
       topic: activeRequestEvent.topic,
     };
-  }, [
-    activeRequestEvent,
-    client,
-    requestReview,
-    reviewError,
-  ]);
+  }, [activeRequestEvent, client, requestReview, reviewError]);
 
   const approveProposal = useCallback(async () => {
     const nextClient = clientRef.current;

@@ -15,7 +15,12 @@ import {
   useSignRawHash,
 } from '@privy-io/expo/extended-chains';
 import { api } from '@api/client';
-import { API_BASE_URL, PRIVY_WEB_EXPORT_CLIENT_ID } from '@config';
+import {
+  API_BASE_URL,
+  DAPP_CONNECTIONS_ENABLED,
+  EXCHANGE_FEATURES_ENABLED,
+  PRIVY_WEB_EXPORT_CLIENT_ID,
+} from '@config';
 import type {
   ArchivedWalletsResponse,
   AssetItem,
@@ -316,8 +321,12 @@ export function useWallet() {
         api<Health>('/api/health'),
         api<{ networks: StellarNetworkInfo[] }>('/api/networks'),
         api<AssetsResponse>(`/api/assets?network=${network}`),
-        api<RampProvidersResponse>(`/api/ramp/providers?network=${network}`),
-        api<WalletConnectConfig>('/api/walletconnect/config'),
+        EXCHANGE_FEATURES_ENABLED
+          ? api<RampProvidersResponse>(`/api/ramp/providers?network=${network}`)
+          : Promise.resolve({ providers: [] }),
+        DAPP_CONNECTIONS_ENABLED
+          ? api<WalletConnectConfig>('/api/walletconnect/config')
+          : Promise.resolve(null),
       ]);
 
       setHealth(result);
@@ -473,7 +482,7 @@ export function useWallet() {
   const walletSessionSyncing = Boolean(account && !serverSessionReady);
   const walletActive = Boolean(wallet && balances.some(item => item.exists));
   const rampOrderStorageKey =
-    account && wallet
+    EXCHANGE_FEATURES_ENABLED && account && wallet
       ? `${RAMP_ORDER_STORAGE_PREFIX}:${account.id || account.email}:${
           wallet.id
         }:${network}`
@@ -840,7 +849,11 @@ export function useWallet() {
       return;
     }
 
-    loadPaymentMethods({ silent: true }).catch(() => null);
+    if (EXCHANGE_FEATURES_ENABLED) {
+      loadPaymentMethods({ silent: true }).catch(() => null);
+    } else {
+      setPaymentMethods([]);
+    }
     loadFavoriteAssets({ silent: true }).catch(() => null);
   }, [account?.email, network, serverSessionReady]);
 
@@ -1047,7 +1060,12 @@ export function useWallet() {
     const walletAddress = wallet?.address;
     const walletId = wallet?.id;
 
-    if (!accountEmail || !walletAddress || !walletId) {
+    if (
+      !EXCHANGE_FEATURES_ENABLED ||
+      !accountEmail ||
+      !walletAddress ||
+      !walletId
+    ) {
       setRampOrderHistory(current => (current.length > 0 ? [] : current));
       return () => {
         cancelled = true;
@@ -1210,9 +1228,7 @@ export function useWallet() {
           restoreNetwork,
         ).catch(() => null);
 
-        if (
-          cancelled || restoreGeneration !== sessionGenerationRef.current
-        ) {
+        if (cancelled || restoreGeneration !== sessionGenerationRef.current) {
           return;
         }
 
@@ -1222,9 +1238,7 @@ export function useWallet() {
             restoreNetwork,
           ).catch(() => null);
 
-          if (
-            cancelled || restoreGeneration !== sessionGenerationRef.current
-          ) {
+          if (cancelled || restoreGeneration !== sessionGenerationRef.current) {
             return;
           }
 
@@ -1260,7 +1274,8 @@ export function useWallet() {
           );
         } catch (error) {
           if (
-            !cancelled && restoreGeneration === sessionGenerationRef.current
+            !cancelled &&
+            restoreGeneration === sessionGenerationRef.current
           ) {
             const errorMessage = getErrorMessage(error);
             setMessage(
@@ -1291,14 +1306,7 @@ export function useWallet() {
         }
       };
     }
-  }, [
-    finishPrivySession,
-    applySession,
-    isReady,
-    network,
-    user,
-    userKey,
-  ]);
+  }, [finishPrivySession, applySession, isReady, network, user, userKey]);
 
   async function sendEmailCode() {
     return run('Sending Privy code', async () => {
@@ -2194,6 +2202,10 @@ export function useWallet() {
     fromAssetCode: string;
     toAssetCode: string;
   }) {
+    if (!EXCHANGE_FEATURES_ENABLED) {
+      return null;
+    }
+
     if (!account || !wallet) {
       return null;
     }
@@ -2296,6 +2308,10 @@ export function useWallet() {
     fromAssetCode: string;
     toAssetCode: string;
   }) {
+    if (!EXCHANGE_FEATURES_ENABLED) {
+      return null;
+    }
+
     if (!account || !wallet) {
       return null;
     }
@@ -2482,6 +2498,11 @@ export function useWallet() {
   }
 
   async function refreshRampOrderHistory(options: { silent?: boolean } = {}) {
+    if (!EXCHANGE_FEATURES_ENABLED) {
+      setRampOrderHistory([]);
+      return [];
+    }
+
     if (!account || !wallet) {
       setRampOrderHistory([]);
       return [];
@@ -2697,6 +2718,11 @@ export function useWallet() {
   }
 
   async function loadPaymentMethods(options: { silent?: boolean } = {}) {
+    if (!EXCHANGE_FEATURES_ENABLED) {
+      setPaymentMethods([]);
+      return [];
+    }
+
     if (!account) {
       setPaymentMethods([]);
       return [];
@@ -2851,6 +2877,10 @@ export function useWallet() {
   }
 
   async function openRampOrder(order: RampOrder) {
+    if (!EXCHANGE_FEATURES_ENABLED) {
+      return null;
+    }
+
     return run(
       'Opening VND order',
       async () => {
@@ -2871,6 +2901,10 @@ export function useWallet() {
     assetCode: RampAssetCode;
     direction: RampDirection;
   }) {
+    if (!EXCHANGE_FEATURES_ENABLED) {
+      return null;
+    }
+
     if (!account || !wallet) {
       return null;
     }
@@ -2920,6 +2954,10 @@ export function useWallet() {
     direction: RampDirection;
     paymentInfo?: RampPaymentInfo;
   }) {
+    if (!EXCHANGE_FEATURES_ENABLED) {
+      return null;
+    }
+
     if (!account || !wallet) {
       return null;
     }

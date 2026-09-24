@@ -21,6 +21,7 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { StellarNetwork } from '@app-types';
+import { EXCHANGE_FEATURES_ENABLED } from '@config';
 import { PressScale } from './ui/primitives';
 
 type TutorialSlide = {
@@ -397,7 +398,9 @@ function getTutorialSlides(network: StellarNetwork): TutorialSlide[] {
     },
     {
       body: isMainnet
-        ? 'Mainnet uses real assets. Deposit or buy carefully, then review every action before signing.'
+        ? EXCHANGE_FEATURES_ENABLED
+          ? 'Mainnet uses real assets. Deposit or buy carefully, then review every action before signing.'
+          : 'Mainnet uses real assets. Deposit carefully, then review every action before signing.'
         : 'Use Faucet for Testnet XLM and test assets, then try the flow without real funds.',
       eyebrow: 'Step 3',
       renderArt: () => <AssetArt />,

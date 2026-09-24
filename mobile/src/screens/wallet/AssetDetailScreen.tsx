@@ -12,6 +12,7 @@ import {
 } from '@components/wallet';
 import type { AssetItem, BalanceItem } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
+import { EXCHANGE_FEATURES_ENABLED } from '@config';
 import { formatTokenAmount, shortAddress } from '@utils/format';
 
 type AssetRouteParams = {
@@ -432,12 +433,18 @@ export function AssetDetailScreen({
                   : `Receive ${asset.assetCode}`}
               </Text>
             </PressScale>
-          ) : (
+          ) : EXCHANGE_FEATURES_ENABLED ? (
             <PressScale
               style={styles.buyButton}
               onPress={() => onGoToRamp('buy')}
             >
               <Text style={styles.buyButtonText}>Buy {asset.assetCode}</Text>
+            </PressScale>
+          ) : (
+            <PressScale style={styles.buyButton} onPress={onGoToReceive}>
+              <Text style={styles.buyButtonText}>
+                Receive {asset.assetCode}
+              </Text>
             </PressScale>
           )}
         </View>

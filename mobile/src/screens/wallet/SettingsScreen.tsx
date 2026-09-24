@@ -23,6 +23,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppPopup } from '@components/common/AppPopup';
 import { BANK_OPTIONS } from '@constants/banks';
+import { DAPP_CONNECTIONS_ENABLED, EXCHANGE_FEATURES_ENABLED } from '@config';
 
 import {
   ModernScreenHeader,
@@ -1236,7 +1237,7 @@ export function SettingsScreen({
             }
           />
           <View style={styles.divider} />
-          {wallet.isMainnet ? (
+          {wallet.isMainnet && EXCHANGE_FEATURES_ENABLED ? (
             <>
               <SettingsRow
                 disabled={kycVerified}
@@ -1295,17 +1296,21 @@ export function SettingsScreen({
             title="Security"
           />
           <View style={styles.divider} />
-          <SettingsRow
-            icon="link-outline"
-            onPress={onOpenWalletConnect}
-            subtitle={
-              wallet.walletConnectConfig?.configured
-                ? 'Connect and manage Stellar dApps'
-                : 'Not available yet'
-            }
-            title="WalletConnect"
-          />
-          <View style={styles.divider} />
+          {DAPP_CONNECTIONS_ENABLED ? (
+            <>
+              <SettingsRow
+                icon="link-outline"
+                onPress={onOpenWalletConnect}
+                subtitle={
+                  wallet.walletConnectConfig?.configured
+                    ? 'Connect and manage Stellar dApps'
+                    : 'Not available yet'
+                }
+                title="WalletConnect"
+              />
+              <View style={styles.divider} />
+            </>
+          ) : null}
           <SettingsRow
             icon="options-outline"
             onPress={() => setDetailSheet('advanced')}
