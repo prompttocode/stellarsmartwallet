@@ -20,7 +20,7 @@ export const PRIVY_CLIENT_ID =
 export const PRIVY_WEB_EXPORT_CLIENT_ID =
   'client-WY6ZYnJ25Wu5vL7JMW7raUWLuxLqgvL6pjDbMih7h4ng6';
 
-// The iOS App Store build is wallet-only: deposits, receives and direct sends.
+// The iOS App Store build excludes exchange/ramp features but keeps dApp connections.
 // Android keeps the existing exchange, ramp and dApp connection features.
 export const EXCHANGE_FEATURES_ENABLED = Platform.OS !== 'ios';
-export const DAPP_CONNECTIONS_ENABLED = Platform.OS !== 'ios';
+export const DAPP_CONNECTIONS_ENABLED = true;
