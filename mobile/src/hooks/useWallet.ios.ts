@@ -1,0 +1,2529 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, Linking } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
+import ReactNativeBiometrics from 'react-native-biometrics';
+import {
+  useIdentityToken,
+  useLoginWithEmail,
+  useLoginWithOAuth,
+  useOAuthTokens,
+  usePrivy,
+} from '@privy-io/expo';
+import {
+  useCreateWallet as useCreateExtendedWallet,
+  useSignRawHash,
+} from '@privy-io/expo/extended-chains';
+import { api } from '@api/client';
+import {
+  API_BASE_URL,
+  DAPP_CONNECTIONS_ENABLED,
+  PRIVY_WEB_EXPORT_CLIENT_ID,
+} from '@config';
+import type {
+  ArchivedWalletsResponse,
+  AssetItem,
+  AssetsResponse,
+  Balance,
+  BalanceItem,
+  CollectibleItem,
+  CollectiblesResponse,
+  Contact,
+  FavoriteAsset,
+  FavoriteAssetsResponse,
+  FeedbackApiResponse,
+  FeedbackCategory,
+  FeedbackItem,
+  WalletAccount,
+  FundNftResult,
+  Health,
+  SendResult,
+  SessionResponse,
+  StellarNetwork,
+  StellarNetworkInfo,
+  TransactionItem,
+  TransactionHistoryResponse,
+  TrustlineResult,
+  Wallet,
+  WalletConnectConfig,
+} from '@app-types';
+import { formatTokenAmount, getErrorMessage, isEmailLike } from '@utils/format';
+import { cacheGet, cacheSet } from '@utils/localCache';
+import {
+  getAvailableAmount,
+  getImportSecretPublicAddress,
+  getXlmTrustlineReserveWarning,
+  isLikelyStellarPublicKey,
+  sanitizeStellarAmountInput,
+  validateImportSecret,
+  validateStellarAmount,
+  validateWatchOnlyAddress,
+} from '@utils/walletValidation';
+import {
+  AssetIdentityInput,
+  applyReferenceMarketPrices,
+  getAssetIdentity,
+  hasMarketPrice,
+  mergeAssetMarketData,
+} from './wallet/assets';
+import {
+  ASSETS_CACHE_TTL_MS,
+  APPLE_OAUTH_TOKEN_STORAGE_KEY,
+  DEFAULT_NETWORK,
+  IMPORT_WALLET_TIMEOUT_MS,
+  LEGACY_LOCAL_SESSION_STORAGE_KEYS,
+  MARKET_PRICE_REFRESH_MS,
+  PREFERRED_NETWORK_STORAGE_KEY,
+  PRIVY_SECURITY_SESSION_TIMEOUT_MS,
+  TRANSACTIONS_CACHE_TTL_MS,
+  TRUSTLINE_ENABLE_TIMEOUT_MS,
+  TRUSTLINE_SIGN_TIMEOUT_MS,
+} from './wallet/constants';
+import {
+  ClientStellarWalletPayload,
+  getEmailFromPrivyUser,
+  getPrivyUserKey,
+  getTokenWithRetry,
+  hasLinkedStellarEmbeddedWallet,
+  isPrivyHash,
+  withTimeout,
+} from './wallet/privy';
+import {
+  clearCachedSessions,
+  getActiveWalletStorageKey,
+  getAssetsCacheKey,
+  getTransactionsCacheKey,
+  readCachedSession,
+  readStoredActiveWalletId,
+  rememberActiveWalletId,
+  writeCachedSession,
+} from './wallet/storage';
+import { isStellarNetwork } from './wallet/utils';
+import { useWalletErrors, type RunOptions } from './wallet/walletErrors';
+
+type ApplySessionOptions = {
+  activeWalletId?: string | null;
+  cache?: boolean;
+  clearPortfolioOnActiveWalletMismatch?: boolean;
+  generation?: number;
+  persistNetwork?: boolean;
+  source?: 'cache' | 'server';
+};
+
+type FinishPrivySessionOptions = {
+  cache?: boolean;
+  generation?: number;
+  message?: string;
+  privyUser?: unknown;
+};
+
+type SessionStatusResponse = {
+  email: string;
+  exists: boolean;
+  hasNetworkWallet: boolean;
+  network: StellarNetwork;
+  walletCount: number;
+};
+
+type SessionBootstrapWalletRequest = {
+  key: string;
+  promise: Promise<ClientStellarWalletPayload | undefined>;
+};
+
+function getSessionWallets(session: SessionResponse) {
+  return (
+    session.wallets ||
+    session.account.wallets ||
+    (session.account.wallet ? [session.account.wallet] : [])
+  );
+}
+
+function getSessionActiveWalletId(session: SessionResponse) {
+  return (
+    session.activeWalletId ||
+    session.account.activeWalletId ||
+    session.account.wallet?.id ||
+    null
+  );
+}
+
+function sessionHasWalletId(
+  session: SessionResponse,
+  walletId: string | null | undefined,
+  targetNetwork: StellarNetwork,
+) {
+  if (!walletId) {
+    return false;
+  }
+
+  return getSessionWallets(session).some(
+    item => item.id === walletId && item.network === targetNetwork,
+  );
+}
+
+export function getBalanceForAsset(balances: BalanceItem[], assetCode: string) {
+  return balances.find(balance => balance.assetCode === assetCode) || null;
+}
+
+export function getBalanceAmount(balances: BalanceItem[], assetCode: string) {
+  return getBalanceForAsset(balances, assetCode)?.balance || '0';
+}
+
+export function getTransactionTitle(transaction: TransactionItem) {
+  if (transaction.operation === 'change_trust') {
+    return `Added ${transaction.assetCode} trustline`;
+  }
+
+  const verb = transaction.direction === 'received' ? 'Received' : 'Sent';
+
+  return `${verb} ${transaction.assetCode}`;
+}
+
+export function getTransactionIcon(transaction: TransactionItem) {
+  if (transaction.operation === 'change_trust') {
+    return '+';
+  }
+
+  return transaction.direction === 'received' ? '↓' : '↑';
+}
+
+export function useWallet() {
+  const [health, setHealth] = useState<Health | null>(null);
+  const [network, setNetwork] = useState<StellarNetwork>(DEFAULT_NETWORK);
+  const [preferredNetworkLoaded, setPreferredNetworkLoaded] = useState(false);
+  const [networks, setNetworks] = useState<StellarNetworkInfo[]>([]);
+  const [assets, setAssets] = useState<AssetItem[]>([]);
+  const [assetPricesUpdatedAt, setAssetPricesUpdatedAt] = useState<
+    number | null
+  >(null);
+  const [collectibles, setCollectibles] = useState<CollectibleItem[]>([]);
+  const [account, setAccount] = useState<WalletAccount | null>(null);
+  const [wallets, setWallets] = useState<Wallet[]>([]);
+  const [archivedWallets, setArchivedWallets] = useState<Wallet[]>([]);
+  const [activeWalletId, setActiveWalletId] = useState<string | null>(null);
+  const [balances, setBalances] = useState<BalanceItem[]>([]);
+  const [recipient, setRecipient] = useState('');
+  const [recipientContact, setRecipientContact] = useState<Contact | null>(
+    null,
+  );
+  const [recipientBalances, setRecipientBalances] = useState<BalanceItem[]>([]);
+  const [amount, setAmount] = useState('1');
+  const [selectedAssetCode, setSelectedAssetCode] = useState('XLM');
+  const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
+  const {
+    busy,
+    dismissErrorDialog,
+    errorDialog,
+    message,
+    run,
+    setBusy,
+    setErrorDialog,
+    setMessage,
+    showErrorDialog,
+  } = useWalletErrors('Enter your email to receive a Privy login code.');
+  const [favoriteAssets, setFavoriteAssets] = useState<FavoriteAsset[]>([]);
+  const [walletConnectConfig, setWalletConnectConfig] =
+    useState<WalletConnectConfig | null>(null);
+  const [transactions, setTransactions] = useState<TransactionItem[]>([]);
+  const [privySessionReady, setPrivySessionReady] = useState(false);
+  const [serverSessionReady, setServerSessionReady] = useState(false);
+  const [sessionSyncing, setSessionSyncing] = useState(false);
+  const sessionGenerationRef = useRef(0);
+  const restoreAttemptedForUserRef = useRef<string | null>(null);
+  const { user, isReady, error: privyError, logout: logoutPrivy } = usePrivy();
+  const { getIdentityToken } = useIdentityToken();
+  const getIdentityTokenRef = useRef(getIdentityToken);
+  const sessionBootstrapWalletRef =
+    useRef<SessionBootstrapWalletRequest | null>(null);
+  const {
+    sendCode,
+    loginWithCode,
+    state: loginState,
+  } = useLoginWithEmail({
+    onSendCodeSuccess: () => {
+      setCodeSent(true);
+      setMessage('Privy sent a verification code to your email.');
+    },
+  });
+  const { login: loginWithOAuth, state: oauthState } = useLoginWithOAuth();
+  useOAuthTokens({
+    onOAuthTokenGrant: tokens => {
+      if (String(tokens.provider || '').toLowerCase() !== 'apple') {
+        return;
+      }
+
+      const token = tokens.refresh_token || tokens.access_token;
+
+      if (!token) {
+        return;
+      }
+
+      SecureStore.setItemAsync(
+        APPLE_OAUTH_TOKEN_STORAGE_KEY,
+        JSON.stringify({
+          token,
+          tokenTypeHint: tokens.refresh_token
+            ? 'refresh_token'
+            : 'access_token',
+        }),
+      ).catch(() => undefined);
+    },
+  });
+  const { createWallet: createPrivyExtendedWallet } = useCreateExtendedWallet();
+  const { signRawHash } = useSignRawHash();
+
+  const setPreferredNetwork = useCallback((nextNetwork: StellarNetwork) => {
+    setNetwork(nextNetwork);
+    AsyncStorage.setItem(PREFERRED_NETWORK_STORAGE_KEY, nextNetwork).catch(
+      () => null,
+    );
+  }, []);
+
+  const checkServer = useCallback(async () => {
+    try {
+      const requestGeneration = sessionGenerationRef.current;
+      const [result, networkResult, assetResult, walletConnectResult] =
+        await Promise.all([
+          api<Health>('/api/health'),
+          api<{ networks: StellarNetworkInfo[] }>('/api/networks'),
+          api<AssetsResponse>(`/api/assets?network=${network}`),
+          DAPP_CONNECTIONS_ENABLED
+            ? api<WalletConnectConfig>('/api/walletconnect/config')
+            : Promise.resolve(null),
+        ]);
+
+      setHealth(result);
+      setNetworks(networkResult.networks || result.networks || []);
+      const nextAssets = assetResult.assets || [];
+      setAssets(current => mergeAssetMarketData(nextAssets, current));
+      setAssetPricesUpdatedAt(
+        nextAssets.some(hasMarketPrice) ? Date.now() : null,
+      );
+      cacheSet(getAssetsCacheKey(network), nextAssets).catch(() => null);
+      if (requestGeneration === sessionGenerationRef.current) {
+        setWalletConnectConfig(walletConnectResult);
+      }
+    } catch (error) {
+      setMessage(getErrorMessage(error));
+    }
+  }, [network]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    cacheGet<AssetItem[]>(getAssetsCacheKey(network), ASSETS_CACHE_TTL_MS)
+      .then(cachedAssets => {
+        if (cancelled || !cachedAssets || cachedAssets.length === 0) {
+          return;
+        }
+
+        setAssets(current =>
+          current.length > 0
+            ? mergeAssetMarketData(cachedAssets, current)
+            : cachedAssets,
+        );
+
+        if (cachedAssets.some(hasMarketPrice)) {
+          setAssetPricesUpdatedAt(prev => prev ?? Date.now());
+        }
+      })
+      .catch(() => null);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [network]);
+
+  useEffect(() => {
+    if (preferredNetworkLoaded) {
+      checkServer();
+    }
+  }, [checkServer, preferredNetworkLoaded]);
+
+  useEffect(() => {
+    AsyncStorage.multiRemove(LEGACY_LOCAL_SESSION_STORAGE_KEYS).catch(
+      () => null,
+    );
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    AsyncStorage.getItem(PREFERRED_NETWORK_STORAGE_KEY)
+      .then(value => {
+        if (!cancelled && isStellarNetwork(value)) {
+          setNetwork(value);
+        }
+      })
+      .catch(() => null)
+      .finally(() => {
+        if (!cancelled) {
+          setPreferredNetworkLoaded(true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const isMainnet = network === 'mainnet';
+  const accountWallets = account?.wallets || [];
+  const allWallets =
+    wallets.length > 0
+      ? wallets
+      : accountWallets.length > 0
+      ? accountWallets
+      : account?.wallet
+      ? [account.wallet]
+      : [];
+  const networkWallets = allWallets.filter(item => item.network === network);
+  const networkWalletIds = networkWallets.map(item => item.id).join('|');
+  const wallet =
+    networkWallets.find(item => item.id === activeWalletId) ||
+    networkWallets[0] ||
+    null;
+  const activeNetworkWalletId = wallet?.id || activeWalletId;
+  const userKey = getPrivyUserKey(user);
+
+  useEffect(() => {
+    getIdentityTokenRef.current = getIdentityToken;
+  }, [getIdentityToken]);
+
+  useEffect(() => {
+    if (!account?.email || networkWallets.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    readStoredActiveWalletId(account.email, network)
+      .then(storedWalletId => {
+        if (cancelled || !storedWalletId) {
+          return;
+        }
+
+        const storedWalletExists = networkWallets.some(
+          item => item.id === storedWalletId,
+        );
+
+        if (!storedWalletExists) {
+          AsyncStorage.removeItem(
+            getActiveWalletStorageKey(account.email, network),
+          ).catch(() => null);
+          return;
+        }
+
+        if (storedWalletId !== activeWalletId) {
+          setActiveWalletId(storedWalletId);
+        }
+      })
+      .catch(() => null);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [account?.email, activeWalletId, network, networkWalletIds]);
+
+  const visibleAssets = assets.length > 0 ? assets : balances;
+  const selectedBalance = getBalanceForAsset(balances, selectedAssetCode);
+  const selectedAsset =
+    visibleAssets.find(asset => asset.assetCode === selectedAssetCode) ||
+    selectedBalance;
+  const xlmBalance = getBalanceAmount(balances, 'XLM');
+  const recipientSelectedBalance = getBalanceForAsset(
+    recipientBalances,
+    selectedAssetCode,
+  );
+  const explorerAddressUrl = wallet
+    ? `https://stellar.expert/explorer/${
+        network === 'mainnet' ? 'public' : 'testnet'
+      }/account/${wallet.address}`
+    : null;
+  const walletCanSign = Boolean(wallet?.canSign && serverSessionReady);
+  const walletSessionSyncing = Boolean(account && !serverSessionReady);
+  const walletActive = Boolean(wallet && balances.some(item => item.exists));
+
+  const fetchTransactionHistory = useCallback(
+    async (walletAddress: string, targetNetwork: StellarNetwork = network) => {
+      const address = walletAddress.trim();
+
+      if (!address) {
+        return [];
+      }
+
+      const result = await api<TransactionHistoryResponse>(
+        `/api/stellar/${targetNetwork}/${address}/history`,
+      );
+      const transactionList = result.transactions || [];
+
+      cacheSet(
+        getTransactionsCacheKey(address, targetNetwork),
+        transactionList,
+      ).catch(() => null);
+
+      return transactionList;
+    },
+    [network],
+  );
+
+  const refreshAssetPrices = useCallback(async () => {
+    try {
+      const result = await api<AssetsResponse>(
+        `/api/assets?network=${network}&limit=100`,
+      );
+      let nextAssets = result.assets || [];
+
+      if (network === 'mainnet') {
+        const fetchedIdentities = new Set(nextAssets.map(getAssetIdentity));
+        const missingBalances = balances.filter(
+          balance =>
+            Number(balance.balance) > 0 &&
+            !fetchedIdentities.has(getAssetIdentity(balance)),
+        );
+        const discoveredAssets = await Promise.all(
+          missingBalances.map(async balance => {
+            const search = balance.assetIssuer || balance.assetCode;
+
+            try {
+              const searchResult = await api<AssetsResponse>(
+                `/api/assets?network=mainnet&limit=20&search=${encodeURIComponent(
+                  search,
+                )}`,
+              );
+
+              return (
+                searchResult.assets?.find(
+                  asset =>
+                    getAssetIdentity(asset) === getAssetIdentity(balance),
+                ) || null
+              );
+            } catch {
+              return null;
+            }
+          }),
+        );
+        const byIdentity = new Map(
+          nextAssets.map(asset => [getAssetIdentity(asset), asset]),
+        );
+
+        for (const discovered of discoveredAssets) {
+          if (discovered) {
+            byIdentity.set(getAssetIdentity(discovered), discovered);
+          }
+        }
+
+        nextAssets = [...byIdentity.values()];
+      } else {
+        try {
+          const referenceResult = await api<AssetsResponse>(
+            '/api/assets?network=mainnet&limit=100',
+          );
+
+          nextAssets = applyReferenceMarketPrices(
+            nextAssets,
+            referenceResult.assets || [],
+          );
+        } catch {
+          // Testnet can still work without reference prices.
+        }
+      }
+
+      const receivedMarketPrices = nextAssets.some(hasMarketPrice);
+
+      setAssets(current => {
+        if (
+          network === 'mainnet' &&
+          !receivedMarketPrices &&
+          current.some(hasMarketPrice)
+        ) {
+          return current;
+        }
+
+        return mergeAssetMarketData(nextAssets, current);
+      });
+      if (receivedMarketPrices) {
+        setAssetPricesUpdatedAt(Date.now());
+      }
+
+      cacheSet(getAssetsCacheKey(network), nextAssets).catch(() => null);
+
+      return nextAssets;
+    } catch {
+      return null;
+    }
+  }, [balances, network]);
+
+  useEffect(() => {
+    refreshAssetPrices();
+    const timer = setInterval(refreshAssetPrices, MARKET_PRICE_REFRESH_MS);
+
+    return () => clearInterval(timer);
+  }, [network, refreshAssetPrices]);
+
+  function resetRecipientState() {
+    setRecipient('');
+    setRecipientContact(null);
+    setRecipientBalances([]);
+  }
+
+  async function loadCollectibles(
+    walletAddress: string | undefined,
+    targetNetwork: StellarNetwork,
+  ) {
+    if (!walletAddress) {
+      setCollectibles([]);
+      return [];
+    }
+
+    const result = await api<CollectiblesResponse>(
+      `/api/collectibles?network=${targetNetwork}&address=${walletAddress}`,
+    );
+
+    setCollectibles(result.collectibles || []);
+
+    return result.collectibles || [];
+  }
+
+  function clearWalletSession(nextMessage?: string) {
+    setAccount(null);
+    setWallets([]);
+    setArchivedWallets([]);
+    setActiveWalletId(null);
+    setBalances([]);
+    setCollectibles([]);
+    resetRecipientState();
+    setTransactions([]);
+    setFavoriteAssets([]);
+    setCode('');
+    setCodeSent(false);
+    setServerSessionReady(false);
+    setSessionSyncing(false);
+    sessionBootstrapWalletRef.current = null;
+    restoreAttemptedForUserRef.current = null;
+
+    if (nextMessage) {
+      setMessage(nextMessage);
+    }
+  }
+
+  const applySession = useCallback(
+    (
+      session: SessionResponse,
+      nextMessage = 'Your Stellar wallet is ready.',
+      options: ApplySessionOptions = {},
+    ) => {
+      if (
+        options.generation !== undefined &&
+        options.generation !== sessionGenerationRef.current
+      ) {
+        return false;
+      }
+
+      const sessionWallets = getSessionWallets(session);
+      const sessionActiveWalletId = getSessionActiveWalletId(session);
+      const requestedActiveWalletId = options.activeWalletId || null;
+      const nextActiveWalletId =
+        requestedActiveWalletId || sessionActiveWalletId;
+      const clearPortfolio =
+        Boolean(options.clearPortfolioOnActiveWalletMismatch) &&
+        Boolean(requestedActiveWalletId) &&
+        requestedActiveWalletId !== sessionActiveWalletId;
+
+      const sessionNetwork =
+        session.network || session.account.wallet?.network || network;
+
+      if (options.persistNetwork === false) {
+        setNetwork(sessionNetwork);
+      } else {
+        setPreferredNetwork(sessionNetwork);
+      }
+      setEmail(session.account.email);
+      setAccount(session.account);
+      setWallets(sessionWallets);
+      setArchivedWallets([]);
+      setActiveWalletId(nextActiveWalletId);
+      setBalances(
+        clearPortfolio
+          ? []
+          : session.balances || session.balance.balances || [],
+      );
+      setTransactions(clearPortfolio ? [] : session.transactions || []);
+      if (clearPortfolio) {
+        setCollectibles([]);
+      }
+      setServerSessionReady(options.source !== 'cache');
+      setMessage(nextMessage);
+
+      if (options.source !== 'cache' && options.cache !== false) {
+        writeCachedSession(session, userKey, sessionNetwork).catch(() => null);
+      }
+
+      return true;
+    },
+    [network, setPreferredNetwork, userKey],
+  );
+
+  useEffect(() => {
+    if (!wallet?.address) {
+      setCollectibles([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    api<CollectiblesResponse>(
+      `/api/collectibles?network=${network}&address=${wallet.address}`,
+    )
+      .then(result => {
+        if (!cancelled) {
+          setCollectibles(result.collectibles || []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCollectibles([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [network, wallet?.address]);
+
+  useEffect(() => {
+    const address = wallet?.address;
+
+    if (!address) {
+      setTransactions([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    cacheGet<TransactionItem[]>(
+      getTransactionsCacheKey(address, network),
+      TRANSACTIONS_CACHE_TTL_MS,
+    )
+      .then(cachedTransactions => {
+        if (
+          cancelled ||
+          !cachedTransactions ||
+          cachedTransactions.length === 0
+        ) {
+          return;
+        }
+
+        setTransactions(current =>
+          current.length > 0 ? current : cachedTransactions,
+        );
+      })
+      .catch(() => null);
+
+    fetchTransactionHistory(address, network)
+      .then(nextTransactions => {
+        if (!cancelled) {
+          setTransactions(nextTransactions);
+        }
+      })
+      .catch(() => null);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchTransactionHistory, network, serverSessionReady, wallet?.address]);
+
+  useEffect(() => {
+    const address = wallet?.address;
+
+    if (!address) {
+      return;
+    }
+
+    let currentAppState = AppState.currentState;
+    let cancelled = false;
+
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      const returningToForeground =
+        currentAppState.match(/inactive|background/) &&
+        nextAppState === 'active';
+
+      currentAppState = nextAppState;
+
+      if (!returningToForeground || cancelled) {
+        return;
+      }
+
+      fetchTransactionHistory(address, network)
+        .then(nextTransactions => {
+          if (!cancelled) {
+            setTransactions(nextTransactions);
+          }
+        })
+        .catch(() => null);
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
+  }, [fetchTransactionHistory, network, wallet?.address]);
+
+  useEffect(() => {
+    if (!account || !serverSessionReady) {
+      setFavoriteAssets([]);
+      return;
+    }
+
+    loadFavoriteAssets({ silent: true }).catch(() => null);
+  }, [account?.email, network, serverSessionReady]);
+
+  const refreshPrivySecuritySession = useCallback(async () => {
+    if (!isReady || !userKey) {
+      setPrivySessionReady(false);
+      return false;
+    }
+
+    const identityToken = await withTimeout(
+      getTokenWithRetry(getIdentityTokenRef.current),
+      PRIVY_SECURITY_SESSION_TIMEOUT_MS,
+      'Privy session check timed out.',
+    ).catch(() => null);
+    const hasToken = Boolean(identityToken);
+
+    setPrivySessionReady(hasToken);
+
+    return hasToken;
+  }, [isReady, userKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function probePrivyToken() {
+      if (!isReady || !userKey) {
+        setPrivySessionReady(false);
+        return;
+      }
+
+      const identityToken = await getTokenWithRetry(
+        getIdentityTokenRef.current,
+      );
+
+      if (!cancelled) {
+        setPrivySessionReady(Boolean(identityToken));
+      }
+    }
+
+    probePrivyToken();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isReady, userKey]);
+
+  async function getAuthHeaders(required = false) {
+    if (!required) {
+      return undefined;
+    }
+
+    const identityToken = await getRequiredIdentityToken();
+
+    return {
+      Authorization: `Bearer ${identityToken}`,
+    };
+  }
+
+  async function getRequiredIdentityToken() {
+    const identityToken = await getTokenWithRetry(getIdentityToken);
+    setPrivySessionReady(Boolean(identityToken));
+
+    if (!identityToken) {
+      throw new Error(
+        'Privy session is not ready. Sign out and sign in again before using this security action.',
+      );
+    }
+
+    return identityToken;
+  }
+
+  async function createClientStellarWalletPayload(): Promise<ClientStellarWalletPayload> {
+    const createdWallet = await createPrivyExtendedWallet({
+      chainType: 'stellar',
+    });
+
+    return {
+      address: createdWallet.wallet.address,
+      chain_type: createdWallet.wallet.chain_type,
+      id: createdWallet.wallet.id,
+      public_key:
+        createdWallet.wallet.public_key || createdWallet.wallet.address,
+    };
+  }
+
+  async function getSessionBootstrapWallet(
+    identityToken: string,
+    sessionNetwork: StellarNetwork,
+    privyUserValue: unknown,
+  ) {
+    const bootstrapUserKey =
+      getPrivyUserKey(privyUserValue) ||
+      userKey ||
+      getEmailFromPrivyUser(privyUserValue) ||
+      'unknown';
+    const bootstrapKey = `${bootstrapUserKey}:${sessionNetwork}`;
+
+    if (sessionBootstrapWalletRef.current?.key === bootstrapKey) {
+      return sessionBootstrapWalletRef.current.promise;
+    }
+
+    const promise = (async () => {
+      if (hasLinkedStellarEmbeddedWallet(privyUserValue)) {
+        return undefined;
+      }
+
+      const status = await api<SessionStatusResponse>('/api/session/status', {
+        method: 'POST',
+        body: JSON.stringify({
+          identityToken,
+          network: sessionNetwork,
+        }),
+      });
+
+      if (status.hasNetworkWallet) {
+        return undefined;
+      }
+
+      return createClientStellarWalletPayload();
+    })().catch(error => {
+      if (sessionBootstrapWalletRef.current?.key === bootstrapKey) {
+        sessionBootstrapWalletRef.current = null;
+      }
+
+      throw error;
+    });
+
+    sessionBootstrapWalletRef.current = {
+      key: bootstrapKey,
+      promise,
+    };
+
+    return promise;
+  }
+
+  function requireFreshServerSession() {
+    if (serverSessionReady) {
+      return;
+    }
+
+    throw new Error(
+      sessionSyncing
+        ? 'Your wallet session is still syncing with the server. Wait a moment, then try again.'
+        : 'Your saved wallet is visible, but the server session is not synced yet. Refresh the wallet or sign in again before using this action.',
+    );
+  }
+
+  async function requireBiometric(promptMessage: string) {
+    const rnBiometrics = new ReactNativeBiometrics();
+    const { available } = await rnBiometrics.isSensorAvailable();
+
+    if (!available) {
+      return true;
+    }
+
+    const { success } = await rnBiometrics.simplePrompt({
+      cancelButtonText: 'Cancel',
+      promptMessage,
+    });
+
+    if (!success) {
+      throw new Error('Biometric authentication failed.');
+    }
+
+    return true;
+  }
+
+  const finishPrivySession = useCallback(
+    async (
+      existingIdentityToken?: string,
+      fallbackEmail?: string,
+      sessionNetwork: StellarNetwork = network,
+      options: FinishPrivySessionOptions = {},
+    ) => {
+      if (
+        options.generation !== undefined &&
+        options.generation !== sessionGenerationRef.current
+      ) {
+        return false;
+      }
+
+      const identityToken =
+        existingIdentityToken ||
+        (await withTimeout(
+          getTokenWithRetry(getIdentityToken),
+          PRIVY_SECURITY_SESSION_TIMEOUT_MS,
+          'Privy session check timed out.',
+        ).catch(() => null));
+      const sessionEmail = String(fallbackEmail || '')
+        .trim()
+        .toLowerCase();
+
+      if (!identityToken) {
+        throw new Error(
+          'Privy session is not ready or has expired. Please sign out and sign in again.',
+        );
+      }
+
+      const requestedActiveWalletId = isEmailLike(sessionEmail)
+        ? await readStoredActiveWalletId(sessionEmail, sessionNetwork).catch(
+            () => null,
+          )
+        : null;
+
+      const bootstrapWallet = await getSessionBootstrapWallet(
+        identityToken,
+        sessionNetwork,
+        options.privyUser || user,
+      );
+
+      if (
+        options.generation !== undefined &&
+        options.generation !== sessionGenerationRef.current
+      ) {
+        return false;
+      }
+
+      const session = await api<SessionResponse>('/api/session', {
+        method: 'POST',
+        body: JSON.stringify({
+          activeWalletId: requestedActiveWalletId || undefined,
+          identityToken,
+          network: sessionNetwork,
+          wallet: bootstrapWallet,
+        }),
+      });
+
+      return applySession(session, options.message, {
+        cache: options.cache,
+        generation: options.generation,
+        source: 'server',
+      });
+    },
+    [applySession, getIdentityToken, network, user],
+  );
+
+  useEffect(() => {
+    const restoreAttemptKey = userKey ? `${userKey}:${network}` : null;
+    const restoreGeneration = sessionGenerationRef.current;
+
+    if (
+      isReady &&
+      user &&
+      userKey &&
+      !account &&
+      restoreAttemptedForUserRef.current !== restoreAttemptKey
+    ) {
+      const restoreUserKey = userKey;
+      const restoreNetwork = network;
+
+      restoreAttemptedForUserRef.current = restoreAttemptKey;
+      let cancelled = false;
+
+      async function restoreSession() {
+        setSessionSyncing(true);
+
+        const cached = await readCachedSession(
+          restoreUserKey,
+          restoreNetwork,
+        ).catch(() => null);
+
+        if (cancelled || restoreGeneration !== sessionGenerationRef.current) {
+          return;
+        }
+
+        if (cached) {
+          const cachedStoredWalletId = await readStoredActiveWalletId(
+            cached.session.account.email,
+            restoreNetwork,
+          ).catch(() => null);
+
+          if (cancelled || restoreGeneration !== sessionGenerationRef.current) {
+            return;
+          }
+
+          const cachedActiveWalletId = sessionHasWalletId(
+            cached.session,
+            cachedStoredWalletId,
+            restoreNetwork,
+          )
+            ? cachedStoredWalletId
+            : null;
+
+          applySession(
+            cached.session,
+            'Wallet restored from this device. Syncing latest balances...',
+            {
+              activeWalletId: cachedActiveWalletId,
+              cache: false,
+              clearPortfolioOnActiveWalletMismatch: true,
+              generation: restoreGeneration,
+              source: 'cache',
+            },
+          );
+        } else {
+          setMessage('Restoring your wallet session...');
+        }
+
+        try {
+          await finishPrivySession(
+            undefined,
+            getEmailFromPrivyUser(user),
+            restoreNetwork,
+            { generation: restoreGeneration, privyUser: user },
+          );
+        } catch (error) {
+          if (
+            !cancelled &&
+            restoreGeneration === sessionGenerationRef.current
+          ) {
+            const errorMessage = getErrorMessage(error);
+            setMessage(
+              cached
+                ? `Showing saved wallet state. Server sync failed: ${errorMessage}`
+                : errorMessage,
+            );
+          }
+        } finally {
+          if (
+            !cancelled &&
+            restoreGeneration === sessionGenerationRef.current
+          ) {
+            setSessionSyncing(false);
+          }
+        }
+      }
+
+      restoreSession();
+
+      return () => {
+        cancelled = true;
+        if (restoreAttemptedForUserRef.current === restoreAttemptKey) {
+          restoreAttemptedForUserRef.current = null;
+        }
+        if (restoreGeneration === sessionGenerationRef.current) {
+          setSessionSyncing(false);
+        }
+      };
+    }
+  }, [finishPrivySession, applySession, isReady, network, user, userKey]);
+
+  async function sendEmailCode() {
+    return run('Sending Privy code', async () => {
+      const targetEmail = email.trim().toLowerCase();
+
+      if (!isEmailLike(targetEmail)) {
+        throw new Error(
+          'Enter a valid email to receive your Privy login code.',
+        );
+      }
+
+      const currentPrivyEmail = getEmailFromPrivyUser(user);
+
+      if (user && currentPrivyEmail === targetEmail) {
+        const identityToken = await getTokenWithRetry(getIdentityToken);
+
+        if (identityToken) {
+          setEmail(targetEmail);
+          setCode('');
+          setCodeSent(false);
+          await finishPrivySession(identityToken, undefined, network, {
+            privyUser: user,
+          });
+
+          return true;
+        }
+
+        await signOutAndClearWalletSession();
+      } else if (user) {
+        await signOutAndClearWalletSession();
+      }
+
+      setEmail(targetEmail);
+      setCode('');
+      await sendCode({ email: targetEmail });
+
+      return true;
+    });
+  }
+
+  async function verifyCodeAndLogin() {
+    await run('Verifying Privy code', async () => {
+      const verificationCode = code.replace(/\D/g, '').slice(0, 6);
+
+      if (verificationCode.length < 6) {
+        throw new Error('Enter the 6-digit code Privy sent to your email.');
+      }
+
+      const targetEmail = email.trim().toLowerCase();
+      const currentPrivyEmail = getEmailFromPrivyUser(user);
+
+      if (user && currentPrivyEmail === targetEmail) {
+        const identityToken = await getTokenWithRetry(getIdentityToken);
+
+        if (identityToken) {
+          setCode('');
+          setCodeSent(false);
+          await finishPrivySession(identityToken, undefined, network, {
+            privyUser: user,
+          });
+
+          return;
+        }
+
+        await signOutAndClearWalletSession();
+      } else if (user) {
+        await signOutAndClearWalletSession();
+      }
+
+      const loginUser = await loginWithCode({
+        email: targetEmail,
+        code: verificationCode,
+      });
+      setCode('');
+      setCodeSent(false);
+      await finishPrivySession(undefined, targetEmail, network, {
+        privyUser: loginUser || user,
+      });
+    });
+  }
+
+  async function loginWithGoogle() {
+    await run('Sign in with Google', async () => {
+      if (user) {
+        await signOutAndClearWalletSession();
+      }
+
+      const oauthUser = await loginWithOAuth({
+        provider: 'google',
+        redirectUri: '/',
+      });
+      const identityToken = await getTokenWithRetry(getIdentityToken);
+      const oauthEmail = getEmailFromPrivyUser(oauthUser);
+
+      setCode('');
+      setCodeSent(false);
+      await finishPrivySession(
+        identityToken || undefined,
+        oauthEmail,
+        network,
+        {
+          privyUser: oauthUser || user,
+        },
+      );
+
+      return true;
+    });
+  }
+
+  async function loginWithApple() {
+    await run('Sign in with Apple', async () => {
+      if (user) {
+        await signOutAndClearWalletSession();
+      }
+
+      let oauthUser: Awaited<ReturnType<typeof loginWithOAuth>>;
+
+      try {
+        oauthUser = await loginWithOAuth({
+          provider: 'apple',
+          redirectUri: '/',
+        });
+      } catch (error) {
+        const reason = getErrorMessage(error);
+
+        if (/cancel/i.test(reason)) {
+          setMessage('Sign in with Apple was cancelled.');
+          return false;
+        }
+
+        throw error;
+      }
+
+      const identityToken = await getTokenWithRetry(getIdentityToken);
+
+      if (!oauthUser && !identityToken) {
+        setMessage('Sign in with Apple was cancelled.');
+        return false;
+      }
+
+      const oauthEmail = getEmailFromPrivyUser(oauthUser);
+
+      setCode('');
+      setCodeSent(false);
+      await finishPrivySession(
+        identityToken || undefined,
+        oauthEmail,
+        network,
+        {
+          privyUser: oauthUser || user,
+        },
+      );
+
+      return true;
+    });
+  }
+
+  function resetLoginCode() {
+    setCode('');
+    setCodeSent(false);
+    setMessage('Enter your email to receive a Privy login code.');
+  }
+
+  async function signOutAndClearWalletSession(nextMessage?: string) {
+    const cacheUserKey = userKey;
+
+    sessionGenerationRef.current += 1;
+    await logoutPrivy();
+    await clearCachedSessions(cacheUserKey).catch(() => null);
+    clearWalletSession(nextMessage);
+  }
+
+  async function refreshSession(options: RunOptions = {}) {
+    if (!account) {
+      return;
+    }
+
+    await run(
+      'Refreshing wallet',
+      async () => {
+        setSessionSyncing(true);
+
+        try {
+          const identityToken = await getRequiredIdentityToken();
+          const session = await api<SessionResponse>('/api/session', {
+            method: 'POST',
+            body: JSON.stringify({
+              activeWalletId: activeNetworkWalletId,
+              identityToken,
+              network,
+              sourceAddress: wallet?.address,
+              sourceWalletId: wallet?.id,
+            }),
+          });
+          applySession(session, undefined, {
+            source: 'server',
+          });
+          const sessionWalletAddress = session.account.wallet?.address;
+
+          if (sessionWalletAddress) {
+            const nextTransactions = await fetchTransactionHistory(
+              sessionWalletAddress,
+              session.network || network,
+            );
+            setTransactions(nextTransactions);
+          }
+
+          setMessage('Balances and transaction history refreshed.');
+        } finally {
+          setSessionSyncing(false);
+        }
+      },
+      options,
+    );
+  }
+
+  async function createWallet() {
+    if (!account) {
+      return null;
+    }
+
+    return run(
+      isMainnet ? 'Creating Mainnet wallet' : 'Creating Testnet wallet',
+      async () => {
+        requireFreshServerSession();
+        const headers = await getAuthHeaders(true);
+        const createdWallet = await createClientStellarWalletPayload();
+        const session = await api<SessionResponse>('/api/wallets', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            fund: !isMainnet,
+            network,
+            wallet: createdWallet,
+          }),
+        });
+
+        resetRecipientState();
+        applySession(
+          session,
+          isMainnet
+            ? 'Mainnet wallet created. Deposit XLM to activate it.'
+            : 'Wallet created and funded with test XLM.',
+        );
+
+        return session;
+      },
+    );
+  }
+
+  async function selectWallet(walletId: string) {
+    if (!account || !walletId) {
+      return null;
+    }
+
+    if (walletId === activeWalletId) {
+      setMessage('This wallet is already selected.');
+      return null;
+    }
+
+    return run('Switching wallet', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const session = await api<SessionResponse>('/api/wallets/select', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ network, walletId }),
+      });
+
+      resetRecipientState();
+      applySession(session, 'Active wallet switched.');
+      await rememberActiveWalletId(account.email, network, walletId);
+
+      return session;
+    });
+  }
+
+  async function renameWallet(walletId: string, displayName: string) {
+    if (!account || !walletId) {
+      return null;
+    }
+
+    return run('Renaming wallet', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const session = await api<SessionResponse>('/api/wallets/rename', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          displayName,
+          network,
+          walletId,
+        }),
+      });
+
+      applySession(session, 'Wallet renamed.');
+
+      return session;
+    });
+  }
+
+  async function archiveWallet(walletId: string) {
+    if (!account || !walletId) {
+      return null;
+    }
+
+    return run('Archiving wallet', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const session = await api<SessionResponse>('/api/wallets/archive', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ network, walletId }),
+      });
+
+      resetRecipientState();
+      applySession(session, 'Wallet archived. You can restore it anytime.');
+
+      return session;
+    });
+  }
+
+  async function loadArchivedWallets() {
+    if (!account) {
+      setArchivedWallets([]);
+      return [];
+    }
+
+    const headers = await getAuthHeaders(true);
+    const response = await api<ArchivedWalletsResponse>(
+      `/api/wallets/archived?network=${encodeURIComponent(network)}`,
+      {
+        headers,
+      },
+    );
+    const nextWallets = response.wallets || [];
+
+    setArchivedWallets(nextWallets);
+
+    return nextWallets;
+  }
+
+  async function restoreWallet(walletId: string) {
+    if (!account || !walletId) {
+      return null;
+    }
+
+    return run('Restoring wallet', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const session = await api<SessionResponse>('/api/wallets/restore', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ network, walletId }),
+      });
+
+      resetRecipientState();
+      applySession(session, 'Wallet restored to the list.');
+      setArchivedWallets(current =>
+        current.filter(item => item.id !== walletId),
+      );
+
+      return session;
+    });
+  }
+
+  async function fundWallet() {
+    if (!wallet) {
+      return;
+    }
+
+    await run('Funding test XLM', async () => {
+      requireFreshServerSession();
+      if (isMainnet) {
+        throw new Error(
+          'Mainnet does not have Friendbot. Open Receive for your QR/address and deposit real XLM.',
+        );
+      }
+
+      const result = await api<Balance>(`/api/stellar/${network}/fund`, {
+        method: 'POST',
+        body: JSON.stringify({ address: wallet.address }),
+      });
+
+      setBalances(result.balances || []);
+      setTransactions(current => result.transactions || current);
+      await loadCollectibles(wallet.address, network);
+      setMessage('Test XLM funded from Stellar Testnet Friendbot.');
+    });
+  }
+
+  async function ensureWalletTrustline(
+    assetCode: string,
+    assetIssuer?: string | null,
+    options: { confirmMainnet?: boolean } = {},
+  ) {
+    if (!account || !wallet) {
+      throw new Error('Create or select a wallet first.');
+    }
+    requireFreshServerSession();
+
+    const assetDefinition =
+      visibleAssets.find(
+        asset =>
+          asset.assetCode === assetCode &&
+          (!assetIssuer || asset.assetIssuer === assetIssuer),
+      ) || visibleAssets.find(asset => asset.assetCode === assetCode);
+
+    if (!assetDefinition) {
+      throw new Error(`${assetCode} is not available on Stellar ${network}.`);
+    }
+
+    if (assetDefinition.isNative) {
+      return {
+        alreadyTrusted: true,
+        balances,
+        network,
+        transaction: null,
+        transactions,
+      } satisfies TrustlineResult;
+    }
+
+    const existingBalance = balances.find(
+      balance =>
+        balance.assetCode === assetDefinition.assetCode &&
+        (balance.assetIssuer || null) === (assetDefinition.assetIssuer || null),
+    );
+
+    if (existingBalance?.trusted) {
+      return {
+        alreadyTrusted: true,
+        balances,
+        network,
+        transaction: null,
+        transactions,
+      } satisfies TrustlineResult;
+    }
+
+    if (isMainnet && !walletActive) {
+      throw new Error(
+        'Deposit real XLM into this Mainnet wallet before enabling token receiving.',
+      );
+    }
+
+    const reserveWarning = getTrustlineReserveWarningForAsset(
+      assetDefinition.assetCode,
+      assetDefinition.assetIssuer,
+    );
+
+    if (reserveWarning) {
+      throw new Error(reserveWarning);
+    }
+
+    if (isMainnet && options.confirmMainnet) {
+      await requireBiometric(
+        `Confirm to enable receiving ${assetDefinition.assetCode} on Mainnet`,
+      );
+    }
+
+    const headers = await getAuthHeaders(isMainnet);
+    const trustlineBody = {
+      accountId: account.id,
+      assetCode: assetDefinition.assetCode,
+      assetIssuer: assetIssuer || assetDefinition.assetIssuer || null,
+      clientSigningSupported: true,
+      email: account.email,
+      sourceAddress: wallet.address,
+      sourceWalletId: wallet.id,
+    };
+    let result = await api<TrustlineResult>(
+      `/api/stellar/${network}/trustline`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(trustlineBody),
+      },
+    );
+
+    if (result.requiresClientSignature) {
+      if (!isPrivyHash(result.hash)) {
+        throw new Error(
+          'Could not prepare this asset update. Please try again.',
+        );
+      }
+
+      if (!result.transactionXdr) {
+        throw new Error(
+          'Could not prepare this asset update. Please try again.',
+        );
+      }
+
+      const signedTrustline = await withTimeout(
+        signRawHash({
+          address: wallet.address,
+          chainType: 'stellar',
+          hash: result.hash,
+        }),
+        TRUSTLINE_SIGN_TIMEOUT_MS,
+        'Wallet signing timed out. Please try again.',
+      );
+
+      result = await api<TrustlineResult>(`/api/stellar/${network}/trustline`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          ...trustlineBody,
+          clientSignature: signedTrustline.signature,
+          signingHash: result.hash,
+          transactionXdr: result.transactionXdr,
+        }),
+      });
+    }
+
+    setBalances(result.balances);
+    setTransactions(result.transactions);
+    await loadCollectibles(wallet.address, network);
+
+    return result;
+  }
+
+  function getTrustlineReserveWarningForAsset(
+    assetCode: string,
+    assetIssuer?: string | null,
+  ) {
+    const assetDefinition =
+      visibleAssets.find(
+        asset =>
+          asset.assetCode === assetCode &&
+          (!assetIssuer || asset.assetIssuer === assetIssuer),
+      ) || visibleAssets.find(asset => asset.assetCode === assetCode);
+
+    if (!assetDefinition || assetDefinition.isNative) {
+      return null;
+    }
+
+    const existingBalance = balances.find(
+      balance =>
+        balance.assetCode === assetDefinition.assetCode &&
+        (balance.assetIssuer || null) === (assetDefinition.assetIssuer || null),
+    );
+
+    if (existingBalance?.trusted) {
+      return null;
+    }
+
+    const xlmBalance = balances.find(balance => balance.assetCode === 'XLM');
+
+    return getXlmTrustlineReserveWarning(
+      xlmBalance,
+      balances,
+      assetDefinition.assetCode,
+    );
+  }
+
+  async function addTrustline(assetCode: string, assetIssuer?: string | null) {
+    if (!wallet) {
+      return;
+    }
+
+    const reserveWarning = getTrustlineReserveWarningForAsset(
+      assetCode,
+      assetIssuer,
+    );
+
+    if (reserveWarning) {
+      setMessage(reserveWarning);
+      showErrorDialog(reserveWarning, 'Not enough XLM');
+      return;
+    }
+
+    await run(`Enabling ${assetCode}`, async () => {
+      const result = await withTimeout(
+        ensureWalletTrustline(assetCode, assetIssuer, {
+          confirmMainnet: true,
+        }),
+        TRUSTLINE_ENABLE_TIMEOUT_MS,
+        `Enabling ${assetCode} timed out. Please try again.`,
+      );
+
+      if (!result) {
+        throw new Error(`Could not enable ${assetCode}. Please try again.`);
+      }
+
+      setMessage(
+        result.alreadyTrusted
+          ? `${assetCode} receiving is already enabled.`
+          : `${assetCode} receiving enabled.`,
+      );
+    });
+  }
+
+  async function refreshCollectibles() {
+    if (!wallet) {
+      setCollectibles([]);
+      return [];
+    }
+
+    return run(
+      'Refreshing collectibles',
+      () => loadCollectibles(wallet.address, network),
+      { showAlert: false },
+    );
+  }
+
+  async function claimDemoNft() {
+    if (!account || !wallet) {
+      return null;
+    }
+
+    return run('Claiming demo NFT', async () => {
+      requireFreshServerSession();
+      if (isMainnet) {
+        throw new Error(
+          'Demo NFT claiming is only available on Stellar Testnet.',
+        );
+      }
+
+      const fundNftBody = {
+        accountId: account.id,
+        clientSigningSupported: true,
+        email: account.email,
+        sourceAddress: wallet.address,
+        sourceWalletId: wallet.id,
+      };
+      let result = await api<FundNftResult>(
+        `/api/stellar/${network}/fund-nft`,
+        {
+          method: 'POST',
+          body: JSON.stringify(fundNftBody),
+        },
+      );
+
+      if (result.requiresClientSignature) {
+        if (!isPrivyHash(result.hash)) {
+          throw new Error(
+            'Could not prepare this NFT claim. Please try again.',
+          );
+        }
+
+        if (!result.transactionXdr) {
+          throw new Error(
+            'Could not prepare this NFT claim. Please try again.',
+          );
+        }
+
+        const signedClaim = await withTimeout(
+          signRawHash({
+            address: wallet.address,
+            chainType: 'stellar',
+            hash: result.hash,
+          }),
+          TRUSTLINE_SIGN_TIMEOUT_MS,
+          'Wallet signing timed out. Please try again.',
+        );
+
+        result = await api<FundNftResult>(`/api/stellar/${network}/fund-nft`, {
+          method: 'POST',
+          body: JSON.stringify({
+            ...fundNftBody,
+            clientSignature: signedClaim.signature,
+            signingHash: result.hash,
+            transactionXdr: result.transactionXdr,
+          }),
+        });
+      }
+
+      setBalances(result.balances);
+      setCollectibles(result.collectibles);
+      setTransactions(result.transactions);
+      setMessage(
+        result.alreadyClaimed
+          ? 'Demo NFT already claimed.'
+          : 'Demo NFT claimed on Stellar Testnet.',
+      );
+
+      return result;
+    });
+  }
+
+  async function sendAsset() {
+    if (!account || !wallet) {
+      return null;
+    }
+
+    const destination = recipient.trim().toUpperCase();
+    const amountCheck = validateStellarAmount(amount);
+
+    if (!destination) {
+      setErrorDialog({
+        message: 'Enter a recipient wallet address or create a test receiver.',
+        title: 'Missing recipient',
+      });
+      return null;
+    }
+
+    if (!isLikelyStellarPublicKey(destination)) {
+      setErrorDialog({
+        message: 'Enter a valid Stellar recipient address that starts with G.',
+        title: 'Invalid recipient',
+      });
+      return null;
+    }
+
+    if (!amountCheck.valid) {
+      setErrorDialog({
+        message: amountCheck.message || 'Enter a valid amount.',
+        title: 'Invalid amount',
+      });
+      return null;
+    }
+
+    const availableBalance = getAvailableAmount(selectedBalance);
+
+    if (amountCheck.amount > availableBalance) {
+      setErrorDialog({
+        message: selectedAsset?.isNative
+          ? `You can send up to ${formatTokenAmount(
+              String(availableBalance),
+            )} XLM. Stellar keeps ${formatTokenAmount(
+              selectedBalance?.reservedBalance ||
+                selectedBalance?.minimumBalance ||
+                '0',
+            )} XLM reserved for the account minimum balance and network fees.`
+          : `You can send up to ${formatTokenAmount(
+              String(availableBalance),
+            )} ${selectedAssetCode}.`,
+        title: 'Insufficient balance',
+      });
+      return null;
+    }
+
+    return run(`Sending ${selectedAssetCode}`, async () => {
+      requireFreshServerSession();
+      if (!isMainnet && selectedAssetCode !== 'XLM') {
+        await ensureWalletTrustline(
+          selectedAssetCode,
+          selectedAsset?.assetIssuer || null,
+        );
+      }
+
+      const headers = await getAuthHeaders(isMainnet);
+      const sendBody = {
+        accountId: account.id,
+        amount: amountCheck.normalized,
+        assetCode: selectedAssetCode,
+        assetIssuer: selectedAsset?.assetIssuer || null,
+        clientSigningSupported: true,
+        destination,
+        email: account.email,
+        sourceAddress: wallet.address,
+        sourceWalletId: wallet.id,
+      };
+      let result = await api<SendResult>(`/api/stellar/${network}/send`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(sendBody),
+      });
+
+      if (result.requiresClientSignature) {
+        if (!isPrivyHash(result.hash)) {
+          throw new Error('Could not prepare this transfer. Please try again.');
+        }
+
+        if (!result.transactionXdr) {
+          throw new Error('Could not prepare this transfer. Please try again.');
+        }
+
+        const signedTransfer = await withTimeout(
+          signRawHash({
+            address: wallet.address,
+            chainType: 'stellar',
+            hash: result.hash,
+          }),
+          TRUSTLINE_SIGN_TIMEOUT_MS,
+          'Wallet signing timed out. Please try again.',
+        );
+
+        result = await api<SendResult>(`/api/stellar/${network}/send`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            ...sendBody,
+            clientSignature: signedTransfer.signature,
+            signingHash: result.hash,
+            transactionXdr: result.transactionXdr,
+          }),
+        });
+      }
+
+      setBalances(result.sourceBalances);
+      setTransactions(result.transactions);
+
+      if (recipientContact?.wallet.address === destination) {
+        setRecipientBalances(result.destinationBalances);
+      }
+
+      setMessage(
+        `Sent ${formatTokenAmount(
+          amountCheck.normalized,
+        )} ${selectedAssetCode} on Stellar ${network}.`,
+      );
+
+      return result;
+    });
+  }
+
+  async function searchAssets(query: string, options?: { limit?: number }) {
+    const params = new URLSearchParams({
+      limit: String(options?.limit || 40),
+      network,
+    });
+    const search = query.trim();
+
+    if (search) {
+      params.set('search', search);
+    }
+
+    try {
+      const result = await api<AssetsResponse>(
+        `/api/assets?${params.toString()}`,
+      );
+
+      return result.assets || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async function loadFavoriteAssets(options: { silent?: boolean } = {}) {
+    if (!account) {
+      setFavoriteAssets([]);
+      return [];
+    }
+
+    const load = async () => {
+      const headers = await getAuthHeaders(true);
+      const params = new URLSearchParams({
+        email: account.email,
+        network,
+      });
+      const result = await api<FavoriteAssetsResponse>(
+        `/api/assets/favorites?${params.toString()}`,
+        { headers },
+      );
+      const assets = result.data.assets || [];
+
+      setFavoriteAssets(assets);
+
+      return assets;
+    };
+
+    if (options.silent) {
+      try {
+        return await load();
+      } catch {
+        return [];
+      }
+    }
+
+    return run('Loading favorite assets', load);
+  }
+
+  function findFavoriteAsset(asset: AssetIdentityInput) {
+    const identity = getAssetIdentity(asset);
+
+    return (
+      favoriteAssets.find(item => getAssetIdentity(item) === identity) || null
+    );
+  }
+
+  function isFavoriteAsset(asset: AssetIdentityInput) {
+    return Boolean(findFavoriteAsset(asset));
+  }
+
+  async function toggleFavoriteAsset(asset: AssetItem) {
+    if (!account) {
+      setMessage('Sign in before saving favorite assets.');
+      return null;
+    }
+
+    const existing = findFavoriteAsset(asset);
+
+    if (existing) {
+      return run(
+        'Updating favorites',
+        async () => {
+          requireFreshServerSession();
+          const headers = await getAuthHeaders(true);
+          const params = new URLSearchParams({
+            email: account.email,
+            network,
+          });
+
+          await api<FavoriteAssetsResponse>(
+            `/api/assets/favorites/${encodeURIComponent(
+              existing.id,
+            )}?${params.toString()}`,
+            {
+              method: 'DELETE',
+              headers,
+            },
+          );
+
+          setFavoriteAssets(current =>
+            current.filter(item => item.id !== existing.id),
+          );
+          setMessage(`${asset.assetCode} removed from favorites.`);
+
+          return false;
+        },
+        { showAlert: false },
+      );
+    }
+
+    return run(
+      'Updating favorites',
+      async () => {
+        requireFreshServerSession();
+        const headers = await getAuthHeaders(true);
+        const result = await api<FavoriteAssetsResponse>(
+          '/api/assets/favorites',
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              assetCode: asset.assetCode,
+              assetIssuer: asset.isNative ? null : asset.assetIssuer,
+              displayName: asset.displayName || asset.assetCode,
+              email: account.email,
+              homeDomain: asset.homeDomain || null,
+              image: asset.image || null,
+              network,
+            }),
+          },
+        );
+        const savedAsset = result.data.asset;
+
+        if (!savedAsset) {
+          throw new Error('Could not save favorite asset. Please try again.');
+        }
+
+        setFavoriteAssets(current => [
+          savedAsset,
+          ...current.filter(
+            item => getAssetIdentity(item) !== getAssetIdentity(savedAsset),
+          ),
+        ]);
+        setMessage(`${asset.assetCode} added to favorites.`);
+
+        return true;
+      },
+      { showAlert: false },
+    );
+  }
+
+  async function submitFeedback({
+    appVersion,
+    category = 'general',
+    message: feedbackMessage,
+    rating,
+  }: {
+    appVersion?: string | null;
+    category?: FeedbackCategory;
+    message: string;
+    rating?: number | null;
+  }): Promise<FeedbackItem | null> {
+    if (!account) {
+      setMessage('Sign in before sending feedback.');
+      return null;
+    }
+
+    const messageText = feedbackMessage.trim();
+
+    if (messageText.length < 3) {
+      showErrorDialog(
+        'Write a short note before sending feedback.',
+        'Feedback',
+      );
+      return null;
+    }
+
+    return run('Sending feedback', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(true);
+      const result = await api<FeedbackApiResponse>('/api/feedback', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          appVersion: appVersion || null,
+          category,
+          email: account.email,
+          message: messageText,
+          network,
+          rating: rating ?? null,
+          source: 'settings',
+          sourceAddress: wallet?.address,
+          sourceWalletId: wallet?.id,
+        }),
+      });
+
+      setMessage('Feedback sent. Thank you for helping improve the wallet.');
+
+      return result.data.feedback;
+    });
+  }
+
+  async function logout() {
+    await signOutAndClearWalletSession('Signed out.');
+  }
+
+  async function deleteAccount() {
+    if (!account) {
+      return false;
+    }
+
+    return run('Deleting account', async () => {
+      requireFreshServerSession();
+      await requireBiometric('Confirm permanent account deletion');
+      const headers = await getAuthHeaders(true);
+      const storedAppleToken = await SecureStore.getItemAsync(
+        APPLE_OAUTH_TOKEN_STORAGE_KEY,
+      ).catch(() => null);
+      let appleOAuthToken: string | undefined;
+      let appleTokenTypeHint: 'access_token' | 'refresh_token' | undefined;
+
+      if (storedAppleToken) {
+        try {
+          const parsed = JSON.parse(storedAppleToken) as {
+            token?: string;
+            tokenTypeHint?: string;
+          };
+
+          appleOAuthToken = String(parsed.token || '').trim() || undefined;
+          appleTokenTypeHint =
+            parsed.tokenTypeHint === 'access_token'
+              ? 'access_token'
+              : parsed.tokenTypeHint === 'refresh_token'
+              ? 'refresh_token'
+              : undefined;
+        } catch {
+          appleOAuthToken = undefined;
+        }
+      }
+
+      await api('/api/account', {
+        body: JSON.stringify({
+          appleOAuthToken,
+          appleTokenTypeHint,
+          confirmation: 'DELETE',
+        }),
+        headers,
+        method: 'DELETE',
+      });
+
+      const cacheUserKey = userKey;
+
+      sessionGenerationRef.current += 1;
+      await logoutPrivy().catch(() => undefined);
+      await clearCachedSessions(cacheUserKey).catch(() => null);
+      await SecureStore.deleteItemAsync(APPLE_OAUTH_TOKEN_STORAGE_KEY).catch(
+        () => undefined,
+      );
+      clearWalletSession('Your account and stored personal data were deleted.');
+      setEmail('');
+
+      return true;
+    });
+  }
+
+  async function switchNetwork(nextNetwork: StellarNetwork) {
+    if (nextNetwork === network) {
+      setMessage(
+        nextNetwork === 'mainnet'
+          ? 'You are already on Stellar Mainnet.'
+          : 'You are already on Stellar Testnet.',
+      );
+      return null;
+    }
+
+    return run('Switching network', async () => {
+      setPreferredNetwork(nextNetwork);
+      setSelectedAssetCode('XLM');
+      resetRecipientState();
+
+      const assetResult = await api<AssetsResponse>(
+        `/api/assets?network=${nextNetwork}`,
+      );
+      const nextAssets = assetResult.assets || [];
+      setAssets(current => mergeAssetMarketData(nextAssets, current));
+      setAssetPricesUpdatedAt(
+        nextAssets.some(hasMarketPrice) ? Date.now() : null,
+      );
+
+      if (!account) {
+        setBalances([]);
+        setCollectibles([]);
+        setTransactions([]);
+        setMessage(
+          nextNetwork === 'mainnet'
+            ? 'Switched to Mainnet. Sign in to create a mainnet wallet.'
+            : 'Switched to Testnet.',
+        );
+        return null;
+      }
+
+      const hasTargetNetworkWallet = (account.wallets || []).some(
+        item => item.network === nextNetwork && !item.archived && item.canSign,
+      );
+      const storedTargetWalletId = await readStoredActiveWalletId(
+        account.email,
+        nextNetwork,
+      );
+      const requestedActiveWalletId =
+        storedTargetWalletId &&
+        (account.wallets || []).some(
+          item =>
+            item.id === storedTargetWalletId &&
+            item.network === nextNetwork &&
+            !item.archived,
+        )
+          ? storedTargetWalletId
+          : undefined;
+
+      if (!hasTargetNetworkWallet) {
+        setBusy(
+          nextNetwork === 'mainnet'
+            ? 'Creating Mainnet wallet'
+            : 'Creating Testnet wallet',
+        );
+      }
+
+      const bootstrapWallet = hasTargetNetworkWallet
+        ? undefined
+        : await createClientStellarWalletPayload();
+      const identityToken = await getRequiredIdentityToken();
+
+      const session = await api<SessionResponse>('/api/session', {
+        method: 'POST',
+        body: JSON.stringify({
+          activeWalletId: requestedActiveWalletId,
+          identityToken,
+          network: nextNetwork,
+          wallet: bootstrapWallet,
+        }),
+      });
+      applySession(
+        session,
+        nextNetwork === 'mainnet'
+          ? 'Switched to Mainnet. Deposit real XLM to activate this wallet.'
+          : 'Switched to Testnet.',
+      );
+      if (requestedActiveWalletId) {
+        setActiveWalletId(requestedActiveWalletId);
+      }
+      await loadCollectibles(session.account.wallet?.address, nextNetwork);
+
+      return session;
+    });
+  }
+
+  async function importWallet(
+    secret: string,
+    displayName?: string,
+    options: RunOptions = {},
+  ) {
+    if (!account) {
+      return null;
+    }
+
+    const normalizedSecret = secret.trim();
+    const secretError = validateImportSecret(normalizedSecret);
+    const importedAddress = getImportSecretPublicAddress(normalizedSecret);
+
+    if (secretError) {
+      setErrorDialog({
+        message: secretError,
+        title: 'Invalid import key',
+      });
+      return null;
+    }
+
+    if (!importedAddress) {
+      setErrorDialog({
+        message:
+          'This import key could not be decoded. Check that you pasted the full Privy 64-hex key or Stellar S... key.',
+        title: 'Invalid import key',
+      });
+      return null;
+    }
+
+    const duplicateWallet = (account.wallets || []).find(
+      item =>
+        item.network === network &&
+        item.address.toUpperCase() === importedAddress.toUpperCase(),
+    );
+
+    if (duplicateWallet?.kind === 'privy') {
+      setErrorDialog({
+        message: `${importedAddress} is already a Privy-managed wallet in this account on Stellar ${network}.`,
+        title: 'Wallet already exists',
+      });
+      return null;
+    }
+
+    return run(
+      'Importing wallet',
+      async () => {
+        requireFreshServerSession();
+        const headers = await getAuthHeaders(true);
+        await requireBiometric('Confirm to import this Stellar wallet');
+        const session = await api<SessionResponse>('/api/wallets/import', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            displayName,
+            email: account.email,
+            network,
+            secret: normalizedSecret,
+          }),
+          timeoutMs: IMPORT_WALLET_TIMEOUT_MS,
+        });
+
+        applySession(
+          session,
+          duplicateWallet
+            ? 'Imported wallet signing key updated.'
+            : 'Wallet imported into Privy.',
+        );
+
+        return session;
+      },
+      options,
+    );
+  }
+
+  async function addWatchOnlyWallet(address: string, displayName?: string) {
+    if (!account) {
+      return null;
+    }
+
+    const normalizedAddress = address.trim().toUpperCase();
+    const addressError = validateWatchOnlyAddress(normalizedAddress);
+
+    if (addressError) {
+      setErrorDialog({
+        message: addressError,
+        title: 'Invalid address',
+      });
+      return null;
+    }
+
+    return run('Adding watch-only wallet', async () => {
+      requireFreshServerSession();
+      const headers = await getAuthHeaders(isMainnet);
+      const session = await api<SessionResponse>('/api/wallets/watch-only', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          address: normalizedAddress,
+          displayName,
+          email: account.email,
+          network,
+        }),
+      });
+
+      applySession(session, 'Watch-only wallet added.');
+
+      return session;
+    });
+  }
+
+  async function createWalletExportUrl(returnUrl?: string) {
+    if (!account || !wallet) {
+      return null;
+    }
+
+    return run('Opening secure export', async () => {
+      requireFreshServerSession();
+      if (wallet.kind === 'imported_privy') {
+        throw new Error(
+          'This wallet was imported from your own Stellar secret key. Use the original S... key you imported instead of Privy recovery export.',
+        );
+      }
+
+      if (wallet.kind !== 'privy') {
+        throw new Error(
+          'Recovery export is only available for Privy-managed wallets.',
+        );
+      }
+
+      await requireBiometric('Confirm to open the secure recovery export');
+
+      const params = new URLSearchParams({
+        address: wallet.address,
+        clientId: PRIVY_WEB_EXPORT_CLIENT_ID,
+        email: account.email,
+        network,
+        t: `${Date.now()}`,
+      });
+
+      if (returnUrl) {
+        params.set('returnUrl', returnUrl);
+      }
+
+      setMessage(
+        'Privy will show the recovery key on its secure page. Store it offline and never share it.',
+      );
+
+      return `${API_BASE_URL}/wallet-export?${params.toString()}`;
+    });
+  }
+
+  function openUrl(url?: string | null) {
+    if (url) {
+      Linking.openURL(url);
+    }
+  }
+
+  function setWalletAmount(value: string) {
+    setAmount(sanitizeStellarAmountInput(value));
+  }
+
+  return {
+    account,
+    activeWalletId: activeNetworkWalletId,
+    assetPricesUpdatedAt,
+    addWatchOnlyWallet,
+    addTrustline,
+    amount,
+    archiveWallet,
+    archivedWallets,
+    assets,
+    balances,
+    busy,
+    claimDemoNft,
+    code,
+    codeSent,
+    collectibles,
+    createWallet,
+    deleteAccount,
+    email,
+    isRestoringSession: Boolean(user) && (!account || sessionSyncing),
+    errorDialog,
+    explorerAddressUrl,
+    createWalletExportUrl,
+    favoriteAssets,
+    fundWallet,
+    health,
+    isFavoriteAsset,
+    isBusy: busy !== null,
+    isMainnet,
+    isReady,
+    importWallet,
+    loginWithApple,
+    loginWithGoogle,
+    loginState,
+    loadArchivedWallets,
+    loadFavoriteAssets,
+    logout,
+    message,
+    network,
+    networks,
+    openUrl,
+    oauthState,
+    privySessionReady,
+    privyError,
+    recipient,
+    recipientContact,
+    recipientSelectedBalance,
+    refreshPrivySecuritySession,
+    refreshAssetPrices,
+    refreshCollectibles,
+    refreshSession,
+    renameWallet,
+    resetLoginCode,
+    restoreWallet,
+    selectedAsset,
+    selectedAssetCode,
+    selectedBalance,
+    serverSessionReady,
+    sendAsset,
+    sendEmailCode,
+    submitFeedback,
+    selectWallet,
+    setAmount: setWalletAmount,
+    setCode,
+    setEmail,
+    setMessage,
+    setRecipient,
+    setSelectedAssetCode,
+    searchAssets,
+    sessionSyncing,
+    switchNetwork,
+    toggleFavoriteAsset,
+    dismissErrorDialog,
+    transactions,
+    verifyCodeAndLogin,
+    visibleAssets,
+    wallet,
+    walletActive,
+    walletCanSign,
+    walletConnectConfig,
+    walletSessionSyncing,
+    wallets: networkWallets,
+    showErrorDialog,
+    xlmBalance,
+  };
+}
+
+export type WalletState = ReturnType<typeof useWallet>;

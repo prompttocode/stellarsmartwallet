@@ -1,0 +1,496 @@
+import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
+import type {
+  ImageSourcePropType,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+} from 'react-native';
+import Animated, {
+  Easing,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SkeletonBlock } from '@components/common/Skeleton';
+import { shortAddress } from '@utils/format';
+import { modern } from '../modernStyles';
+import { PressScale } from './primitives';
+import { TokenIcon } from './token';
+
+const heroCoinImages: ImageSourcePropType[] = [
+  require('@assets/images/coin/xlm.png'),
+  require('@assets/images/coin/usdc.png'),
+  require('@assets/images/coin/usdt.png'),
+  require('@assets/images/coin/eurc.png'),
+  require('@assets/images/coin/pyusd.png'),
+];
+
+type HeroCoinDriftConfig = {
+  delay: number;
+  duration: number;
+  key: string;
+  opacity: number;
+  rotateFrom: number;
+  rotateTo: number;
+  right: number;
+  size: number;
+  source: ImageSourcePropType;
+  top: number;
+  travelX: number;
+  travelY: number;
+};
+
+function createHeroCoinDrifts(): HeroCoinDriftConfig[] {
+  const count = 9 + Math.floor(Math.random() * 3);
+
+  return Array.from({ length: count }, (_, index) => ({
+    delay: 120 + Math.random() * 900 + index * 280,
+    duration: 3600 + Math.random() * 1600,
+    key: `hero-coin-${index}`,
+    opacity: 0.2 + Math.random() * 0.18,
+    right: -36 + Math.random() * 140,
+    rotateFrom: -18 + Math.random() * 36,
+    rotateTo: 24 + Math.random() * 72,
+    size: 24 + Math.random() * 16,
+    source: heroCoinImages[index % heroCoinImages.length],
+    top: 46 + Math.random() * 320,
+    travelX: -(220 + Math.random() * 180),
+    travelY: 110 + Math.random() * 150,
+  }));
+}
+
+function HeroCoinField() {
+  const coins = useMemo(createHeroCoinDrifts, []);
+
+  return (
+    <View pointerEvents="none" style={modern.heroMeteorLayer}>
+      {coins.map(coin => (
+        <HeroCoinDrift key={coin.key} coin={coin} />
+      ))}
+    </View>
+  );
+}
+
+function HeroCoinDrift({ coin }: { coin: HeroCoinDriftConfig }) {
+  const progress = useSharedValue(0);
+  const baseStyle = useMemo(
+    () => ({
+      height: coin.size,
+      right: coin.right,
+      top: coin.top,
+      width: coin.size,
+    }),
+    [coin.right, coin.size, coin.top],
+  );
+  const animatedStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      progress.value,
+      [0, 0.14, 0.74, 1],
+      [0, coin.opacity, coin.opacity * 0.76, 0],
+    );
+    const rotate = interpolate(
+      progress.value,
+      [0, 1],
+      [coin.rotateFrom, coin.rotateTo],
+    );
+    const scale = interpolate(progress.value, [0, 0.4, 1], [0.88, 1, 0.94]);
+
+    return {
+      opacity,
+      transform: [
+        {
+          translateX: interpolate(progress.value, [0, 1], [0, coin.travelX]),
+        },
+        {
+          translateY: interpolate(progress.value, [0, 1], [0, coin.travelY]),
+        },
+        { rotate: `${rotate}deg` },
+        { scale },
+      ],
+    };
+  }, [
+    coin.opacity,
+    coin.rotateFrom,
+    coin.rotateTo,
+    coin.travelX,
+    coin.travelY,
+  ]);
+
+  useEffect(() => {
+    progress.value = 0;
+    progress.value = withRepeat(
+      withSequence(
+        withDelay(
+          coin.delay,
+          withTiming(1, {
+            duration: coin.duration,
+            easing: Easing.out(Easing.cubic),
+          }),
+        ),
+        withTiming(0, { duration: 0 }),
+      ),
+      -1,
+      false,
+    );
+  }, [coin.delay, coin.duration, progress]);
+
+  return (
+    <Animated.View style={[modern.heroCoinSprite, baseStyle, animatedStyle]}>
+      <Image source={coin.source} style={modern.heroCoinImage} />
+    </Animated.View>
+  );
+}
+
+export function WalletHero({
+  address,
+  children,
+  onNetworkPress,
+  onScan,
+  onSearch,
+  onWalletPress,
+  portfolioNote,
+  portfolioValue,
+  portfolioValueLoading = false,
+  network = 'testnet',
+  walletLoading = false,
+  walletLoadingLabel,
+  walletName,
+}: {
+  address?: string;
+  children?: ReactNode;
+  onNetworkPress?: () => void;
+  onScan: () => void;
+  onSearch: () => void;
+  onWalletPress?: () => void;
+  portfolioNote?: string;
+  portfolioValue: string;
+  portfolioValueLoading?: boolean;
+  network?: 'testnet' | 'mainnet';
+  walletLoading?: boolean;
+  walletLoadingLabel?: string;
+  walletName?: string;
+}) {
+  const [networkPillExpanded, setNetworkPillExpanded] = useState(false);
+  const networkPillWidth = useSharedValue(72);
+  const closeNetworkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const hideNetworkTextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const insets = useSafeAreaInsets();
+  const heroScrimStyle = useMemo(
+    () => [modern.heroScrim, { paddingTop: insets.top + 12 }],
+    [insets.top],
+  );
+  const networkPillAnimatedStyle = useAnimatedStyle(() => ({
+    width: networkPillWidth.value,
+  }));
+
+  useEffect(
+    () => () => {
+      if (closeNetworkTimerRef.current) {
+        clearTimeout(closeNetworkTimerRef.current);
+      }
+
+      if (hideNetworkTextTimerRef.current) {
+        clearTimeout(hideNetworkTextTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  function clearNetworkPillTimers() {
+    if (closeNetworkTimerRef.current) {
+      clearTimeout(closeNetworkTimerRef.current);
+      closeNetworkTimerRef.current = null;
+    }
+
+    if (hideNetworkTextTimerRef.current) {
+      clearTimeout(hideNetworkTextTimerRef.current);
+      hideNetworkTextTimerRef.current = null;
+    }
+  }
+
+  function handleNetworkPress() {
+    clearNetworkPillTimers();
+    setNetworkPillExpanded(true);
+    networkPillWidth.value = withTiming(118, { duration: 180 });
+    onNetworkPress?.();
+
+    closeNetworkTimerRef.current = setTimeout(() => {
+      networkPillWidth.value = withTiming(72, { duration: 180 });
+      hideNetworkTextTimerRef.current = setTimeout(() => {
+        setNetworkPillExpanded(false);
+      }, 130);
+    }, 760);
+  }
+
+  return (
+    <View
+      style={[modern.hero, network === 'mainnet' ? modern.heroMainnet : null]}
+    >
+      <View style={heroScrimStyle}>
+        <HeroCoinField />
+        <View style={modern.heroContent}>
+          <View style={modern.heroTop}>
+            <Pressable onPress={handleNetworkPress}>
+              <Animated.View
+                style={[modern.networkPill, networkPillAnimatedStyle]}
+              >
+                <TokenIcon assetCode="XLM" size={25} />
+                {networkPillExpanded ? (
+                  <Text numberOfLines={1} style={modern.networkPillText}>
+                    {network === 'mainnet' ? 'Mainnet' : 'Testnet'}
+                  </Text>
+                ) : null}
+                <MaterialCommunityIcons
+                  color="rgba(255,255,255,0.88)"
+                  name="autorenew"
+                  size={17}
+                />
+              </Animated.View>
+            </Pressable>
+            <Pressable
+              disabled={walletLoading}
+              onPress={onWalletPress}
+              style={[
+                modern.addressPill,
+                walletLoading ? modern.addressPillLoading : null,
+              ]}
+            >
+              {walletLoading ? (
+                <ActivityIndicator color="#B8FF45" size="small" />
+              ) : (
+                <Ionicons
+                  color="rgba(255,255,255,0.9)"
+                  name="wallet-outline"
+                  size={15}
+                />
+              )}
+              <Text numberOfLines={1} style={modern.addressPillText}>
+                {walletLoading
+                  ? walletLoadingLabel || 'Preparing wallet'
+                  : walletName || shortAddress(address)}
+              </Text>
+            </Pressable>
+            <View style={modern.heroActions}>
+              <PressScale onPress={onSearch} style={modern.heroIconButton}>
+                <Ionicons color="#FFFFFF" name="search" size={21} />
+              </PressScale>
+              <PressScale onPress={onScan} style={modern.heroIconButton}>
+                <Ionicons color="#FFFFFF" name="scan-outline" size={21} />
+              </PressScale>
+            </View>
+          </View>
+
+          <View style={modern.heroCard}>
+            <View style={modern.heroCardHeader}>
+              <View>
+                <Text style={modern.heroLabel}>
+                  {network === 'mainnet'
+                    ? 'Estimated portfolio value'
+                    : 'Testnet portfolio'}
+                </Text>
+                <Text style={modern.heroNetworkMeta}>
+                  {network === 'mainnet' ? '' : 'Stellar Testnet · demo assets'}
+                </Text>
+              </View>
+            </View>
+
+            {portfolioValueLoading ? (
+              <SkeletonBlock
+                height={52}
+                radius={16}
+                style={{ alignSelf: 'center', marginTop: 16 }}
+                width="74%"
+              />
+            ) : (
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                style={modern.heroAmount}
+              >
+                {portfolioValue}
+              </Text>
+            )}
+            {portfolioNote ? (
+              <Text style={modern.heroPriceNote}>{portfolioNote}</Text>
+            ) : null}
+
+            {children}
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+export function WalletSetupNotice({
+  message,
+  network = 'testnet',
+  title,
+}: {
+  message?: string;
+  network?: 'testnet' | 'mainnet';
+  title?: string;
+}) {
+  const networkLabel = network === 'mainnet' ? 'Mainnet' : 'Testnet';
+
+  return (
+    <View style={modern.walletSetupNotice}>
+      <View style={modern.walletSetupSpinner}>
+        <ActivityIndicator color="#B8FF45" size="small" />
+      </View>
+      <View style={modern.walletSetupCopy}>
+        <Text style={modern.walletSetupTitle}>
+          {title || `Creating ${networkLabel} wallet`}
+        </Text>
+        <Text style={modern.walletSetupText}>
+          {message || 'This usually takes a few seconds.'}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+export function ActivateWalletNotice({ onPress }: { onPress: () => void }) {
+  return (
+    <View style={modern.activateNotice}>
+      <View style={modern.activateIcon}>
+        <Ionicons color="#B8FF45" name="flash-outline" size={22} />
+      </View>
+      <View style={modern.activateCopy}>
+        <Text style={modern.activateTitle}>Activate wallet</Text>
+        <Text style={modern.activateText}>
+          Deposit XLM to start using this Mainnet wallet
+        </Text>
+      </View>
+      <PressScale onPress={onPress} style={modern.activateButton}>
+        <Text style={modern.activateButtonText}>Activate</Text>
+      </PressScale>
+    </View>
+  );
+}
+
+export function QuickActionGrid({
+  actions,
+}: {
+  actions: {
+    icon: ReactNode;
+    key: string;
+    label: string;
+    onPress: () => void;
+  }[];
+}) {
+  return (
+    <View style={modern.quickGrid}>
+      {actions.map(action => (
+        <PressScale
+          key={action.key}
+          onPress={action.onPress}
+          style={modern.quickItem}
+        >
+          <View style={modern.quickCircle}>{action.icon}</View>
+          <Text style={modern.quickLabel}>{action.label}</Text>
+        </PressScale>
+      ))}
+    </View>
+  );
+}
+
+export function HomeBannerCarousel({
+  banners,
+}: {
+  banners: ImageSourcePropType[];
+}) {
+  const scrollRef = useRef<ScrollView>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [bannerWidth, setBannerWidth] = useState(0);
+
+  useEffect(() => {
+    if (bannerWidth <= 0 || banners.length <= 1) {
+      return undefined;
+    }
+
+    const interval = setInterval(() => {
+      setActiveIndex(currentIndex => {
+        const nextIndex = (currentIndex + 1) % banners.length;
+
+        scrollRef.current?.scrollTo({
+          animated: true,
+          x: nextIndex * bannerWidth,
+          y: 0,
+        });
+
+        return nextIndex;
+      });
+    }, 3500);
+
+    return () => clearInterval(interval);
+  }, [bannerWidth, banners.length]);
+
+  function handleMomentumEnd(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    if (bannerWidth <= 0) {
+      return;
+    }
+
+    const nextIndex = Math.round(
+      event.nativeEvent.contentOffset.x / bannerWidth,
+    );
+
+    setActiveIndex(Math.max(0, Math.min(nextIndex, banners.length - 1)));
+  }
+
+  return (
+    <View
+      onLayout={event => setBannerWidth(event.nativeEvent.layout.width)}
+      style={modern.homeBannerWrap}
+    >
+      <ScrollView
+        horizontal
+        onMomentumScrollEnd={handleMomentumEnd}
+        pagingEnabled
+        ref={scrollRef}
+        scrollEventThrottle={16}
+        showsHorizontalScrollIndicator={false}
+        style={modern.homeBannerScroll}
+      >
+        {banners.map((banner, index) => (
+          <Image
+            key={index}
+            resizeMode="stretch"
+            source={banner}
+            style={[modern.homeBannerImage, { width: bannerWidth || 1 }]}
+          />
+        ))}
+      </ScrollView>
+
+      <View style={modern.homeBannerDots}>
+        {banners.map((_, index) => (
+          <View
+            key={index}
+            style={[
+              modern.homeBannerDot,
+              index === activeIndex ? modern.homeBannerDotActive : null,
+            ]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}

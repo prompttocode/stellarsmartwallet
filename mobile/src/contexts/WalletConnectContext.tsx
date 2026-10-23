@@ -27,15 +27,29 @@ import { buildApprovedNamespaces, getSdkError } from '@walletconnect/utils';
 
 import { api } from '@api/client';
 import { useAppPopup } from '@components/common/AppPopup';
-import type { StellarNetwork } from '@app-types';
-import type { WalletState } from '@hooks/useWallet';
+import type {
+  StellarNetwork,
+  Wallet,
+  WalletAccount,
+  WalletConnectConfig,
+} from '@app-types';
 import { getWalletKit } from '../walletconnect/client';
 import { DAPP_CONNECTIONS_ENABLED } from '@config';
+import { isWalletConnectOperationAllowed } from './walletConnectPolicy';
 
 const STELLAR_METHODS = [
   'stellar_signXDR',
   'stellar_signAndSubmitXDR',
 ] as const;
+
+type WalletConnectWalletState = {
+  account: WalletAccount | null;
+  isMainnet: boolean;
+  network: StellarNetwork;
+  wallet: Wallet | null;
+  walletActive: boolean;
+  walletConnectConfig: WalletConnectConfig | null;
+};
 
 type StellarMethod = (typeof STELLAR_METHODS)[number];
 
@@ -336,7 +350,7 @@ export function WalletConnectProvider({
   wallet,
 }: {
   children: ReactNode;
-  wallet: WalletState;
+  wallet: WalletConnectWalletState;
 }) {
   const { getIdentityToken } = useIdentityToken();
   const { signRawHash } = useSignRawHash();
@@ -799,6 +813,17 @@ export function WalletConnectProvider({
     })
       .then(review => {
         if (!cancelled) {
+          const hasUnsupportedOperation = review.operations.some(
+            operation => !isWalletConnectOperationAllowed(operation),
+          );
+
+          if (hasUnsupportedOperation) {
+            setReviewError(
+              'This WalletConnect transaction type is not supported by this app.',
+            );
+            return;
+          }
+
           setRequestReview(review);
         }
       })
@@ -1021,6 +1046,20 @@ export function WalletConnectProvider({
         nextClient,
         event,
         `Unsupported Stellar method: ${method}`,
+      );
+      removeActiveRequest();
+      return;
+    }
+
+    if (
+      requestReview.operations.some(
+        operation => !isWalletConnectOperationAllowed(operation),
+      )
+    ) {
+      await respondWithError(
+        nextClient,
+        event,
+        'This WalletConnect transaction type is not supported by this app.',
       );
       removeActiveRequest();
       return;

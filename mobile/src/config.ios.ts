@@ -1,0 +1,14 @@
+// Public configuration for the App Store wallet build.
+export const API_BASE_URL = 'https://api.getstellar.shop';
+
+export const PRIVACY_POLICY_URL =
+  'https://www.freeprivacypolicy.com/live/edd04a75-c08d-4c20-959c-941401ce9dce';
+export const TERMS_OF_SERVICE_URL = PRIVACY_POLICY_URL;
+
+export const PRIVY_APP_ID = 'cmpi5182800mh0cjslqv5fgxt';
+export const PRIVY_CLIENT_ID =
+  'client-WY6ZYnJ25Wu5vL7JMW7raUWLuxLqgvL6pjFRrVMhvbR32';
+export const PRIVY_WEB_EXPORT_CLIENT_ID =
+  'client-WY6ZYnJ25Wu5vL7JMW7raUWLuxLqgvL6pjDbMih7h4ng6';
+
+export const DAPP_CONNECTIONS_ENABLED = true;
