@@ -6,6 +6,9 @@ export const LEGACY_LOCAL_SESSION_STORAGE_KEYS = [
 ];
 
 export const PREFERRED_NETWORK_STORAGE_KEY = 'privy-wallet-preferred-network';
+export const ACTIVE_WALLET_STORAGE_PREFIX = 'privy-wallet-active-wallet-v1';
+export const SESSION_CACHE_STORAGE_PREFIX = 'privy-wallet-session-cache-v1';
+export const SESSION_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 export const MARKET_PRICE_REFRESH_MS = 60_000;
 export const ASSETS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 export const TRANSACTIONS_CACHE_TTL_MS = 5 * 60 * 1000;

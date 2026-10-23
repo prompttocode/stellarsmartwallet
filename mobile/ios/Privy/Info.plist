@@ -45,13 +45,11 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>OrbitWallet uses the camera to scan QR codes and photograph your identity card for identity verification.</string>
+	<string>OrbitWallet uses the camera to scan Stellar wallet QR codes.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>OrbitWallet uses Face ID to verify your identity before sensitive wallet actions.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>OrbitWallet adds payment QR codes to your photo library when you choose to save them.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>OrbitWallet accesses your photo library to select QR code images and save payment QR codes.</string>
+	<string>OrbitWallet accesses your photo library only when you choose a Stellar QR code image to scan.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIAppFonts</key>

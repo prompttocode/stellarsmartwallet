@@ -41,18 +41,6 @@ export type WalletAccount = {
   wallets?: Wallet[];
 };
 
-export type KycStatus = 'not_started' | 'verified';
-
-export type KycSummary = {
-  cccdLast4?: string;
-  countryCode?: string;
-  fullName?: string;
-  phone?: string;
-  providerUserId?: string;
-  status: KycStatus;
-  verifiedAt?: string;
-};
-
 export type FeedbackCategory =
   | 'bug'
   | 'feature_request'
@@ -74,9 +62,10 @@ export type FeedbackItem = {
   walletId: string | null;
 };
 
-export type FeedbackApiResponse = RampApiResponse<{
-  feedback: FeedbackItem;
-}>;
+export type FeedbackApiResponse = {
+  data: { feedback: FeedbackItem };
+  success: boolean;
+};
 
 export type AssetItem = {
   assetCode: string;
@@ -172,11 +161,7 @@ export type TransactionItem = {
   maxFeeXlm?: string | null;
   network?: StellarNetwork;
   operationCount?: number | null;
-  operation:
-    | 'payment'
-    | 'create_account'
-    | 'change_trust'
-    | 'path_payment_strict_send';
+  operation: 'payment' | 'create_account' | 'change_trust';
   sourceXlm?: string;
   destinationXlm?: string;
 };
@@ -186,7 +171,6 @@ export type SessionResponse = {
   activeWalletId?: string;
   balance: Balance;
   balances: BalanceItem[];
-  kyc?: KycSummary;
   network?: StellarNetwork;
   transactions: TransactionItem[];
   wallets?: Wallet[];
@@ -203,8 +187,6 @@ export type TransactionHistoryResponse = {
   transactions: TransactionItem[];
 };
 
-export type KycApiResponse = RampApiResponse<KycSummary>;
-
 export type ReceiverResponse = {
   contact: Contact;
   balance: Balance;
@@ -220,11 +202,7 @@ export type SendResult = {
   sourceBalances: BalanceItem[];
   sourceXlm: string;
   destinationXlm: string;
-  operation:
-    | 'payment'
-    | 'create_account'
-    | 'change_trust'
-    | 'path_payment_strict_send';
+  operation: 'payment' | 'create_account' | 'change_trust';
   transaction: TransactionItem;
   transactionXdr?: string;
   transactions: TransactionItem[];
@@ -253,152 +231,6 @@ export type FundNftResult = {
   transactions: TransactionItem[];
   trustlineTransaction?: TransactionItem | null;
 };
-
-export type SwapQuoteResult = {
-  destMin: string;
-  feeEstimateStroops?: string | null;
-  feeEstimateXlm?: string | null;
-  fromAmount: string;
-  fromAssetCode: string;
-  fromAssetIssuer?: string | null;
-  network: StellarNetwork;
-  path?: unknown[];
-  rate: number;
-  simulated?: boolean;
-  toAmount: string;
-  toAssetCode: string;
-  toAssetIssuer?: string | null;
-};
-
-export type SwapResult = {
-  accountId: string;
-  balances: BalanceItem[];
-  feeEstimateStroops?: string | null;
-  feeEstimateXlm?: string | null;
-  fromAmount: string;
-  fromAssetCode: string;
-  hash: string;
-  ledger: number;
-  network?: StellarNetwork;
-  rate: number;
-  requiresClientSignature?: boolean;
-  sourceWalletId: string;
-  toAmount: string;
-  toAssetCode: string;
-  transaction: TransactionItem;
-  transactionXdr?: string;
-  transactions: TransactionItem[];
-};
-
-export type RampProvider = {
-  configured: boolean;
-  id: string;
-  name: string;
-  supports: string[];
-  type: 'deposit' | 'fiat';
-};
-
-export type RampProvidersResponse = {
-  providers: RampProvider[];
-};
-
-export type RampDirection = 'buy' | 'sell';
-export type RampAssetCode = 'XLM' | 'USDC';
-
-export type RampQuote = {
-  amount: string;
-  asset_code: RampAssetCode;
-  created_at: string;
-  direction: RampDirection;
-  fee_rate: number;
-  fee_vnd: number;
-  gross_vnd: number;
-  max_order_amount: number | null;
-  min_fee_vnd: number;
-  min_order_amount: number;
-  rate: number;
-  source: string;
-  total_vnd: number;
-};
-
-export type RampBankInfo = {
-  bankAccountName: string;
-  bankAccountNumber: string;
-  bankName: string;
-  transferContent: string;
-  vaAmount: number;
-};
-
-export type RampTimestamp =
-  | string
-  | {
-      nanos?: number;
-      seconds: number;
-    };
-
-export type RampOrder = {
-  amount: number | string;
-  asset_code: RampAssetCode;
-  body?: {
-    bankInfo?: RampBankInfo;
-    qr_link?: string;
-  };
-  chain_id: number;
-  code: string;
-  created_at?: RampTimestamp;
-  currency?: string;
-  expired_at?: RampTimestamp;
-  id: string;
-  order_type: RampDirection;
-  pay_data?: {
-    address?: string;
-  };
-  payment_info?: {
-    account_number?: string;
-    account_type?: number;
-    bank_account_name?: string;
-    bank_account_no?: string;
-    bank_id?: string;
-    full_name?: string;
-  };
-  processing_state: number;
-  provider?: string;
-  rate?: number;
-  sell_transaction_hash?: string;
-  state: number;
-  token_address?: string;
-  total_fee_vnd?: number;
-  transaction_hash?: string | null;
-};
-
-export type RampApiResponse<T> = {
-  data: T;
-  success: boolean;
-};
-
-export type RampOrderHistoryResponse = RampApiResponse<{
-  orders: RampOrder[];
-}>;
-
-export type RampPaymentInfo = {
-  accountNumber: string;
-  accountType: 0 | 1 | 2;
-  bankId: string;
-  fullName: string;
-};
-
-export type RampPaymentMethod = RampPaymentInfo & {
-  bankName: string;
-  createdAt: string;
-  id: string;
-  isDefault: boolean;
-  updatedAt: string;
-};
-
-export type RampPaymentMethodsResponse = RampApiResponse<{
-  method?: RampPaymentMethod;
-  methods?: RampPaymentMethod[];
-}>;
 
 export type WalletConnectConfig = {
   configured: boolean;

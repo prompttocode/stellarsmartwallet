@@ -34,7 +34,6 @@ export function AssetListItem({
 }) {
   const canUse = asset.isNative || asset.trusted;
   const needsTrustline = !asset.isNative && !asset.trusted;
-  const supportsVndOrders = ['XLM', 'USDC'].includes(asset.assetCode);
   const balanceAmount = Number(asset.balance) || 0;
   const priceText = formatUsd(asset.priceUsd);
   const holdingValueText =
@@ -57,8 +56,6 @@ export function AssetListItem({
     ? 'Enable'
     : asset.isNative && asset.network === 'testnet'
     ? 'Faucet'
-    : !asset.isNative && supportsVndOrders
-    ? 'Buy'
     : asset.isNative
     ? 'Deposit'
     : 'Details';
@@ -162,7 +159,7 @@ export function AssetListItem({
           onPress={() => {
             if (needsTrustline) {
               onAdd(asset.assetCode, asset.assetIssuer);
-            } else if (!asset.isNative && !supportsVndOrders && onPress) {
+            } else if (!asset.isNative && onPress) {
               onPress(asset);
             } else {
               onFaucet(asset.assetCode, asset.assetIssuer);

@@ -128,7 +128,10 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
               </Stack.Screen>
               <Stack.Screen name="Receive">
                 {({ navigation }: any) => (
-                  <ReceiveScreen onBack={() => navigation.goBack()} wallet={wallet} />
+                  <ReceiveScreen
+                    onBack={() => navigation.goBack()}
+                    wallet={wallet}
+                  />
                 )}
               </Stack.Screen>
               <Stack.Screen name="Send">
@@ -177,8 +180,16 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
 
                   if (!transaction) {
                     return (
-                      <View style={{ alignItems: 'center', flex: 1, justifyContent: 'center' }}>
-                        <Text style={{ color: '#FFFFFF' }}>Transaction not found.</Text>
+                      <View
+                        style={{
+                          alignItems: 'center',
+                          flex: 1,
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Text style={{ color: '#FFFFFF' }}>
+                          Transaction not found.
+                        </Text>
                       </View>
                     );
                   }
@@ -193,7 +204,9 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                 }}
               </Stack.Screen>
               <Stack.Screen name="Scan">
-                {({ navigation }: any) => <ScanScreen navigation={navigation} />}
+                {({ navigation }: any) => (
+                  <ScanScreen navigation={navigation} />
+                )}
               </Stack.Screen>
               <Stack.Screen name="WalletConnect">
                 {({ navigation }: any) => (

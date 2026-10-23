@@ -69,11 +69,6 @@ jest.mock('expo-image-picker', () => ({
   requestMediaLibraryPermissionsAsync: jest.fn(async () => ({ granted: true })),
 }));
 
-jest.mock('expo-media-library', () => ({
-  requestPermissionsAsync: jest.fn(async () => ({ granted: true })),
-  saveToLibraryAsync: jest.fn(async () => undefined),
-}));
-
 jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn(async () => undefined),
   getItemAsync: jest.fn(async () => null),
@@ -226,52 +221,47 @@ import { LoginScreen } from '../src/screens/auth/LoginScreen';
 import * as WebBrowser from 'expo-web-browser';
 
 test('renders the standard sign-in screen without a hidden demo flow', async () => {
-  jest
-    .spyOn(globalThis, 'fetch')
-    .mockImplementation(async input => {
-      const url = String(input);
-      const body = url.includes('/api/assets?')
-        ? {
-            assets: [
-              {
-                assetCode: 'XLM',
-                assetIssuer: null,
-                demo: false,
-                displayName: 'XLM',
-                isNative: true,
-              },
-            ],
-          }
-        : url.endsWith('/api/networks')
-        ? {
-            networks: [
-              {
-                horizonUrl: 'https://horizon-testnet.stellar.org',
-                label: 'Testnet',
-                network: 'testnet',
-                supportsFriendbot: true,
-              },
-            ],
-          }
-        : url.endsWith('/api/ramp/providers')
-        ? { providers: [] }
-        : url.endsWith('/api/collectibles') ||
-          url.includes('/api/collectibles?')
-        ? { collectibles: [] }
-        : url.endsWith('/api/walletconnect/config')
-        ? { configured: false, projectId: null, relays: [] }
-        : {
-            ok: true,
-            privyAppId: 'test-app-id',
-            network: 'Stellar Testnet',
-            horizonUrl: 'https://horizon-testnet.stellar.org',
-          };
+  jest.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+    const url = String(input);
+    const body = url.includes('/api/assets?')
+      ? {
+          assets: [
+            {
+              assetCode: 'XLM',
+              assetIssuer: null,
+              demo: false,
+              displayName: 'XLM',
+              isNative: true,
+            },
+          ],
+        }
+      : url.endsWith('/api/networks')
+      ? {
+          networks: [
+            {
+              horizonUrl: 'https://horizon-testnet.stellar.org',
+              label: 'Testnet',
+              network: 'testnet',
+              supportsFriendbot: true,
+            },
+          ],
+        }
+      : url.endsWith('/api/collectibles') || url.includes('/api/collectibles?')
+      ? { collectibles: [] }
+      : url.endsWith('/api/walletconnect/config')
+      ? { configured: false, projectId: null, relays: [] }
+      : {
+          ok: true,
+          privyAppId: 'test-app-id',
+          network: 'Stellar Testnet',
+          horizonUrl: 'https://horizon-testnet.stellar.org',
+        };
 
-      return {
-        ok: true,
-        text: async () => JSON.stringify(body),
-      } as Response;
-    });
+    return {
+      ok: true,
+      text: async () => JSON.stringify(body),
+    } as Response;
+  });
 
   let renderer!: ReturnType<typeof ReactTestRenderer.create>;
 
@@ -346,12 +336,16 @@ test('opens both legal labels in the browser sheet and reports failures', async 
   });
 
   await ReactTestRenderer.act(async () => {
-    await renderer.root.findByProps({
-      accessibilityLabel: 'Open Terms of Service',
-    }).props.onPress();
-    await renderer.root.findByProps({
-      accessibilityLabel: 'Open Privacy Policy',
-    }).props.onPress();
+    await renderer.root
+      .findByProps({
+        accessibilityLabel: 'Open Terms of Service',
+      })
+      .props.onPress();
+    await renderer.root
+      .findByProps({
+        accessibilityLabel: 'Open Privacy Policy',
+      })
+      .props.onPress();
   });
 
   expect(openBrowser).toHaveBeenNthCalledWith(
@@ -368,9 +362,11 @@ test('opens both legal labels in the browser sheet and reports failures', async 
   openBrowser.mockRejectedValueOnce(new Error('offline'));
 
   await ReactTestRenderer.act(async () => {
-    await renderer.root.findByProps({
-      accessibilityLabel: 'Open Privacy Policy',
-    }).props.onPress();
+    await renderer.root
+      .findByProps({
+        accessibilityLabel: 'Open Privacy Policy',
+      })
+      .props.onPress();
   });
 
   expect(wallet.showErrorDialog).toHaveBeenCalledWith(
