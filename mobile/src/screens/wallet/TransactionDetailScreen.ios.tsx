@@ -56,10 +56,6 @@ function getTransactionType(transaction: TransactionItem) {
     return 'Create Account';
   }
 
-  if (transaction.operation === 'path_payment_strict_send') {
-    return 'Path payment';
-  }
-
   return transaction.direction === 'received' ? 'Receive Token' : 'Send Token';
 }
 

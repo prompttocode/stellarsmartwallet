@@ -121,10 +121,6 @@ function getTransferType(operation: SendResult['operation']) {
     return 'Create Account';
   }
 
-  if (operation === 'path_payment_strict_send') {
-    return 'Path payment';
-  }
-
   return 'Send Token';
 }
 
