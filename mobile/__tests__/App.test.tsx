@@ -181,6 +181,10 @@ jest.mock('@privy-io/expo/extended-chains', () => ({
   }),
 }));
 
+jest.mock('../src/services/remoteConfig', () => ({
+  initializeRemoteFeatureFlags: jest.fn(async () => undefined),
+}));
+
 jest.mock('react-native-vector-icons/Ionicons', () => 'Ionicons');
 jest.mock(
   'react-native-vector-icons/MaterialCommunityIcons',

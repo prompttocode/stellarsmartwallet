@@ -12,7 +12,7 @@ import {
 } from '@components/wallet';
 import type { AssetItem, BalanceItem } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
-import { EXCHANGE_FEATURES_ENABLED } from '@config';
+import { VND_ENABLED } from '@config';
 import { formatTokenAmount, shortAddress } from '@utils/format';
 
 type AssetRouteParams = {
@@ -196,9 +196,13 @@ export function AssetDetailScreen({
       : 'Not priced';
   const chartEmptyText = chartLoading
     ? 'Loading chart...'
-    : asset.network === 'testnet' && !['XLM', 'USDC'].includes(asset.assetCode)
+    : asset.network === 'testnet'
     ? 'No public market chart for this Testnet asset'
     : 'No public market chart for this asset';
+  const usesMainnetPriceReference =
+    asset.network === 'testnet' &&
+    ['XLM', 'USDC'].includes(asset.assetCode) &&
+    marketPriceUsd !== null;
 
   // Calculate price change if we have chart data
   let priceChangeStr: string | null = null;
@@ -287,6 +291,11 @@ export function AssetDetailScreen({
           </View>
 
           <Text style={styles.currentPrice}>{currentPrice}</Text>
+          {usesMainnetPriceReference ? (
+            <Text style={styles.referencePriceNote}>
+              Mainnet price reference · Testnet assets have no real-world value
+            </Text>
+          ) : null}
           {priceChangeStr ? (
             <Text
               style={[
@@ -353,24 +362,6 @@ export function AssetDetailScreen({
             </LineChart.Provider>
           ) : chartLoading ? (
             <ChartSkeleton />
-          ) : !wallet.isMainnet ? (
-            <PressScale
-              disabled={wallet.isBusy}
-              onPress={() => {
-                if (asset.isNative) {
-                  wallet.fundWallet();
-                } else if (asset.assetCode === 'USDC') {
-                  wallet.fundTestUsdc();
-                } else {
-                  onGoToReceive();
-                }
-              }}
-              style={styles.buyButton}
-            >
-              <Text style={styles.buyButtonText}>
-                Get Testnet {asset.assetCode}
-              </Text>
-            </PressScale>
           ) : (
             <View
               style={{
@@ -379,7 +370,9 @@ export function AssetDetailScreen({
                 alignItems: 'center',
               }}
             >
-              <Text style={{ color: '#555' }}>{chartEmptyText}</Text>
+              <Text style={{ color: '#9AA7AE', textAlign: 'center' }}>
+                {chartEmptyText}
+              </Text>
             </View>
           )}
         </View>
@@ -433,7 +426,7 @@ export function AssetDetailScreen({
                   : `Receive ${asset.assetCode}`}
               </Text>
             </PressScale>
-          ) : EXCHANGE_FEATURES_ENABLED ? (
+          ) : VND_ENABLED ? (
             <PressScale
               style={styles.buyButton}
               onPress={() => onGoToRamp('buy')}
@@ -516,6 +509,12 @@ const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: '800',
     letterSpacing: -1,
+  },
+  referencePriceNote: {
+    color: '#9AA7AE',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 8,
   },
   priceChange: {
     fontSize: 14,

@@ -36,8 +36,10 @@ const CACHE_KEY = '@stellar_expert_chart_cache_v2';
 const CACHE_DURATION = 15 * 60 * 1000;
 const STELLAR_EXPERT_BASE_URL =
   'https://api.stellar.expert/explorer/public/asset';
+// Circle's official Stellar Mainnet USDC issuer (reference chart only):
+// https://developers.circle.com/stablecoins/usdc-contract-addresses
 const MAINNET_USDC_ISSUER =
-  'GA5ZSEJYB37NLMQVSP5BHDQK32E6PYAQQL3OH6E55SIVTEPSHVLF67M';
+  'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
 
 let historicalPricesPromise: Promise<Record<string, ChartDataPoint[]>> | null =
   null;

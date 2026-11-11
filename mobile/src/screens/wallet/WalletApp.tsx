@@ -44,7 +44,7 @@ import type {
   RampDirection,
   RampOrder,
 } from '@app-types';
-import { DAPP_CONNECTIONS_ENABLED, EXCHANGE_FEATURES_ENABLED } from '@config';
+import { DAPP_CONNECTIONS_ENABLED, SWAP_ENABLED, VND_ENABLED } from '@config';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -399,7 +399,7 @@ function MainTabs({
         )}
       </Tab.Screen>
 
-      {EXCHANGE_FEATURES_ENABLED ? (
+      {SWAP_ENABLED ? (
         <Tab.Screen
           name="SwapTab"
           options={{
@@ -582,7 +582,7 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                   />
                 )}
               </Stack.Screen>
-              {EXCHANGE_FEATURES_ENABLED ? (
+              {VND_ENABLED ? (
                 <Stack.Screen name="Ramp">
                   {({ route, navigation }: any) => (
                     <MainnetRouteGuard
@@ -680,7 +680,7 @@ export function WalletApp({ wallet }: { wallet: WalletState }) {
                   )}
                 </Stack.Screen>
               ) : null}
-              {EXCHANGE_FEATURES_ENABLED ? (
+              {VND_ENABLED ? (
                 <Stack.Screen name="Kyc">
                   {({ navigation }: any) => (
                     <MainnetRouteGuard

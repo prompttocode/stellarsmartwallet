@@ -18,7 +18,8 @@ import { api } from '@api/client';
 import {
   API_BASE_URL,
   DAPP_CONNECTIONS_ENABLED,
-  EXCHANGE_FEATURES_ENABLED,
+  SWAP_ENABLED,
+  VND_ENABLED,
   PRIVY_WEB_EXPORT_CLIENT_ID,
 } from '@config';
 import type {
@@ -119,6 +120,7 @@ import {
   writeCachedSession,
 } from './wallet/storage';
 import { isStellarNetwork, mergePopulatedFields } from './wallet/utils';
+import { executeTestnetUsdcSwap } from './wallet/testnetFunding';
 import { useWalletErrors, type RunOptions } from './wallet/walletErrors';
 
 type ApplySessionOptions = {
@@ -321,7 +323,7 @@ export function useWallet() {
         api<Health>('/api/health'),
         api<{ networks: StellarNetworkInfo[] }>('/api/networks'),
         api<AssetsResponse>(`/api/assets?network=${network}`),
-        EXCHANGE_FEATURES_ENABLED
+        VND_ENABLED
           ? api<RampProvidersResponse>(`/api/ramp/providers?network=${network}`)
           : Promise.resolve({ providers: [] }),
         DAPP_CONNECTIONS_ENABLED
@@ -482,7 +484,7 @@ export function useWallet() {
   const walletSessionSyncing = Boolean(account && !serverSessionReady);
   const walletActive = Boolean(wallet && balances.some(item => item.exists));
   const rampOrderStorageKey =
-    EXCHANGE_FEATURES_ENABLED && account && wallet
+    VND_ENABLED && account && wallet
       ? `${RAMP_ORDER_STORAGE_PREFIX}:${account.id || account.email}:${
           wallet.id
         }:${network}`
@@ -849,7 +851,7 @@ export function useWallet() {
       return;
     }
 
-    if (EXCHANGE_FEATURES_ENABLED) {
+    if (VND_ENABLED) {
       loadPaymentMethods({ silent: true }).catch(() => null);
     } else {
       setPaymentMethods([]);
@@ -1061,7 +1063,7 @@ export function useWallet() {
     const walletId = wallet?.id;
 
     if (
-      !EXCHANGE_FEATURES_ENABLED ||
+      !VND_ENABLED ||
       !accountEmail ||
       !walletAddress ||
       !walletId
@@ -1922,24 +1924,15 @@ export function useWallet() {
       await ensureWalletTrustline('USDC', usdc.assetIssuer);
       const headers = await getAuthHeaders(true);
 
-      const result = await api<SwapResult>(
-        '/api/stellar/testnet/swap/execute',
-        {
-          headers,
-          method: 'POST',
-          body: JSON.stringify({
-            accountId: account.id,
-            amount: '10',
-            email: account.email,
-            fromAssetCode: 'XLM',
-            fromAssetIssuer: null,
-            sourceAddress: wallet.address,
-            sourceWalletId: wallet.id,
-            toAssetCode: 'USDC',
-            toAssetIssuer: usdc.assetIssuer,
-          }),
-        },
-      );
+      const result = await executeTestnetUsdcSwap({
+        accountId: account.id,
+        email: account.email,
+        headers,
+        signRawHash,
+        sourceAddress: wallet.address,
+        sourceWalletId: wallet.id,
+        usdcIssuer: usdc.assetIssuer,
+      });
 
       setBalances(result.balances);
       setTransactions(result.transactions);
@@ -2202,7 +2195,7 @@ export function useWallet() {
     fromAssetCode: string;
     toAssetCode: string;
   }) {
-    if (!EXCHANGE_FEATURES_ENABLED) {
+    if (!SWAP_ENABLED) {
       return null;
     }
 
@@ -2308,7 +2301,7 @@ export function useWallet() {
     fromAssetCode: string;
     toAssetCode: string;
   }) {
-    if (!EXCHANGE_FEATURES_ENABLED) {
+    if (!SWAP_ENABLED) {
       return null;
     }
 
@@ -2498,7 +2491,7 @@ export function useWallet() {
   }
 
   async function refreshRampOrderHistory(options: { silent?: boolean } = {}) {
-    if (!EXCHANGE_FEATURES_ENABLED) {
+    if (!VND_ENABLED) {
       setRampOrderHistory([]);
       return [];
     }
@@ -2718,7 +2711,7 @@ export function useWallet() {
   }
 
   async function loadPaymentMethods(options: { silent?: boolean } = {}) {
-    if (!EXCHANGE_FEATURES_ENABLED) {
+    if (!VND_ENABLED) {
       setPaymentMethods([]);
       return [];
     }
@@ -2877,7 +2870,7 @@ export function useWallet() {
   }
 
   async function openRampOrder(order: RampOrder) {
-    if (!EXCHANGE_FEATURES_ENABLED) {
+    if (!VND_ENABLED) {
       return null;
     }
 
@@ -2901,7 +2894,7 @@ export function useWallet() {
     assetCode: RampAssetCode;
     direction: RampDirection;
   }) {
-    if (!EXCHANGE_FEATURES_ENABLED) {
+    if (!VND_ENABLED) {
       return null;
     }
 
@@ -2954,7 +2947,7 @@ export function useWallet() {
     direction: RampDirection;
     paymentInfo?: RampPaymentInfo;
   }) {
-    if (!EXCHANGE_FEATURES_ENABLED) {
+    if (!VND_ENABLED) {
       return null;
     }
 

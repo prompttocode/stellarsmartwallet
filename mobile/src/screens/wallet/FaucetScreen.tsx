@@ -8,7 +8,7 @@ import QRCode from 'react-native-qrcode-styled';
 import { PressScale, TokenIcon, getModernAssets } from '@components/wallet';
 import type { WalletState } from '@hooks/useWallet';
 import { formatTokenAmount } from '@utils/format';
-import { EXCHANGE_FEATURES_ENABLED } from '@config';
+import { VND_ENABLED } from '@config';
 
 export function FaucetScreen({
   onBack,
@@ -76,21 +76,21 @@ export function FaucetScreen({
           }}
         >
           {wallet.isMainnet
-            ? EXCHANGE_FEATURES_ENABLED
+            ? VND_ENABLED
               ? 'Deposit assets or use VND orders for real XLM and USDC.'
               : 'Deposit XLM directly to activate your Mainnet wallet.'
             : 'Fund this wallet with free Testnet assets.'}
         </Text>
         <Text style={styles.heroSubtitle}>
           {wallet.isMainnet
-            ? EXCHANGE_FEATURES_ENABLED
+            ? VND_ENABLED
               ? 'Deposit assets or use VND orders for real XLM and USDC.'
               : 'Copy your address or QR code and send assets from another Stellar wallet.'
             : 'Use Friendbot and Testnet USDC to test wallet features safely.'}
         </Text>
       </View>
 
-      {wallet.isMainnet && EXCHANGE_FEATURES_ENABLED ? (
+      {wallet.isMainnet && VND_ENABLED ? (
         <View style={[styles.receiptCard, styles.heroCard]}>
           <View style={styles.cardTopRow}>
             <View style={styles.heroIcon}>
@@ -204,7 +204,7 @@ export function FaucetScreen({
         {assets.map(asset => {
           const needsTrustline = !asset.isNative && !asset.trusted;
           const isXlm = asset.isNative;
-          const depositOnly = wallet.isMainnet && !EXCHANGE_FEATURES_ENABLED;
+          const depositOnly = wallet.isMainnet && !VND_ENABLED;
           const actionLabel = isXlm
             ? wallet.isMainnet
               ? depositOnly

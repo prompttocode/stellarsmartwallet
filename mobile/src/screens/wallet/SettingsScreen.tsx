@@ -23,7 +23,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppPopup } from '@components/common/AppPopup';
 import { BANK_OPTIONS } from '@constants/banks';
-import { DAPP_CONNECTIONS_ENABLED, EXCHANGE_FEATURES_ENABLED } from '@config';
+import { DAPP_CONNECTIONS_ENABLED, VND_ENABLED } from '@config';
 
 import {
   ModernScreenHeader,
@@ -1237,7 +1237,7 @@ export function SettingsScreen({
             }
           />
           <View style={styles.divider} />
-          {wallet.isMainnet && EXCHANGE_FEATURES_ENABLED ? (
+          {wallet.isMainnet && VND_ENABLED ? (
             <>
               <SettingsRow
                 disabled={kycVerified}

@@ -28,7 +28,7 @@ import { useCurrencyConfig } from '@contexts/CurrencyContext';
 import type { BalanceItem, RampAssetCode, RampDirection } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
 import LottieView from 'lottie-react-native';
-import { EXCHANGE_FEATURES_ENABLED } from '@config';
+import { VND_ENABLED } from '@config';
 
 type RampPreset = {
   amount?: string;
@@ -152,7 +152,7 @@ export function PortfolioScreen({
 
   function faucetAsset(assetCode: string) {
     if (wallet.isMainnet) {
-      if (assetCode === 'XLM' || !EXCHANGE_FEATURES_ENABLED) {
+      if (assetCode === 'XLM' || !VND_ENABLED) {
         onGoToFaucet();
       } else {
         onGoToRamp();
@@ -310,7 +310,7 @@ export function PortfolioScreen({
                   label: wallet.isMainnet ? 'Deposit' : 'Faucet',
                   onPress: onGoToFaucet,
                 },
-                ...(wallet.isMainnet && EXCHANGE_FEATURES_ENABLED
+                ...(wallet.isMainnet && VND_ENABLED
                   ? [
                       {
                         icon: (
@@ -338,7 +338,7 @@ export function PortfolioScreen({
           {showActivateWalletNotice ? (
             <ActivateWalletNotice
               onPress={
-                EXCHANGE_FEATURES_ENABLED
+                VND_ENABLED
                   ? () =>
                       onGoToRamp({
                         amount: '5',

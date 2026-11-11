@@ -20,7 +20,7 @@ import type { WalletState } from '@hooks/useWallet';
 import type { RampOrder, TransactionItem } from '@app-types';
 import { getRampOrderStatus, rampTimestampToMs } from '@utils/ramp';
 import { formatTokenAmount } from '@utils/format';
-import { EXCHANGE_FEATURES_ENABLED } from '@config';
+import { SWAP_ENABLED, VND_ENABLED } from '@config';
 
 type TransactionFilter = 'all' | 'received' | 'sent';
 type HistoryKind = 'orders' | 'stellar';
@@ -148,11 +148,11 @@ export function TransactionsScreen({
     [filter, wallet.transactions],
   );
   const effectiveHistoryKind =
-    wallet.isMainnet && EXCHANGE_FEATURES_ENABLED ? historyKind : 'stellar';
+    wallet.isMainnet && VND_ENABLED ? historyKind : 'stellar';
 
   useEffect(() => {
     if (
-      (!wallet.isMainnet || !EXCHANGE_FEATURES_ENABLED) &&
+      (!wallet.isMainnet || !VND_ENABLED) &&
       historyKind !== 'stellar'
     ) {
       setHistoryKind('stellar');
@@ -190,10 +190,14 @@ export function TransactionsScreen({
       <>
         <ModernScreenHeader
           subtitle={
-            wallet.isMainnet && EXCHANGE_FEATURES_ENABLED
-              ? 'Review crypto transfers, swaps, buys, and bank withdrawals.'
-              : EXCHANGE_FEATURES_ENABLED
-              ? 'Review Testnet transfers and swaps using test assets only.'
+            wallet.isMainnet && VND_ENABLED
+              ? SWAP_ENABLED
+                ? 'Review crypto transfers, swaps, buys, and bank withdrawals.'
+                : 'Review crypto transfers, buys, and bank withdrawals.'
+              : SWAP_ENABLED
+              ? wallet.isMainnet
+                ? 'Review crypto transfers and swaps.'
+                : 'Review Testnet transfers and swaps using test assets only.'
               : wallet.isMainnet
               ? 'Review on-chain deposits and direct transfers.'
               : 'Review Testnet transfers using test assets only.'
@@ -201,7 +205,7 @@ export function TransactionsScreen({
           title="Activity"
         />
 
-        {wallet.isMainnet && EXCHANGE_FEATURES_ENABLED ? (
+        {wallet.isMainnet && VND_ENABLED ? (
           <View style={modern.sectionCard}>
             <SegmentedFilter
               active={historyKind}
@@ -245,7 +249,7 @@ export function TransactionsScreen({
       <View style={[modern.emptyModern, styles.emptyWrap]}>
         <Text style={modern.emptyModernTitle}>No transactions yet</Text>
         <Text style={modern.emptyModernText}>
-          {EXCHANGE_FEATURES_ENABLED
+          {SWAP_ENABLED
             ? 'Deposits, sends, and swaps appear here after they are submitted to Stellar.'
             : 'Deposits and sends appear here after they are submitted to Stellar.'}
         </Text>

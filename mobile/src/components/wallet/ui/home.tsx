@@ -24,7 +24,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { EXCHANGE_FEATURES_ENABLED } from '@config';
+import { SWAP_ENABLED } from '@config';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SkeletonBlock } from '@components/common/Skeleton';
 import { shortAddress } from '@utils/format';
@@ -525,7 +525,7 @@ export function PromoCarousel({
           : 'Friendbot funds XLM; buy or receive official Testnet USDC',
       title: network === 'mainnet' ? 'On-chain deposit' : 'Testnet assets',
     },
-    ...(EXCHANGE_FEATURES_ENABLED
+    ...(SWAP_ENABLED
       ? [
           {
             accent: '#8A2BE2',

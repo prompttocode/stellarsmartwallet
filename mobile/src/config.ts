@@ -20,7 +20,17 @@ export const PRIVY_CLIENT_ID =
 export const PRIVY_WEB_EXPORT_CLIENT_ID =
   'client-WY6ZYnJ25Wu5vL7JMW7raUWLuxLqgvL6pjDbMih7h4ng6';
 
-// The iOS App Store build excludes exchange/ramp features but keeps dApp connections.
-// Android keeps the existing exchange, ramp and dApp connection features.
-export const EXCHANGE_FEATURES_ENABLED = Platform.OS !== 'ios';
+// Android keeps exchange features enabled. iOS only enables them after a
+// successful Firebase read; missing/failed Remote Config keeps them disabled.
+export let SWAP_ENABLED = Platform.OS === 'android';
+export let VND_ENABLED = Platform.OS === 'android';
+
+export function setSwapEnabled(enabled: boolean) {
+  SWAP_ENABLED = enabled;
+}
+
+export function setVndEnabled(enabled: boolean) {
+  VND_ENABLED = enabled;
+}
+
 export const DAPP_CONNECTIONS_ENABLED = true;

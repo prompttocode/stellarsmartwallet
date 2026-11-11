@@ -3,6 +3,7 @@ import {
   AppState,
   BackHandler,
   Image,
+  Keyboard,
   Modal,
   Pressable,
   ScrollView,
@@ -764,6 +765,12 @@ export function RampScreen({
     orderDirection: RampDirection;
   }) {
     if (wallet.kyc.status !== 'verified') {
+      // Native sheets sit above AppPopup; dismiss them before requesting KYC.
+      setQuoteSheetVisible(false);
+      setOrderQueueVisible(false);
+      closeBankPicker();
+      closeSavedPaymentPicker();
+      Keyboard.dismiss();
       showPopup({
         actions: [
           { style: 'cancel', text: 'Not now' },

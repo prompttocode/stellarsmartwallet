@@ -8,7 +8,7 @@ import { useAppPopup } from '@components/common/AppPopup';
 import { PressScale, TokenIcon, getWalletAssets } from '@components/wallet';
 import type { AssetItem, BalanceItem } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
-import { EXCHANGE_FEATURES_ENABLED } from '@config';
+import { VND_ENABLED } from '@config';
 import { formatTokenAmount } from '@utils/format';
 
 function getAssetKey(asset: AssetItem) {
@@ -109,7 +109,7 @@ export function ReceiveScreen({
         <Text style={styles.heroTitle}>Receive crypto</Text>
         <Text style={styles.heroSubtitle}>
           {wallet.isMainnet
-            ? EXCHANGE_FEATURES_ENABLED
+            ? VND_ENABLED
               ? 'Use this address for on-chain deposits. Buying with VND stays separate.'
               : 'Use this address for direct on-chain deposits.'
             : 'Use this Testnet address for demo sends and receives.'}

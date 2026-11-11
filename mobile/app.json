@@ -3,11 +3,17 @@
   "displayName": "Privy",
   "expo": {
     "scheme": "privy",
+    "android": {
+      "package": "com.orbitlabs.wallet"
+    },
     "ios": {
+      "bundleIdentifier": "com.orbitlabs.wallet",
+      "googleServicesFile": "./ios/Privy/GoogleService-Info.plist",
       "usesAppleSignIn": true
     },
     "plugins": [
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      "@react-native-firebase/app"
     ]
   }
 }
