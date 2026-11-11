@@ -58,6 +58,17 @@ vi.mock("../core", () => ({
   shouldRequireMainnetAuth: (network: string) => network === "mainnet",
 }));
 
+vi.mock("../exchangeEligibility", () => ({
+  assertExchangeEligibility: vi.fn(async () => ({
+    allowed: true,
+    countryCode: null,
+    kycStatus: "verified",
+    providerId: "partner-sandbox",
+    reasonCode: "ALLOWED_SANDBOX",
+  })),
+  isExchangeProviderConfigured: vi.fn(() => true),
+}));
+
 import { requireAccountContext, requireVerifiedKyc } from "../core";
 import { registerRampRoutes } from "./ramp";
 
@@ -603,8 +614,14 @@ describe("payment ramp routes", () => {
           amount: "10",
           assetCode: "XLM",
           direction: "buy",
+          network: "testnet",
+          sourceAddress: "GUSER",
+          sourceWalletId: "wallet-1",
         }),
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Authorization: "Bearer test-token",
+          "Content-Type": "application/json",
+        },
         method: "POST",
       },
       env

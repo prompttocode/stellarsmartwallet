@@ -19,6 +19,13 @@ end
 target 'Privy' do
   use_expo_modules!
 
+  # Firebase's Swift pods are linked statically in this React Native project.
+  # Only their Objective-C dependencies need module maps; enabling modular
+  # headers globally causes duplicate React Native module definitions.
+  pod 'FirebaseABTesting', :modular_headers => true
+  pod 'FirebaseCoreInternal', :modular_headers => true
+  pod 'GoogleUtilities', :modular_headers => true
+
   config = use_native_modules!
 
   use_react_native!(
@@ -41,6 +48,16 @@ target 'Privy' do
         target.build_configurations.each do |config|
           config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
           config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'FMT_USE_CONSTEVAL=0'
+        end
+      end
+
+      # Xcode 26 can fail to resolve React-Fabric's public header symlinks while
+      # compiling this RN 0.82 pod. Point it at ReactCommon directly as a
+      # compatibility fallback.
+      if target.name == 'React-domnativemodule'
+        target.build_configurations.each do |config|
+          config.build_settings['HEADER_SEARCH_PATHS'] ||= ['$(inherited)']
+          config.build_settings['HEADER_SEARCH_PATHS'] << '$(PODS_TARGET_SRCROOT)/../../..'
         end
       end
     end

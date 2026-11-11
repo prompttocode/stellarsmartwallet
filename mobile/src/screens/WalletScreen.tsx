@@ -22,8 +22,10 @@ export function WalletScreen() {
     isRestoringWithoutWallet || (!splashTimedOut && !wallet.isReady);
 
   useEffect(() => {
-    prefetchHistoricalPrices().catch(() => null);
-  }, []);
+    if (wallet.account) {
+      prefetchHistoricalPrices().catch(() => null);
+    }
+  }, [wallet.account]);
 
   useEffect(() => {
     const maxTimer = setTimeout(

@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Image, RefreshControl, ScrollView, Text, View } from 'react-native';
-import type { ImageSourcePropType } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,7 +12,6 @@ import {
 import {
   ActivateWalletNotice,
   AssetListItem,
-  HomeBannerCarousel,
   QuickActionGrid,
   SectionHeader,
   WalletHero,
@@ -30,6 +28,7 @@ import { useCurrencyConfig } from '@contexts/CurrencyContext';
 import type { BalanceItem, RampAssetCode, RampDirection } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
 import LottieView from 'lottie-react-native';
+import { VND_ENABLED } from '@config';
 
 type RampPreset = {
   amount?: string;
@@ -44,12 +43,6 @@ const CRYPTO_PREVIEW_LIMIT = 5;
 const portfolioAssetTabs: { key: PortfolioAssetTab; label: string }[] = [
   { key: 'crypto', label: 'Crypto' },
   { key: 'nft', label: "NFT's" },
-];
-
-const homeBanners: ImageSourcePropType[] = [
-  require('@assets/images/banner/banner1.png'),
-  require('@assets/images/banner/banner2.png'),
-  require('@assets/images/banner/bannner3.png'),
 ];
 
 export function PortfolioScreen({
@@ -159,7 +152,7 @@ export function PortfolioScreen({
 
   function faucetAsset(assetCode: string) {
     if (wallet.isMainnet) {
-      if (assetCode === 'XLM') {
+      if (assetCode === 'XLM' || !VND_ENABLED) {
         onGoToFaucet();
       } else {
         onGoToRamp();
@@ -172,7 +165,7 @@ export function PortfolioScreen({
       return;
     }
 
-    onGoToRamp();
+    onGoToFaucet();
   }
 
   async function refreshPortfolio() {
@@ -317,18 +310,22 @@ export function PortfolioScreen({
                   label: wallet.isMainnet ? 'Deposit' : 'Faucet',
                   onPress: onGoToFaucet,
                 },
-                {
-                  icon: (
-                    <MaterialCommunityIcons
-                      color="#FFFFFF"
-                      name="bank-transfer-out"
-                      size={25}
-                    />
-                  ),
-                  key: 'withdraw',
-                  label: 'Withdraw',
-                  onPress: onGoToWithdraw,
-                },
+                ...(wallet.isMainnet && VND_ENABLED
+                  ? [
+                      {
+                        icon: (
+                          <MaterialCommunityIcons
+                            color="#FFFFFF"
+                            name="bank-transfer-out"
+                            size={25}
+                          />
+                        ),
+                        key: 'withdraw',
+                        label: 'Withdraw',
+                        onPress: onGoToWithdraw,
+                      },
+                    ]
+                  : []),
               ]}
             />
           )}
@@ -340,13 +337,16 @@ export function PortfolioScreen({
 
           {showActivateWalletNotice ? (
             <ActivateWalletNotice
-              onPress={() =>
-                onGoToRamp({
-                  amount: '5',
-                  assetCode: 'XLM',
-                  autoCreate: true,
-                  direction: 'buy',
-                })
+              onPress={
+                VND_ENABLED
+                  ? () =>
+                      onGoToRamp({
+                        amount: '5',
+                        assetCode: 'XLM',
+                        autoCreate: true,
+                        direction: 'buy',
+                      })
+                  : onGoToReceive
               }
             />
           ) : null}

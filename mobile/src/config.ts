@@ -1,8 +1,16 @@
+import { Platform } from 'react-native';
+
 // Public mobile app config.
 // API_BASE_URL is your backend server URL, not Stellar Horizon.
 // For local device testing, use your computer LAN IP, e.g. http://192.168.x.x:8787.
 // For production, use your deployed backend URL, e.g. https://api.your-domain.com.
-export const API_BASE_URL = 'https://privy-stellar-api.namvu3121.workers.dev';
+export const API_BASE_URL = 'https://api.getstellar.shop';
+
+// The product owner currently uses this document for both legal labels.
+// Replace TERMS_OF_SERVICE_URL with a dedicated Terms document before review.
+export const PRIVACY_POLICY_URL =
+  'https://www.freeprivacypolicy.com/live/edd04a75-c08d-4c20-959c-941401ce9dce';
+export const TERMS_OF_SERVICE_URL = PRIVACY_POLICY_URL;
 
 // Privy public app identifiers from https://dashboard.privy.io.
 // Do not put PRIVY_APP_SECRET in the mobile app. It belongs in be/.env only.
@@ -11,3 +19,18 @@ export const PRIVY_CLIENT_ID =
   'client-WY6ZYnJ25Wu5vL7JMW7raUWLuxLqgvL6pjFRrVMhvbR32';
 export const PRIVY_WEB_EXPORT_CLIENT_ID =
   'client-WY6ZYnJ25Wu5vL7JMW7raUWLuxLqgvL6pjDbMih7h4ng6';
+
+// Android keeps exchange features enabled. iOS only enables them after a
+// successful Firebase read; missing/failed Remote Config keeps them disabled.
+export let SWAP_ENABLED = Platform.OS === 'android';
+export let VND_ENABLED = Platform.OS === 'android';
+
+export function setSwapEnabled(enabled: boolean) {
+  SWAP_ENABLED = enabled;
+}
+
+export function setVndEnabled(enabled: boolean) {
+  VND_ENABLED = enabled;
+}
+
+export const DAPP_CONNECTIONS_ENABLED = true;

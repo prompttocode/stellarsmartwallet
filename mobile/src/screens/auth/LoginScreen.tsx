@@ -8,9 +8,11 @@ import {
   View,
 } from 'react-native';
 import LottieView from 'lottie-react-native';
+import * as WebBrowser from 'expo-web-browser';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '@config';
 import type { WalletState } from '@hooks/useWallet';
 import { loginStyles as styles } from './loginStyles';
 
@@ -39,6 +41,8 @@ function ActionButton({
 }) {
   return (
     <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -85,6 +89,8 @@ function GoogleButton({
 }) {
   return (
     <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -194,13 +200,7 @@ function LoginMessage({ wallet }: { wallet: WalletState }) {
   );
 }
 
-function SessionStatus({
-  detail,
-  label,
-}: {
-  detail: string;
-  label: string;
-}) {
+function SessionStatus({ detail, label }: { detail: string; label: string }) {
   return (
     <View style={styles.sessionStatusBox}>
       <LottieView
@@ -217,7 +217,14 @@ function SessionStatus({
   );
 }
 
-function WelcomeStep({ wallet, onSelectEmail }: { wallet: WalletState, onSelectEmail: () => void }) {
+function WelcomeStep({
+  wallet,
+  onSelectEmail,
+}: {
+  wallet: WalletState;
+  onSelectEmail: () => void;
+}) {
+  const appleBusy = wallet.busy === 'Sign in with Apple';
   const googleBusy = wallet.busy === 'Sign in with Google';
   const restoringSession = wallet.sessionSyncing && !wallet.account;
   const preparingPrivy = !wallet.isReady;
@@ -239,6 +246,27 @@ function WelcomeStep({ wallet, onSelectEmail }: { wallet: WalletState, onSelectE
     : googleBusy
     ? 'Opening Google...'
     : 'Continue with Google';
+  const appleLabel = restoringSession
+    ? 'Restoring session...'
+    : preparingPrivy
+    ? 'Preparing sign-in...'
+    : appleBusy
+    ? 'Opening Apple...'
+    : 'Continue with Apple';
+
+  async function openLegalDocument(url: string, label: string) {
+    try {
+      await WebBrowser.openBrowserAsync(url, {
+        presentationStyle:
+          WebBrowser.WebBrowserPresentationStyle.FORM_SHEET,
+      });
+    } catch {
+      wallet.showErrorDialog(
+        `Unable to open ${label}. Check your connection and try again.`,
+        'Could not open link',
+      );
+    }
+  }
 
   return (
     <View style={styles.stepContainer}>
@@ -254,7 +282,9 @@ function WelcomeStep({ wallet, onSelectEmail }: { wallet: WalletState, onSelectE
       <View style={styles.loginBottom}>
         <View style={styles.loginWelcomeCopy}>
           <Text style={styles.welcomeTitle}>Welcome</Text>
-          <Text style={styles.welcomeSubtitle}>Your journey starts from here</Text>
+          <Text style={styles.welcomeSubtitle}>
+            Your journey starts from here
+          </Text>
         </View>
 
         {status ? (
@@ -262,23 +292,53 @@ function WelcomeStep({ wallet, onSelectEmail }: { wallet: WalletState, onSelectE
         ) : null}
 
         <View style={styles.buttonContainer}>
-          <ActionButton 
+          <ActionButton
             disabled={preparingPrivy || restoringSession || wallet.isBusy}
-            label="Continue with Email" 
-            onPress={onSelectEmail} 
-            variant="light" 
+            label="Continue with Email"
+            onPress={onSelectEmail}
+            variant="light"
           />
           <GoogleButton
             disabled={!wallet.isReady || restoringSession || wallet.isBusy}
             label={googleLabel}
             onPress={wallet.loginWithGoogle}
           />
+          <ActionButton
+            disabled={!wallet.isReady || restoringSession || wallet.isBusy}
+            icon="logo-apple"
+            label={appleLabel}
+            onPress={wallet.loginWithApple}
+            variant="dark"
+          />
         </View>
 
         <View style={styles.footerContainer}>
           <Text style={styles.footerText}>
-            By pressing on "Continue with..." you agree{`
-`}to our <Text style={styles.footerLink}>Terms of Service</Text> and <Text style={styles.footerLink}>Privacy Policy</Text>
+            By pressing on "Continue with..." you agree
+            {`
+`}
+            to our{' '}
+            <Text
+              accessibilityLabel="Open Terms of Service"
+              accessibilityRole="link"
+              onPress={() =>
+                openLegalDocument(TERMS_OF_SERVICE_URL, 'Terms of Service')
+              }
+              style={styles.footerLink}
+            >
+              Terms of Service
+            </Text>{' '}
+            and{' '}
+            <Text
+              accessibilityLabel="Open Privacy Policy"
+              accessibilityRole="link"
+              onPress={() =>
+                openLegalDocument(PRIVACY_POLICY_URL, 'Privacy Policy')
+              }
+              style={styles.footerLink}
+            >
+              Privacy Policy
+            </Text>
           </Text>
         </View>
       </View>

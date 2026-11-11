@@ -3,6 +3,7 @@ import {
   AppState,
   BackHandler,
   Image,
+  Keyboard,
   Modal,
   Pressable,
   ScrollView,
@@ -215,7 +216,10 @@ export function RampScreen({
     resultKey && !openedFromHistory && dismissedResultKey !== resultKey,
   );
   const providerConfigured = wallet.rampProviders.some(
-    provider => provider.id === 'seerbot-vnd' && provider.configured,
+    provider =>
+      provider.type === 'fiat' &&
+      provider.configured &&
+      provider.supports.includes(direction),
   );
   const selectedAsset = wallet.visibleAssets.find(
     asset => asset.assetCode === assetCode,
@@ -761,6 +765,12 @@ export function RampScreen({
     orderDirection: RampDirection;
   }) {
     if (wallet.kyc.status !== 'verified') {
+      // Native sheets sit above AppPopup; dismiss them before requesting KYC.
+      setQuoteSheetVisible(false);
+      setOrderQueueVisible(false);
+      closeBankPicker();
+      closeSavedPaymentPicker();
+      Keyboard.dismiss();
       showPopup({
         actions: [
           { style: 'cancel', text: 'Not now' },

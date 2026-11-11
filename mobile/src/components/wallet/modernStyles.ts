@@ -31,6 +31,9 @@ export const modern = StyleSheet.create({
     zIndex: 30,
   },
   screenInset: {
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 480,
     gap: 18,
     paddingBottom: 126,
   },
@@ -1525,15 +1528,20 @@ export const modern = StyleSheet.create({
     zIndex: 0,
   },
   swapConfirmSheet: {
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 480,
     backgroundColor: '#151715',
     borderColor: 'rgba(255,255,255,0.08)',
     borderTopLeftRadius: 14,
     borderTopRightRadius: 14,
     borderWidth: 1,
+    zIndex: 1,
+  },
+  swapConfirmContent: {
     gap: 14,
     paddingHorizontal: 10,
     paddingTop: 10,
-    zIndex: 1,
   },
   swapConfirmHandle: {
     alignSelf: 'center',

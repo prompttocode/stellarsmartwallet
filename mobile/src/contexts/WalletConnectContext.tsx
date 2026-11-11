@@ -8,11 +8,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {
-  AppState,
-  Linking,
-  type AppStateStatus,
-} from 'react-native';
+import { AppState, Linking, type AppStateStatus } from 'react-native';
 import ReactNativeBiometrics from 'react-native-biometrics';
 import { useIdentityToken } from '@privy-io/expo';
 import { useSignRawHash } from '@privy-io/expo/extended-chains';
@@ -27,16 +23,14 @@ import {
   formatJsonRpcError,
   formatJsonRpcResult,
 } from '@walletconnect/jsonrpc-utils';
-import {
-  buildApprovedNamespaces,
-  getSdkError,
-} from '@walletconnect/utils';
+import { buildApprovedNamespaces, getSdkError } from '@walletconnect/utils';
 
 import { api } from '@api/client';
 import { useAppPopup } from '@components/common/AppPopup';
 import type { StellarNetwork } from '@app-types';
 import type { WalletState } from '@hooks/useWallet';
 import { getWalletKit } from '../walletconnect/client';
+import { DAPP_CONNECTIONS_ENABLED } from '@config';
 
 const STELLAR_METHODS = [
   'stellar_signXDR',
@@ -155,8 +149,9 @@ type WalletConnectContextValue = {
   clearResult: () => void;
 };
 
-const WalletConnectContext =
-  createContext<WalletConnectContextValue | null>(null);
+const WalletConnectContext = createContext<WalletConnectContextValue | null>(
+  null,
+);
 
 function wait(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -353,8 +348,9 @@ export function WalletConnectProvider({
   const [initializing, setInitializing] = useState(false);
   const [pairing, setPairing] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
-  const [proposalData, setProposalData] =
-    useState<ProposalTypes.Struct | null>(null);
+  const [proposalData, setProposalData] = useState<ProposalTypes.Struct | null>(
+    null,
+  );
   const [requestQueue, setRequestQueue] = useState<SessionRequestEvent[]>([]);
   const [requestReview, setRequestReview] =
     useState<WalletConnectXdrReview | null>(null);
@@ -457,11 +453,22 @@ export function WalletConnectProvider({
   );
 
   useEffect(() => {
-    const projectId = wallet.walletConnectConfig?.projectId;
+    const projectId = DAPP_CONNECTIONS_ENABLED
+      ? wallet.walletConnectConfig?.projectId
+      : undefined;
 
     if (!projectId) {
+      pendingPairUriRef.current = null;
       clientRef.current = null;
       setClient(null);
+      setInitializing(false);
+      setPairing(false);
+      setLastError(null);
+      setProposalData(null);
+      setRequestQueue([]);
+      setRequestReview(null);
+      setReviewError(null);
+      setResult(null);
       setSessions([]);
       return;
     }
@@ -608,6 +615,10 @@ export function WalletConnectProvider({
       const currentWallet = walletRef.current;
       const normalizedUri = uri.trim();
 
+      if (!DAPP_CONNECTIONS_ENABLED) {
+        return false;
+      }
+
       if (!normalizedUri.startsWith('wc:')) {
         showPopup({
           message: 'This is not a WalletConnect URI.',
@@ -619,7 +630,8 @@ export function WalletConnectProvider({
 
       if (!currentWallet.walletConnectConfig?.projectId) {
         showPopup({
-          message: 'WalletConnect is not available yet. Please try again later.',
+          message:
+            'WalletConnect is not available yet. Please try again later.',
           title: 'WalletConnect unavailable',
           variant: 'warning',
         });
@@ -669,6 +681,10 @@ export function WalletConnectProvider({
   );
 
   useEffect(() => {
+    if (!DAPP_CONNECTIONS_ENABLED) {
+      return undefined;
+    }
+
     function handleUrl(url: string) {
       const uri = extractWalletConnectUri(url);
 
@@ -770,20 +786,17 @@ export function WalletConnectProvider({
     setRequestReview(null);
     setReviewError(null);
 
-    api<WalletConnectXdrReview>(
-      '/api/walletconnect/stellar/review-xdr',
-      {
-        body: JSON.stringify({
-          method: event.params.request.method,
-          network: currentWallet.network,
-          peerName: session?.peer.metadata.name || '',
-          sourceAddress: currentWallet.wallet?.address || '',
-          topic: event.topic,
-          xdr,
-        }),
-        method: 'POST',
-      },
-    )
+    api<WalletConnectXdrReview>('/api/walletconnect/stellar/review-xdr', {
+      body: JSON.stringify({
+        method: event.params.request.method,
+        network: currentWallet.network,
+        peerName: session?.peer.metadata.name || '',
+        sourceAddress: currentWallet.wallet?.address || '',
+        topic: event.topic,
+        xdr,
+      }),
+      method: 'POST',
+    })
       .then(review => {
         if (!cancelled) {
           setRequestReview(review);
@@ -870,8 +883,8 @@ export function WalletConnectProvider({
     const unsupportedChain = unsupportedRequiredChain
       ? unsupportedRequiredChain
       : activeChainRequested
-        ? null
-        : requestedChains[0];
+      ? null
+      : requestedChains[0];
 
     if (
       !currentWallet.account ||
@@ -879,7 +892,8 @@ export function WalletConnectProvider({
       !currentWallet.walletActive
     ) {
       showPopup({
-        message: 'The selected wallet is not active or cannot sign transactions.',
+        message:
+          'The selected wallet is not active or cannot sign transactions.',
         title: 'Cannot connect',
         variant: 'warning',
       });
@@ -910,10 +924,7 @@ export function WalletConnectProvider({
         supportedNamespaces: {
           stellar: {
             accounts: [
-              getAccountId(
-                currentWallet.network,
-                currentWallet.wallet.address,
-              ),
+              getAccountId(currentWallet.network, currentWallet.wallet.address),
             ],
             chains: [chainId],
             events: [],
@@ -1023,7 +1034,9 @@ export function WalletConnectProvider({
         if (available) {
           const { success } = await biometrics.simplePrompt({
             cancelButtonText: 'Cancel',
-            promptMessage: `Approve ${requestReview.operationCount} Stellar operation${
+            promptMessage: `Approve ${
+              requestReview.operationCount
+            } Stellar operation${
               requestReview.operationCount === 1 ? '' : 's'
             }`,
           });

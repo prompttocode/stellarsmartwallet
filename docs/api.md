@@ -121,15 +121,13 @@ Status lỗi hay gặp:
 
 | API | Dùng để | Thành công | Thất bại |
 | --- | --- | --- | --- |
-| `POST /api/session` | Đăng nhập/khôi phục session ví bằng `identityToken` hoặc email demo. Nếu chưa có ví cho network thì backend tạo ví mới. | `200 SessionResponse` | `400` email sai, `401` token sai, `500/502` lỗi Privy/backend. |
-| `POST /api/demo/session` | Mở session demo bằng email, chủ yếu cho testnet. | `200 SessionResponse` | `400` email sai, `500/502` lỗi Privy/backend. |
-| `POST /api/demo/auth-session` | Mở session demo bằng Privy identity token. | `200 SessionResponse` | `400` Privy user không có email, `401` thiếu/sai token. |
+| `POST /api/session` | Đăng nhập/khôi phục session ví bằng `identityToken` của Privy. Nếu chưa có ví cho network thì backend nhận ví embedded do client vừa tạo. | `200 SessionResponse` | `400` tài khoản không có email hợp lệ, `401` thiếu/sai token, `500/502` lỗi Privy/backend. |
+| `POST /api/session/status` | Kiểm tra tài khoản đã có ví trên network hay chưa bằng `identityToken` của Privy. | `200 { email, exists, hasNetworkWallet, network, walletCount }` | `400` tài khoản không có email hợp lệ, `401` thiếu/sai token. |
 
 Body session thường dùng:
 
 ```json
 {
-  "email": "user@example.com",
   "identityToken": "<privy_identity_token>",
   "network": "testnet"
 }
@@ -183,11 +181,10 @@ Body không cần truyền `email`:
 
 | API | Dùng để | Thành công | Thất bại |
 | --- | --- | --- | --- |
-| `POST /api/demo/account` | Seed nhanh Privy user và Stellar wallet demo. | `201 { account }` | `400` email sai, `500/502` lỗi Privy/backend. |
 | `POST /api/wallets/select` | Đổi ví active. Bắt buộc Privy Bearer token. | `200 SessionResponse` | `401` thiếu/hết hạn token, `404` không tìm thấy ví active. |
 | `POST /api/wallets/rename` | Đổi tên ví. Bắt buộc Privy Bearer token. | `200 SessionResponse` | `401` thiếu/hết hạn token, `404` không tìm thấy ví. |
 | `POST /api/wallets/archive` | Ẩn ví khỏi danh sách. Bắt buộc Privy Bearer token. | `200 SessionResponse` | `400` nếu ẩn ví cuối cùng, `401` thiếu/hết hạn token, `404` không tìm thấy ví. |
-| `POST /api/demo/receiver` | Tạo ví người nhận testnet, fund XLM test và add trustline demo để test send token. | `201 { contact, balance }` | `500/502` lỗi Privy/Friendbot/Horizon. |
+| `POST /api/testnet/receiver` | Tạo ví người nhận Testnet, fund XLM test và add trustline để người dùng đã đăng nhập test gửi token. Bắt buộc Privy Bearer token. | `201 { contact, balance }` | `401` thiếu/hết hạn token, `500/502` lỗi Friendbot/Horizon. |
 
 Body tạo receiver demo thường dùng:
 

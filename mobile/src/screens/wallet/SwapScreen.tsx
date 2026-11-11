@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -121,6 +122,7 @@ function SwapSuccessDetailRow({
 export function SwapScreen({ wallet }: { wallet: WalletState }) {
   const screenInsetStyle = useSafeScreenInsetStyle();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const initialBuy =
     wallet.visibleAssets.find(
       asset => asset.assetCode !== wallet.selectedAssetCode,
@@ -604,119 +606,132 @@ export function SwapScreen({ wallet }: { wallet: WalletState }) {
           <View
             style={[
               modern.swapConfirmSheet,
-              { paddingBottom: Math.max(insets.bottom, 14) + 14 },
+              { maxHeight: Math.max(1, windowHeight - insets.top - 12) },
             ]}
           >
-            <View style={modern.swapConfirmHandle} />
-            <View style={modern.swapConfirmHeader}>
-              <Text style={modern.swapConfirmTitle}>Confirm Swap</Text>
-              <View style={modern.swapConfirmCloseSlot}>
-                <PressScale
-                  onPress={() => setReviewVisible(false)}
-                  style={modern.swapConfirmClose}
-                >
-                  <Ionicons color="#FFFFFF" name="close" size={18} />
-                </PressScale>
-              </View>
-            </View>
-
-            <View style={modern.swapConfirmAmounts}>
-              <Text
-                adjustsFontSizeToFit
-                minimumFontScale={0.72}
-                numberOfLines={1}
-                style={modern.swapConfirmAmount}
-              >
-                {formatTokenAmount(sellAmount)}
-              </Text>
-              <View style={modern.swapConfirmTokenBadge}>
-                {sellAsset ? (
-                  <TokenIcon
-                    assetCode={sellAsset.assetCode}
-                    imageUrl={sellAsset.image}
-                    size={14}
-                  />
-                ) : null}
-                <Text style={modern.swapConfirmTokenText}>{sellCode}</Text>
-              </View>
-
-              <View style={modern.swapConfirmArrowCircle}>
-                <Ionicons color="#B8FF45" name="arrow-down" size={22} />
-              </View>
-
-              <Text
-                adjustsFontSizeToFit
-                minimumFontScale={0.72}
-                numberOfLines={1}
-                style={modern.swapConfirmReceiveAmount}
-              >
-                {formatTokenAmount(quote?.toAmount || '0')}
-              </Text>
-              <View style={modern.swapConfirmTokenBadge}>
-                {buyAsset ? (
-                  <TokenIcon
-                    assetCode={buyAsset.assetCode}
-                    imageUrl={buyAsset.image}
-                    size={14}
-                  />
-                ) : null}
-                <Text style={modern.swapConfirmTokenText}>{buyCode}</Text>
-              </View>
-            </View>
-
-            <View style={modern.swapConfirmDetails}>
-              <View style={modern.swapConfirmDetailRow}>
-                <Text style={modern.swapConfirmDetailLabel}>Rate</Text>
-                <Text style={modern.swapConfirmDetailValue}>{rateLabel}</Text>
-              </View>
-              <View style={modern.swapConfirmDetailRow}>
-                <Text style={modern.swapConfirmDetailLabel}>
-                  Minimum Received
-                </Text>
-                <Text style={modern.swapConfirmDetailValue}>
-                  {formatTokenAmount(minimumReceived)} {buyCode}
-                </Text>
-              </View>
-              <View style={modern.swapConfirmDetailRow}>
-                <Text style={modern.swapConfirmDetailLabel}>Slippage Limit</Text>
-                <Text style={modern.swapConfirmDetailValue}>
-                  {slippageLimitLabel}
-                </Text>
-              </View>
-              <View style={modern.swapConfirmDetailRow}>
-                <Text style={modern.swapConfirmDetailLabel}>Network Fee</Text>
-                <Text style={modern.swapConfirmDetailValue}>
-                  {formatEstimatedStellarFee(quote?.feeEstimateXlm)}
-                </Text>
-              </View>
-              <View style={modern.swapConfirmDetailRow}>
-                <View style={modern.swapConfirmRouteLabel}>
-                  <Text style={modern.swapConfirmDetailLabel}>Route</Text>
-                  <Ionicons
-                    color="#8C948D"
-                    name="information-circle-outline"
-                    size={13}
-                  />
-                </View>
-                <Text style={modern.swapConfirmDetailValue}>Stellar DEX</Text>
-              </View>
-            </View>
-
-            <Text style={modern.swapConfirmNote}>
-              Output is estimated. You will receive at least{' '}
-              {formatTokenAmount(minimumReceived)} {buyCode} or the transaction
-              will revert.
-            </Text>
-
-            <PressScale
-              disabled={wallet.isBusy || quoteLoading || submitting || !canSwap}
-              onPress={handleSwap}
-              style={modern.swapConfirmButton}
+            <ScrollView
+              contentContainerStyle={[
+                modern.swapConfirmContent,
+                { paddingBottom: Math.max(insets.bottom, 14) + 14 },
+              ]}
+              bounces={false}
+              showsVerticalScrollIndicator
             >
-              <Text style={modern.swapConfirmButtonText}>
-                {submitting ? 'SWAPPING...' : 'CONFIRM SWAP'}
+              <View style={modern.swapConfirmHandle} />
+              <View style={modern.swapConfirmHeader}>
+                <Text style={modern.swapConfirmTitle}>Confirm Swap</Text>
+                <View style={modern.swapConfirmCloseSlot}>
+                  <PressScale
+                    onPress={() => setReviewVisible(false)}
+                    style={modern.swapConfirmClose}
+                  >
+                    <Ionicons color="#FFFFFF" name="close" size={18} />
+                  </PressScale>
+                </View>
+              </View>
+
+              <View style={modern.swapConfirmAmounts}>
+                <Text
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.72}
+                  numberOfLines={1}
+                  style={modern.swapConfirmAmount}
+                >
+                  {formatTokenAmount(sellAmount)}
+                </Text>
+                <View style={modern.swapConfirmTokenBadge}>
+                  {sellAsset ? (
+                    <TokenIcon
+                      assetCode={sellAsset.assetCode}
+                      imageUrl={sellAsset.image}
+                      size={14}
+                    />
+                  ) : null}
+                  <Text style={modern.swapConfirmTokenText}>{sellCode}</Text>
+                </View>
+
+                <View style={modern.swapConfirmArrowCircle}>
+                  <Ionicons color="#B8FF45" name="arrow-down" size={22} />
+                </View>
+
+                <Text
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.72}
+                  numberOfLines={1}
+                  style={modern.swapConfirmReceiveAmount}
+                >
+                  {formatTokenAmount(quote?.toAmount || '0')}
+                </Text>
+                <View style={modern.swapConfirmTokenBadge}>
+                  {buyAsset ? (
+                    <TokenIcon
+                      assetCode={buyAsset.assetCode}
+                      imageUrl={buyAsset.image}
+                      size={14}
+                    />
+                  ) : null}
+                  <Text style={modern.swapConfirmTokenText}>{buyCode}</Text>
+                </View>
+              </View>
+
+              <View style={modern.swapConfirmDetails}>
+                <View style={modern.swapConfirmDetailRow}>
+                  <Text style={modern.swapConfirmDetailLabel}>Rate</Text>
+                  <Text style={modern.swapConfirmDetailValue}>{rateLabel}</Text>
+                </View>
+                <View style={modern.swapConfirmDetailRow}>
+                  <Text style={modern.swapConfirmDetailLabel}>
+                    Minimum Received
+                  </Text>
+                  <Text style={modern.swapConfirmDetailValue}>
+                    {formatTokenAmount(minimumReceived)} {buyCode}
+                  </Text>
+                </View>
+                <View style={modern.swapConfirmDetailRow}>
+                  <Text style={modern.swapConfirmDetailLabel}>
+                    Slippage Limit
+                  </Text>
+                  <Text style={modern.swapConfirmDetailValue}>
+                    {slippageLimitLabel}
+                  </Text>
+                </View>
+                <View style={modern.swapConfirmDetailRow}>
+                  <Text style={modern.swapConfirmDetailLabel}>Network Fee</Text>
+                  <Text style={modern.swapConfirmDetailValue}>
+                    {formatEstimatedStellarFee(quote?.feeEstimateXlm)}
+                  </Text>
+                </View>
+                <View style={modern.swapConfirmDetailRow}>
+                  <View style={modern.swapConfirmRouteLabel}>
+                    <Text style={modern.swapConfirmDetailLabel}>Route</Text>
+                    <Ionicons
+                      color="#8C948D"
+                      name="information-circle-outline"
+                      size={13}
+                    />
+                  </View>
+                  <Text style={modern.swapConfirmDetailValue}>Stellar DEX</Text>
+                </View>
+              </View>
+
+              <Text style={modern.swapConfirmNote}>
+                Output is estimated. You will receive at least{' '}
+                {formatTokenAmount(minimumReceived)} {buyCode} or the
+                transaction will revert.
               </Text>
-            </PressScale>
+
+              <PressScale
+                disabled={
+                  wallet.isBusy || quoteLoading || submitting || !canSwap
+                }
+                onPress={handleSwap}
+                style={modern.swapConfirmButton}
+              >
+                <Text style={modern.swapConfirmButtonText}>
+                  {submitting ? 'SWAPPING...' : 'CONFIRM SWAP'}
+                </Text>
+              </PressScale>
+            </ScrollView>
           </View>
         </View>
       </Modal>

@@ -17,12 +17,27 @@ import {
 export type Env = {
   ADMIN_BOOTSTRAP_PASSWORD?: string;
   ALLOWED_ORIGINS?: string;
+  APPLE_CLIENT_ID?: string;
+  APPLE_KEY_ID?: string;
+  APPLE_SIGNING_KEY?: string;
+  APPLE_TEAM_ID?: string;
   DB: D1Database;
+  EXCHANGE_ALLOWED_COUNTRIES?: string;
+  EXCHANGE_LICENSE_VALID_UNTIL?: string;
+  EXCHANGE_PROVIDER_ID?: string;
+  EXCHANGE_PROVIDER_NAME?: string;
+  EXCHANGE_PROVIDER_STATUS?: string;
+  EXCHANGE_SANDBOX_ENABLED?: string;
+  EXCHANGE_SANDBOX_PROVIDER_ID?: string;
+  EXCHANGE_UK_PROMOTIONS_APPROVED?: string;
+  EXCHANGE_US_PERMISSIONS_VERIFIED?: string;
+  EXCHANGE_VN_PILOT_LICENSE_ID?: string;
   FRIENDBOT_URL: string;
   HORIZON_MAINNET_URL: string;
   HORIZON_TESTNET_URL: string;
   PARTNER_API_KEY?: string;
-  PAYMENT_API_BASE_URL: string;
+  PARTNER_TRANSACTIONS_API_KEY?: string;
+  PAYMENT_API_BASE_URL?: string;
   PAYMENT_CALLBACK_URL?: string;
   PAYMENT_PARTNER_APP_KEY?: string;
   PRIVY_APP_ID: string;
@@ -43,6 +58,7 @@ type BuildAccountSessionOptions = {
 export type StellarNetwork = 'testnet' | 'mainnet';
 
 const WALLET_EXPORT_REQUEST_TTL_MS = 5 * 60 * 1000;
+const STELLAR_SWAP_PREPARATION_TTL_MS = 60 * 1000;
 
 export type WalletKind = 'privy' | 'watch_only' | 'imported_privy';
 
@@ -73,23 +89,63 @@ export type AccountRecord = {
   wallets?: WalletRecord[];
 };
 
+export type AccountWalletMapping = {
+  accountEmail: string;
+  archived: boolean;
+  network: StellarNetwork;
+  walletAddress: string;
+  walletId: string;
+};
+
+export type StellarTransactionHistoryItem = {
+  amount: string;
+  assetCode: string;
+  assetIssuer: string | null;
+  createdAt: string;
+  direction: string;
+  explorerUrl: string;
+  feeChargedStroops?: string | null;
+  feeChargedXlm?: string | null;
+  from: string;
+  hash: string;
+  id: string;
+  ledger: number;
+  maxFeeStroops?: string | null;
+  maxFeeXlm?: string | null;
+  network: StellarNetwork;
+  operation: string;
+  operationCount?: number | null;
+  to: string;
+};
+
 export type KycStatus = 'not_started' | 'verified';
 
 export type AccountKycRecord = {
   accountEmail: string;
+  address?: string | null;
   cccdHash?: string | null;
   cccdLast4?: string | null;
+  cccdNumber?: string | null;
+  countryCode?: string | null;
   createdAt?: string;
   dob?: string | null;
   fullName?: string | null;
+  home?: string | null;
+  kycImageBack?: string | null;
+  kycImageFront?: string | null;
+  nationality?: string | null;
   phone?: string | null;
+  providerData?: Record<string, unknown> | null;
+  providerEmail?: string | null;
   providerUserId: string;
+  sex?: string | null;
   status: 'verified';
   updatedAt?: string;
 };
 
 export type KycSummary = {
   cccdLast4?: string;
+  countryCode?: string;
   fullName?: string;
   phone?: string;
   providerUserId?: string;
@@ -111,6 +167,35 @@ export type AssetDefinition = {
   rating?: number | null;
   trustLevel: 'verified' | 'discovered' | 'unverified';
   volume7d?: number | null;
+};
+
+export type StellarSwapQuote = {
+  destMin: string;
+  feeEstimateStroops?: string | null;
+  feeEstimateXlm?: string | null;
+  fromAmount: string;
+  fromAssetCode: string;
+  fromAssetIssuer: string | null;
+  path: Array<Record<string, unknown>>;
+  rate: number;
+  toAmount: string;
+  toAssetCode: string;
+  toAssetIssuer: string | null;
+};
+
+type StellarSwapPreparation = {
+  amount: string;
+  expiresAt: number;
+  fromAssetCode: string;
+  fromAssetIssuer: string;
+  network: StellarNetwork;
+  quote: StellarSwapQuote;
+  signingHash: string;
+  sourceAddress: string;
+  sourceWalletId: string;
+  toAssetCode: string;
+  toAssetIssuer: string;
+  transactionXdr: string;
 };
 
 export type DemoIssuer = {
@@ -628,7 +713,14 @@ export function getEmailFromPrivyUser(user: unknown) {
     const type = String(account.type || '').toLowerCase();
 
     return (
-      ['email', 'google', 'google_oauth', 'oauth'].includes(type) &&
+      [
+        'apple',
+        'apple_oauth',
+        'email',
+        'google',
+        'google_oauth',
+        'oauth',
+      ].includes(type) &&
       getValidEmailCandidate(account.email, account.address)
     );
   });
@@ -638,6 +730,42 @@ export function getEmailFromPrivyUser(user: unknown) {
   const emailAccount = emailLinkedAccount || anyEmailLinkedAccount;
 
   return getValidEmailCandidate(emailAccount?.email, emailAccount?.address);
+}
+
+export async function getPrivyUserFromIdentityToken(
+  env: Env,
+  identityToken: string,
+) {
+  const tokenUser = await getPrivyClient(env).users().get({
+    id_token: identityToken,
+  });
+
+  if (isEmailLike(getEmailFromPrivyUser(tokenUser))) {
+    return tokenUser;
+  }
+
+  const userId = String((tokenUser as { id?: string })?.id || '').trim();
+
+  if (!userId) {
+    return tokenUser;
+  }
+
+  // Apple only supplies the email during first authorization. Privy retains
+  // the linked account, so fetch the full record when the compact identity
+  // token does not contain it on a later login.
+  return getPrivyClient(env).users()._get(userId);
+}
+
+export function hasLinkedAppleAccount(user: unknown) {
+  const value = user as {
+    linked_accounts?: Array<{ type?: string }>;
+    linkedAccounts?: Array<{ type?: string }>;
+  } | null;
+  const linkedAccounts = value?.linked_accounts || value?.linkedAccounts || [];
+
+  return linkedAccounts.some(account =>
+    ['apple', 'apple_oauth'].includes(String(account.type || '').toLowerCase()),
+  );
 }
 
 export async function findPrivyUserByEmail(env: Env, email: string) {
@@ -779,6 +907,108 @@ function bytesToBase64Url(bytes: Uint8Array) {
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/g, '');
+}
+
+function textToBase64Url(value: string) {
+  return bytesToBase64Url(new TextEncoder().encode(value));
+}
+
+function getRequiredAppleConfig(env: Env) {
+  const clientId = String(env.APPLE_CLIENT_ID || '').trim();
+  const keyId = String(env.APPLE_KEY_ID || '').trim();
+  const teamId = String(env.APPLE_TEAM_ID || '').trim();
+  const signingKey = String(env.APPLE_SIGNING_KEY || '')
+    .replace(/\\n/g, '\n')
+    .trim();
+
+  if (!clientId || !keyId || !teamId || !signingKey) {
+    throw makeError('APPLE_REVOCATION_NOT_CONFIGURED', 503);
+  }
+
+  if (
+    !signingKey.startsWith('-----BEGIN PRIVATE KEY-----') ||
+    !signingKey.endsWith('-----END PRIVATE KEY-----')
+  ) {
+    throw makeError('APPLE_SIGNING_KEY_INVALID', 503);
+  }
+
+  return { clientId, keyId, signingKey, teamId };
+}
+
+async function createAppleClientSecret(env: Env) {
+  const { clientId, keyId, signingKey, teamId } = getRequiredAppleConfig(env);
+  const encodedKey = signingKey
+    .replace('-----BEGIN PRIVATE KEY-----', '')
+    .replace('-----END PRIVATE KEY-----', '')
+    .replace(/\s+/g, '');
+  let privateKey: CryptoKey;
+
+  try {
+    privateKey = await crypto.subtle.importKey(
+      'pkcs8',
+      base64ToBytes(encodedKey),
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      false,
+      ['sign'],
+    );
+  } catch {
+    throw makeError('APPLE_SIGNING_KEY_INVALID', 503);
+  }
+
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const header = textToBase64Url(
+    JSON.stringify({ alg: 'ES256', kid: keyId, typ: 'JWT' }),
+  );
+  const payload = textToBase64Url(
+    JSON.stringify({
+      aud: 'https://appleid.apple.com',
+      exp: issuedAt + 300,
+      iat: issuedAt,
+      iss: teamId,
+      sub: clientId,
+    }),
+  );
+  const signingInput = `${header}.${payload}`;
+  const signature = await crypto.subtle.sign(
+    { hash: 'SHA-256', name: 'ECDSA' },
+    privateKey,
+    new TextEncoder().encode(signingInput),
+  );
+
+  return {
+    clientId,
+    clientSecret: `${signingInput}.${bytesToBase64Url(
+      new Uint8Array(signature),
+    )}`,
+  };
+}
+
+export async function revokeAppleAuthorization(
+  env: Env,
+  token: string,
+  tokenTypeHint: 'access_token' | 'refresh_token' = 'refresh_token',
+) {
+  const normalizedToken = String(token || '').trim();
+
+  if (!normalizedToken) {
+    throw makeError('APPLE_REVOCATION_TOKEN_REQUIRED', 409);
+  }
+
+  const { clientId, clientSecret } = await createAppleClientSecret(env);
+  const response = await fetch('https://appleid.apple.com/auth/revoke', {
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      token: normalizedToken,
+      token_type_hint: tokenTypeHint,
+    }),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    throw makeError('APPLE_AUTHORIZATION_REVOCATION_FAILED', 502);
+  }
 }
 
 function base64UrlToBytes(value: string) {
@@ -1139,6 +1369,105 @@ export async function getAccountByEmail(env: Env, emailValue: unknown) {
   return row?.data ? jsonParse<AccountRecord | null>(row.data, null) : null;
 }
 
+export function getAccountWalletMappings(
+  account: AccountRecord,
+): AccountWalletMapping[] {
+  const accountEmail = normalizeEmail(account.email);
+  const candidates = [
+    ...(Array.isArray(account.wallets) ? account.wallets : []),
+    ...(account.wallet ? [account.wallet] : []),
+  ];
+  const seen = new Set<string>();
+
+  return candidates.flatMap(wallet => {
+    const walletId = String(wallet?.id || '').trim();
+    const walletAddress = String(wallet?.address || '')
+      .trim()
+      .toUpperCase();
+    const network = normalizeNetwork(wallet?.network);
+    const key = `${walletId}:${network}`;
+
+    if (!accountEmail || !walletId || !walletAddress || seen.has(key)) {
+      return [];
+    }
+
+    seen.add(key);
+
+    return [
+      {
+        accountEmail,
+        archived: Boolean(wallet.archived),
+        network,
+        walletAddress,
+        walletId,
+      },
+    ];
+  });
+}
+
+async function syncAccountWalletMappings(env: Env, account: AccountRecord) {
+  const accountEmail = normalizeEmail(account.email);
+  const mappings = getAccountWalletMappings(account);
+
+  if (!accountEmail) {
+    return;
+  }
+
+  try {
+    const deleteSql = mappings.length
+      ? `DELETE FROM account_wallets
+         WHERE account_email = ?
+           AND NOT (${mappings
+             .map(() => '(wallet_id = ? AND network = ?)')
+             .join(' OR ')})`
+      : 'DELETE FROM account_wallets WHERE account_email = ?';
+    const deleteValues = mappings.flatMap(mapping => [
+      mapping.walletId,
+      mapping.network,
+    ]);
+    const statements = [
+      env.DB.prepare(deleteSql).bind(accountEmail, ...deleteValues),
+      ...mappings.map(mapping =>
+        env.DB.prepare(
+          `INSERT INTO account_wallets (
+             account_email,
+             wallet_id,
+             wallet_address,
+             network,
+             archived,
+             updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(account_email, wallet_id, network) DO UPDATE SET
+             wallet_address = excluded.wallet_address,
+             archived = excluded.archived,
+             updated_at = excluded.updated_at
+           WHERE account_wallets.wallet_address <> excluded.wallet_address
+              OR account_wallets.archived <> excluded.archived`,
+        ).bind(
+          mapping.accountEmail,
+          mapping.walletId,
+          mapping.walletAddress,
+          mapping.network,
+          mapping.archived ? 1 : 0,
+          nowIso(),
+        ),
+      ),
+    ];
+
+    await env.DB.batch(statements);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        error: error instanceof Error ? error.message : String(error),
+        event: 'account_wallet_mapping.sync_failed',
+        service: 'transaction-history',
+        timestamp: nowIso(),
+        walletCount: mappings.length,
+      }),
+    );
+  }
+}
+
 export async function saveAccount(env: Env, account: AccountRecord) {
   const now = nowIso();
   const email = normalizeEmail(account.email);
@@ -1167,6 +1496,8 @@ export async function saveAccount(env: Env, account: AccountRecord) {
       item.updatedAt || now,
     )
     .run();
+
+  await syncAccountWalletMappings(env, item);
 
   return item;
 }
@@ -1222,13 +1553,28 @@ function normalizeKycRow(
 
   return {
     accountEmail,
+    address: row.address ? String(row.address) : null,
     cccdHash: row.cccd_hash ? String(row.cccd_hash) : null,
     cccdLast4: row.cccd_last4 ? String(row.cccd_last4) : null,
+    cccdNumber: row.cccd_number ? String(row.cccd_number) : null,
+    countryCode: row.country_code ? String(row.country_code) : null,
     createdAt: row.created_at ? String(row.created_at) : undefined,
     dob: row.dob ? String(row.dob) : null,
     fullName: row.full_name ? String(row.full_name) : null,
+    home: row.home ? String(row.home) : null,
+    kycImageBack: row.kyc_image_back ? String(row.kyc_image_back) : null,
+    kycImageFront: row.kyc_image_front ? String(row.kyc_image_front) : null,
+    nationality: row.nationality ? String(row.nationality) : null,
     phone: row.phone ? String(row.phone) : null,
+    providerData: row.provider_data
+      ? jsonParse<Record<string, unknown> | null>(
+          String(row.provider_data),
+          null,
+        )
+      : null,
+    providerEmail: row.provider_email ? String(row.provider_email) : null,
     providerUserId,
+    sex: row.sex ? String(row.sex) : null,
     status: 'verified',
     updatedAt: row.updated_at ? String(row.updated_at) : undefined,
   };
@@ -1241,6 +1587,7 @@ export function summarizeKyc(record?: AccountKycRecord | null): KycSummary {
 
   return {
     ...(record.cccdLast4 ? { cccdLast4: record.cccdLast4 } : null),
+    ...(record.countryCode ? { countryCode: record.countryCode } : null),
     ...(record.fullName ? { fullName: record.fullName } : null),
     ...(record.phone ? { phone: record.phone } : null),
     providerUserId: record.providerUserId,
@@ -1302,21 +1649,41 @@ export async function saveAccountKyc(
        status,
        full_name,
        phone,
+       cccd_number,
        cccd_last4,
        cccd_hash,
+       country_code,
        dob,
+       provider_email,
+       address,
+       home,
+       sex,
+       nationality,
+       kyc_image_front,
+       kyc_image_back,
+       provider_data,
        created_at,
        updated_at
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(account_email) DO UPDATE SET
        provider_user_id = excluded.provider_user_id,
        status = excluded.status,
        full_name = excluded.full_name,
        phone = excluded.phone,
+       cccd_number = excluded.cccd_number,
        cccd_last4 = excluded.cccd_last4,
        cccd_hash = excluded.cccd_hash,
+       country_code = excluded.country_code,
        dob = excluded.dob,
+       provider_email = excluded.provider_email,
+       address = excluded.address,
+       home = excluded.home,
+       sex = excluded.sex,
+       nationality = excluded.nationality,
+       kyc_image_front = excluded.kyc_image_front,
+       kyc_image_back = excluded.kyc_image_back,
+       provider_data = excluded.provider_data,
        updated_at = excluded.updated_at`,
   )
     .bind(
@@ -1325,9 +1692,19 @@ export async function saveAccountKyc(
       item.status,
       item.fullName || null,
       item.phone || null,
+      item.cccdNumber || null,
       item.cccdLast4 || null,
       item.cccdHash || null,
+      item.countryCode || null,
       item.dob || null,
+      item.providerEmail || null,
+      item.address || null,
+      item.home || null,
+      item.sex || null,
+      item.nationality || null,
+      item.kycImageFront || null,
+      item.kycImageBack || null,
+      item.providerData ? JSON.stringify(item.providerData) : null,
       existing?.createdAt || now,
       now,
     )
@@ -1344,6 +1721,85 @@ export async function requireVerifiedKyc(env: Env, emailValue: unknown) {
   }
 
   return kyc;
+}
+
+export async function deleteAccountPermanently(
+  env: Env,
+  account: AccountRecord,
+  options: {
+    appleOAuthToken?: string;
+    appleTokenTypeHint?: 'access_token' | 'refresh_token';
+    requireAppleRevocation?: boolean;
+  } = {},
+) {
+  const email = normalizeEmail(account.email);
+  const userId = String(account.id || '').trim();
+
+  if (!isEmailLike(email) || !userId) {
+    throw makeError('Authenticated account identity is incomplete', 409);
+  }
+
+  // Check the local deletion schema before revoking external credentials. This
+  // prevents a missing migration from deleting the Privy identity first and
+  // leaving the user unable to retry removal of local PII.
+  try {
+    const schema = await env.DB.prepare(
+      `SELECT name
+       FROM sqlite_master
+       WHERE type = 'table'
+         AND name IN (
+           'account_transactions',
+           'account_exchange_profiles',
+           'account_kyc',
+           'account_payment_methods',
+           'account_favorite_assets',
+           'account_feedback',
+           'account_wallets',
+           'ramp_orders',
+           'accounts'
+         )`,
+    ).all<{ name: string }>();
+    const existingTables = new Set(
+      (schema.results || []).map(row => String(row.name || '')),
+    );
+
+    if (existingTables.size !== 9) {
+      throw new Error('Account deletion migration is incomplete');
+    }
+  } catch {
+    throw makeError('ACCOUNT_DELETION_STORAGE_NOT_READY', 503);
+  }
+
+  if (options.requireAppleRevocation) {
+    await revokeAppleAuthorization(
+      env,
+      options.appleOAuthToken || '',
+      options.appleTokenTypeHint,
+    );
+  }
+
+  // Delete the Privy user next so its linked OAuth identities and embedded
+  // wallets can no longer be used to create a new local session.
+  await getPrivyClient(env).users().delete(userId);
+
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM account_transactions WHERE account_email = ?').bind(email),
+    env.DB.prepare('DELETE FROM account_exchange_profiles WHERE account_email = ?').bind(email),
+    env.DB.prepare('DELETE FROM account_kyc WHERE account_email = ?').bind(email),
+    env.DB.prepare('DELETE FROM account_payment_methods WHERE account_email = ?').bind(email),
+    env.DB.prepare('DELETE FROM account_favorite_assets WHERE account_email = ?').bind(email),
+    env.DB.prepare('DELETE FROM account_feedback WHERE account_email = ?').bind(email),
+    env.DB.prepare('DELETE FROM account_wallets WHERE account_email = ?').bind(email),
+    env.DB.prepare('DELETE FROM ramp_orders WHERE account_email = ?').bind(email),
+    env.DB.prepare('DELETE FROM accounts WHERE email = ?').bind(email),
+  ]);
+
+  return {
+    blockchainHistoryRetained: true,
+    deleted: true,
+    appleAuthorizationRevoked: Boolean(options.requireAppleRevocation),
+    providerIdentityDeleted: true,
+  };
 }
 
 export async function saveContact(
@@ -1525,15 +1981,22 @@ export async function requireAuthenticatedAccount(
   env: Env,
   authorizationHeader: string | undefined,
 ) {
+  return (
+    await requireAuthenticatedAccountContext(env, authorizationHeader)
+  ).account;
+}
+
+export async function requireAuthenticatedAccountContext(
+  env: Env,
+  authorizationHeader: string | undefined,
+) {
   const identityToken = getBearerToken(authorizationHeader, {});
 
   if (!identityToken) {
     throw makeError('Privy session is required for this action', 401);
   }
 
-  const user = await getPrivyClient(env).users().get({
-    id_token: identityToken,
-  });
+  const user = await getPrivyUserFromIdentityToken(env, identityToken);
   const email = getEmailFromPrivyUser(user);
   const userId = String((user as { id?: string })?.id || '');
 
@@ -1547,10 +2010,12 @@ export async function requireAuthenticatedAccount(
     throw makeError('Wallet account not found', 404);
   }
 
-  return saveAccount(env, {
+  const authenticatedAccount = await saveAccount(env, {
     ...account,
     ...(userId ? { id: userId } : null),
   });
+
+  return { account: authenticatedAccount, user };
 }
 
 export async function requireAccountContext(
@@ -1564,9 +2029,7 @@ export async function requireAccountContext(
   let userId = '';
 
   if (identityToken) {
-    const user = await getPrivyClient(env).users().get({
-      id_token: identityToken,
-    });
+    const user = await getPrivyUserFromIdentityToken(env, identityToken);
 
     tokenEmail = getEmailFromPrivyUser(user);
     userId = String((user as { id?: string })?.id || '');
@@ -2656,54 +3119,300 @@ export async function submitPrivySignedTransaction({
   }
 }
 
-export function parsePathAsset(assetRecord: Record<string, any>) {
+export function parsePathAsset(assetRecord: Record<string, unknown>) {
   if (assetRecord.asset_type === 'native') {
     return Asset.native();
   }
 
-  return new Asset(assetRecord.asset_code, assetRecord.asset_issuer);
+  return new Asset(
+    String(assetRecord.asset_code || ''),
+    String(assetRecord.asset_issuer || ''),
+  );
 }
 
-export async function quoteStellarSwap(
+type StellarSwapInput = {
+  amount: unknown;
+  fromAssetCode: unknown;
+  fromAssetIssuer?: unknown;
+  network: StellarNetwork;
+  sourceAddress: string;
+  toAssetCode: unknown;
+  toAssetIssuer?: unknown;
+};
+
+type StellarSwapQuoteResolution = {
+  fromDefinition: AssetDefinition;
+  quote: StellarSwapQuote;
+  toDefinition: AssetDefinition;
+};
+
+function logSwapPreparationCache(
+  level: 'info' | 'error',
+  event: string,
+  details: Record<string, unknown>,
+) {
+  const entry = JSON.stringify({
+    event,
+    service: 'stellar-swap-preparation',
+    timestamp: new Date().toISOString(),
+    ...details,
+  });
+
+  if (level === 'error') {
+    console.error(entry);
+    return;
+  }
+
+  console.info(entry);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+export function parseStellarSwapQuote(value: unknown): StellarSwapQuote | null {
+  let parsed = value;
+
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+
+  if (!isRecord(parsed) || !Array.isArray(parsed.path)) {
+    return null;
+  }
+
+  const rate = Number(parsed.rate);
+  const requiredStrings = [
+    parsed.destMin,
+    parsed.fromAmount,
+    parsed.fromAssetCode,
+    parsed.toAmount,
+    parsed.toAssetCode,
+  ];
+
+  if (
+    requiredStrings.some((item) => typeof item !== 'string' || !item) ||
+    !Number.isFinite(rate) ||
+    rate <= 0 ||
+    !parsed.path.every(isRecord)
+  ) {
+    return null;
+  }
+
+  return {
+    destMin: parsed.destMin as string,
+    feeEstimateStroops:
+      typeof parsed.feeEstimateStroops === 'string'
+        ? parsed.feeEstimateStroops
+        : null,
+    feeEstimateXlm:
+      typeof parsed.feeEstimateXlm === 'string'
+        ? parsed.feeEstimateXlm
+        : null,
+    fromAmount: parsed.fromAmount as string,
+    fromAssetCode: parsed.fromAssetCode as string,
+    fromAssetIssuer:
+      typeof parsed.fromAssetIssuer === 'string'
+        ? parsed.fromAssetIssuer
+        : null,
+    path: parsed.path,
+    rate,
+    toAmount: parsed.toAmount as string,
+    toAssetCode: parsed.toAssetCode as string,
+    toAssetIssuer:
+      typeof parsed.toAssetIssuer === 'string' ? parsed.toAssetIssuer : null,
+  };
+}
+
+async function saveStellarSwapPreparation(
   env: Env,
+  preparation: StellarSwapPreparation,
+) {
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        'DELETE FROM stellar_swap_preparations WHERE expires_at < ?',
+      ).bind(Date.now()),
+      env.DB.prepare(
+        `INSERT INTO stellar_swap_preparations (
+          signing_hash,
+          transaction_xdr,
+          network,
+          source_address,
+          source_wallet_id,
+          amount,
+          from_asset_code,
+          from_asset_issuer,
+          to_asset_code,
+          to_asset_issuer,
+          quote_json,
+          expires_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(signing_hash) DO UPDATE SET
+          transaction_xdr = excluded.transaction_xdr,
+          network = excluded.network,
+          source_address = excluded.source_address,
+          source_wallet_id = excluded.source_wallet_id,
+          amount = excluded.amount,
+          from_asset_code = excluded.from_asset_code,
+          from_asset_issuer = excluded.from_asset_issuer,
+          to_asset_code = excluded.to_asset_code,
+          to_asset_issuer = excluded.to_asset_issuer,
+          quote_json = excluded.quote_json,
+          expires_at = excluded.expires_at`,
+      ).bind(
+        preparation.signingHash,
+        preparation.transactionXdr,
+        preparation.network,
+        preparation.sourceAddress,
+        preparation.sourceWalletId,
+        preparation.amount,
+        preparation.fromAssetCode,
+        preparation.fromAssetIssuer,
+        preparation.toAssetCode,
+        preparation.toAssetIssuer,
+        JSON.stringify(preparation.quote),
+        preparation.expiresAt,
+      ),
+    ]);
+  } catch (error) {
+    // Safe rollout fallback: an old database schema must not break swaps.
+    logSwapPreparationCache('error', 'swap_preparation_store_failed', {
+      error: error instanceof Error ? error.message : String(error),
+      network: preparation.network,
+      signingHash: preparation.signingHash,
+    });
+  }
+}
+
+async function loadStellarSwapPreparation(
+  env: Env,
+  signingHash: string,
+): Promise<StellarSwapPreparation | null> {
+  try {
+    const row = await env.DB.prepare(
+      `SELECT
+        signing_hash,
+        transaction_xdr,
+        network,
+        source_address,
+        source_wallet_id,
+        amount,
+        from_asset_code,
+        from_asset_issuer,
+        to_asset_code,
+        to_asset_issuer,
+        quote_json,
+        expires_at
+      FROM stellar_swap_preparations
+      WHERE signing_hash = ? AND expires_at >= ?
+      LIMIT 1`,
+    )
+      .bind(signingHash, Date.now())
+      .first<Record<string, unknown>>();
+
+    if (!row) {
+      return null;
+    }
+
+    const quote = parseStellarSwapQuote(row.quote_json);
+    const expiresAt = Number(row.expires_at);
+    const network = String(row.network || '');
+
+    if (
+      !quote ||
+      !Number.isFinite(expiresAt) ||
+      (network !== 'mainnet' && network !== 'testnet')
+    ) {
+      logSwapPreparationCache('error', 'swap_preparation_invalid', {
+        signingHash,
+      });
+      return null;
+    }
+
+    return {
+      amount: String(row.amount || ''),
+      expiresAt,
+      fromAssetCode: String(row.from_asset_code || ''),
+      fromAssetIssuer: String(row.from_asset_issuer || ''),
+      network,
+      quote,
+      signingHash: String(row.signing_hash || ''),
+      sourceAddress: String(row.source_address || ''),
+      sourceWalletId: String(row.source_wallet_id || ''),
+      toAssetCode: String(row.to_asset_code || ''),
+      toAssetIssuer: String(row.to_asset_issuer || ''),
+      transactionXdr: String(row.transaction_xdr || ''),
+    };
+  } catch (error) {
+    // Missing table or a transient D1 failure falls back to the legacy path.
+    logSwapPreparationCache('error', 'swap_preparation_load_failed', {
+      error: error instanceof Error ? error.message : String(error),
+      signingHash,
+    });
+    return null;
+  }
+}
+
+export function assertStellarSwapPreparationMatches(
+  preparation: StellarSwapPreparation,
   {
     amount,
     fromAssetCode,
     fromAssetIssuer,
     network,
     sourceAddress,
+    sourceWalletId,
     toAssetCode,
     toAssetIssuer,
-  }: {
-    amount: unknown;
-    fromAssetCode: unknown;
-    fromAssetIssuer?: unknown;
-    network: StellarNetwork;
-    sourceAddress: string;
-    toAssetCode: unknown;
-    toAssetIssuer?: unknown;
+    transactionXdr,
+  }: StellarSwapInput & {
+    sourceWalletId: string;
+    transactionXdr: string;
   },
 ) {
-  const sendAmount = assertAmount(amount);
-  const sourceAccount = await loadAccount(env, sourceAddress, network);
+  const matches =
+    preparation.expiresAt >= Date.now() &&
+    preparation.transactionXdr === transactionXdr &&
+    preparation.network === network &&
+    preparation.sourceAddress === sourceAddress &&
+    preparation.sourceWalletId === sourceWalletId &&
+    preparation.amount === assertAmount(amount) &&
+    preparation.fromAssetCode === normalizeAssetCode(fromAssetCode) &&
+    preparation.fromAssetIssuer === String(fromAssetIssuer || '').trim() &&
+    preparation.toAssetCode === normalizeAssetCode(toAssetCode) &&
+    preparation.toAssetIssuer === String(toAssetIssuer || '').trim();
 
-  if (!sourceAccount) {
+  if (!matches) {
     throw makeError(
-      `${network === 'mainnet' ? 'Mainnet' : 'Testnet'} wallet is not active. Deposit XLM before swapping.`,
-      400,
+      'Swap preparation changed or expired. Please request a new quote.',
+      409,
     );
   }
+}
 
-  const fromDefinition = await getSupportedAsset(env, {
-    assetCode: fromAssetCode,
-    assetIssuer: fromAssetIssuer,
-    network,
-  });
-  const toDefinition = await getSupportedAsset(env, {
-    assetCode: toAssetCode,
-    assetIssuer: toAssetIssuer,
-    network,
-  });
+async function resolveStellarSwapQuote(
+  env: Env,
+  input: StellarSwapInput,
+  sourceAccount: NonNullable<Awaited<ReturnType<typeof loadAccount>>>,
+): Promise<StellarSwapQuoteResolution> {
+  const sendAmount = assertAmount(input.amount);
+  const [fromDefinition, toDefinition] = await Promise.all([
+    getSupportedAsset(env, {
+      assetCode: input.fromAssetCode,
+      assetIssuer: input.fromAssetIssuer,
+      network: input.network,
+    }),
+    getSupportedAsset(env, {
+      assetCode: input.toAssetCode,
+      assetIssuer: input.toAssetIssuer,
+      network: input.network,
+    }),
+  ]);
 
   if (fromDefinition.assetCode === toDefinition.assetCode) {
     throw makeError('Choose two different tokens to swap', 400);
@@ -2712,32 +3421,102 @@ export async function quoteStellarSwap(
   ensureTrustline(sourceAccount, fromDefinition, 'Source wallet');
   assertSufficientBalance(sourceAccount, fromDefinition, sendAmount);
 
-  const records = await getStellarServer(env, network)
+  const records = await getStellarServer(env, input.network)
     .strictSendPaths(getAssetForOperation(fromDefinition), sendAmount, [
       getAssetForOperation(toDefinition),
     ])
     .call();
-  const bestPath = (records as any)?.records?.[0];
+  const bestPath = records.records?.[0];
 
   if (!bestPath) {
     throw makeError('No swap path found on Stellar DEX', 400);
   }
 
-  const destinationAmount = bestPath.destination_amount;
-  const destMin = formatStellarAmount(Number(destinationAmount) * 0.995);
+  const destinationAmount = String(bestPath.destination_amount || '');
+  const destinationValue = Number(destinationAmount);
+
+  if (!Number.isFinite(destinationValue) || destinationValue <= 0) {
+    throw makeError('Stellar returned an invalid swap quote', 502);
+  }
+
+  const destMin = formatStellarAmount(destinationValue * 0.995);
+  const path = (bestPath.path || []).map((asset) => ({
+    asset_code: asset.asset_code,
+    asset_issuer: asset.asset_issuer,
+    asset_type: asset.asset_type,
+  }));
 
   return {
-    destMin,
-    ...getDefaultFeeEstimateFields(1),
-    fromAmount: sendAmount,
-    fromAssetCode: fromDefinition.assetCode,
-    fromAssetIssuer: fromDefinition.assetIssuer,
-    path: bestPath.path || [],
-    rate: Number(destinationAmount) / Number(sendAmount),
-    toAmount: destinationAmount,
-    toAssetCode: toDefinition.assetCode,
-    toAssetIssuer: toDefinition.assetIssuer,
+    fromDefinition,
+    quote: {
+      destMin,
+      ...getDefaultFeeEstimateFields(1),
+      fromAmount: sendAmount,
+      fromAssetCode: fromDefinition.assetCode,
+      fromAssetIssuer: fromDefinition.assetIssuer,
+      path,
+      rate: destinationValue / Number(sendAmount),
+      toAmount: destinationAmount,
+      toAssetCode: toDefinition.assetCode,
+      toAssetIssuer: toDefinition.assetIssuer,
+    },
+    toDefinition,
   };
+}
+
+export async function quoteStellarSwap(env: Env, input: StellarSwapInput) {
+  const sourceAccount = await loadAccount(
+    env,
+    input.sourceAddress,
+    input.network,
+  );
+
+  if (!sourceAccount) {
+    throw makeError(
+      `${input.network === 'mainnet' ? 'Mainnet' : 'Testnet'} wallet is not active. Deposit XLM before swapping.`,
+      400,
+    );
+  }
+
+  const { quote } = await resolveStellarSwapQuote(env, input, sourceAccount);
+  return quote;
+}
+
+function assertSignedSwapTransaction({
+  fromDefinition,
+  quote,
+  sourceAddress,
+  toDefinition,
+  transaction,
+}: {
+  fromDefinition: AssetDefinition;
+  quote: StellarSwapQuote;
+  sourceAddress: string;
+  toDefinition: AssetDefinition;
+  transaction: ReturnType<TransactionBuilder['build']>;
+}) {
+  const operation = (transaction.operations || [])[0] as
+    | Record<string, any>
+    | undefined;
+  const operationSource = operation?.source
+    ? String(operation.source)
+    : sourceAddress;
+  const destMinAmount = Number(operation?.destMin || 0);
+
+  if (
+    transaction.source !== sourceAddress ||
+    transaction.operations.length !== 1 ||
+    operation?.type !== 'pathPaymentStrictSend' ||
+    operationSource !== sourceAddress ||
+    String(operation.destination || '') !== sourceAddress ||
+    !stellarAmountsEqual(operation.sendAmount, quote.fromAmount) ||
+    !Number.isFinite(destMinAmount) ||
+    destMinAmount <= 0 ||
+    !operationAssetMatches(operation.sendAsset, fromDefinition) ||
+    !operationAssetMatches(operation.destAsset, toDefinition)
+  ) {
+    throw makeError('Signed transaction does not match the swap request', 400);
+  }
 }
 
 export async function executeStellarSwap(
@@ -2749,6 +3528,7 @@ export async function executeStellarSwap(
     fromAssetCode,
     fromAssetIssuer,
     network,
+    expectedSigningHash,
     sourceAddress,
     sourceWallet,
     sourceWalletId,
@@ -2762,6 +3542,7 @@ export async function executeStellarSwap(
     fromAssetCode: unknown;
     fromAssetIssuer?: unknown;
     network: StellarNetwork;
+    expectedSigningHash?: unknown;
     sourceAddress: string;
     sourceWallet?: WalletRecord;
     sourceWalletId: string;
@@ -2774,7 +3555,14 @@ export async function executeStellarSwap(
     throw makeError('Missing Privy wallet id for swap', 400);
   }
 
-  const quote = await quoteStellarSwap(env, {
+  if (Boolean(clientSignatureHex) !== Boolean(transactionXdr)) {
+    throw makeError(
+      'Both the Stellar transaction and its signature are required',
+      400,
+    );
+  }
+
+  const swapInput: StellarSwapInput = {
     amount,
     fromAssetCode,
     fromAssetIssuer,
@@ -2782,75 +3570,125 @@ export async function executeStellarSwap(
     sourceAddress,
     toAssetCode,
     toAssetIssuer,
-  });
-  const sourceAccount = await loadAccount(env, sourceAddress, network);
-
-  if (!sourceAccount) {
-    throw makeError(
-      `${network === 'mainnet' ? 'Mainnet' : 'Testnet'} wallet is not active. Deposit XLM first.`,
-      400,
-    );
-  }
-
-  const fromDefinition = await getSupportedAsset(env, {
-    assetCode: fromAssetCode,
-    assetIssuer: fromAssetIssuer,
-    network,
-  });
-  const toDefinition = await getSupportedAsset(env, {
-    assetCode: toAssetCode,
-    assetIssuer: toAssetIssuer,
-    network,
-  });
-  ensureTrustline(sourceAccount, toDefinition, 'Recipient wallet');
-  const config = getNetworkConfig(env, network);
-  const preparedTransaction = new TransactionBuilder(sourceAccount, {
-    fee: BASE_FEE,
-    networkPassphrase: config.passphrase,
-  })
-    .addOperation(
-      Operation.pathPaymentStrictSend({
-        destAsset: getAssetForOperation(toDefinition),
-        destination: sourceAddress,
-        destMin: quote.destMin,
-        path: quote.path.map(parsePathAsset),
-        sendAmount: quote.fromAmount,
-        sendAsset: getAssetForOperation(fromDefinition),
-      }),
-    )
-    .setTimeout(60)
-    .build();
-  const transaction =
-    clientSignatureHex && transactionXdr
-      ? requireClassicTransaction(parseStellarXdr(env, transactionXdr, network))
-      : preparedTransaction;
-  const signingHash = `0x${bytesToHex(transaction.hash() as Uint8Array)}`;
+  };
+  let quote: StellarSwapQuote;
+  let fromDefinition: AssetDefinition;
+  let toDefinition: AssetDefinition;
+  let transaction: ReturnType<TransactionBuilder['build']>;
+  let signingHash: string;
 
   if (clientSignatureHex && transactionXdr) {
-    const operation = (transaction.operations || [])[0] as
-      Record<string, any> | undefined;
-    const operationSource = operation?.source
-      ? String(operation.source)
-      : sourceAddress;
-    const destMinAmount = Number(operation?.destMin || 0);
+    const normalizedXdr = String(transactionXdr).trim();
+    transaction = requireClassicTransaction(
+      parseStellarXdr(env, normalizedXdr, network),
+    );
+    signingHash = `0x${bytesToHex(transaction.hash() as Uint8Array)}`;
+    const normalizedExpectedHash = String(expectedSigningHash || '')
+      .trim()
+      .toLowerCase();
 
     if (
-      transaction.source !== sourceAddress ||
-      transaction.operations.length !== 1 ||
-      operation?.type !== 'pathPaymentStrictSend' ||
-      operationSource !== sourceAddress ||
-      String(operation.destination || '') !== sourceAddress ||
-      !stellarAmountsEqual(operation.sendAmount, quote.fromAmount) ||
-      !Number.isFinite(destMinAmount) ||
-      destMinAmount <= 0 ||
-      !operationAssetMatches(operation.sendAsset, fromDefinition) ||
-      !operationAssetMatches(operation.destAsset, toDefinition)
+      normalizedExpectedHash &&
+      normalizedExpectedHash !== signingHash.toLowerCase()
     ) {
+      throw makeError('Transaction changed before signing. Please try again.', 409);
+    }
+
+    const preparation = await loadStellarSwapPreparation(env, signingHash);
+
+    if (preparation) {
+      assertStellarSwapPreparationMatches(preparation, {
+        ...swapInput,
+        sourceWalletId,
+        transactionXdr: normalizedXdr,
+      });
+      quote = preparation.quote;
+      [fromDefinition, toDefinition] = await Promise.all([
+        getSupportedAsset(env, {
+          assetCode: fromAssetCode,
+          assetIssuer: fromAssetIssuer,
+          network,
+        }),
+        getSupportedAsset(env, {
+          assetCode: toAssetCode,
+          assetIssuer: toAssetIssuer,
+          network,
+        }),
+      ]);
+      logSwapPreparationCache('info', 'swap_preparation_hit', {
+        network,
+        signingHash,
+      });
+    } else {
+      const sourceAccount = await loadAccount(env, sourceAddress, network);
+
+      if (!sourceAccount) {
+        throw makeError(
+          `${network === 'mainnet' ? 'Mainnet' : 'Testnet'} wallet is not active. Deposit XLM first.`,
+          400,
+        );
+      }
+
+      const resolution = await resolveStellarSwapQuote(
+        env,
+        swapInput,
+        sourceAccount,
+      );
+      quote = resolution.quote;
+      fromDefinition = resolution.fromDefinition;
+      toDefinition = resolution.toDefinition;
+      ensureTrustline(sourceAccount, toDefinition, 'Recipient wallet');
+      logSwapPreparationCache('info', 'swap_preparation_miss', {
+        network,
+        signingHash,
+      });
+    }
+
+    assertSignedSwapTransaction({
+      fromDefinition,
+      quote,
+      sourceAddress,
+      toDefinition,
+      transaction,
+    });
+  } else {
+    const sourceAccount = await loadAccount(env, sourceAddress, network);
+
+    if (!sourceAccount) {
       throw makeError(
-        'Signed transaction does not match the swap request',
+        `${network === 'mainnet' ? 'Mainnet' : 'Testnet'} wallet is not active. Deposit XLM first.`,
         400,
       );
     }
+
+    const resolution = await resolveStellarSwapQuote(
+      env,
+      swapInput,
+      sourceAccount,
+    );
+    quote = resolution.quote;
+    fromDefinition = resolution.fromDefinition;
+    toDefinition = resolution.toDefinition;
+    ensureTrustline(sourceAccount, toDefinition, 'Recipient wallet');
+
+    const config = getNetworkConfig(env, network);
+    transaction = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: config.passphrase,
+    })
+      .addOperation(
+        Operation.pathPaymentStrictSend({
+          destAsset: getAssetForOperation(toDefinition),
+          destination: sourceAddress,
+          destMin: quote.destMin,
+          path: quote.path.map(parsePathAsset),
+          sendAmount: quote.fromAmount,
+          sendAsset: getAssetForOperation(fromDefinition),
+        }),
+      )
+      .setTimeout(60)
+      .build();
+    signingHash = `0x${bytesToHex(transaction.hash() as Uint8Array)}`;
   }
 
   if (
@@ -2858,13 +3696,29 @@ export async function executeStellarSwap(
     !clientSignatureHex &&
     clientSigningSupported
   ) {
+    const preparedXdr = transaction.toEnvelope().toXDR('base64');
+    await saveStellarSwapPreparation(env, {
+      amount: quote.fromAmount,
+      expiresAt: Date.now() + STELLAR_SWAP_PREPARATION_TTL_MS,
+      fromAssetCode: quote.fromAssetCode,
+      fromAssetIssuer: quote.fromAssetIssuer || '',
+      network,
+      quote,
+      signingHash,
+      sourceAddress,
+      sourceWalletId,
+      toAssetCode: quote.toAssetCode,
+      toAssetIssuer: quote.toAssetIssuer || '',
+      transactionXdr: preparedXdr,
+    });
+
     return {
       ...quote,
       hash: signingHash,
       payoutAddress: sourceAddress,
       requiresClientSignature: true,
       submitted: null,
-      transactionXdr: transaction.toEnvelope().toXDR('base64'),
+      transactionXdr: preparedXdr,
     };
   }
 
@@ -2941,7 +3795,7 @@ export function normalizeOperationRecord(
   address: string,
   operation: Record<string, any>,
   network: StellarNetwork,
-) {
+): StellarTransactionHistoryItem | null {
   const hash = operation.transaction_hash;
 
   if (!hash) {
@@ -3055,6 +3909,155 @@ export function normalizeOperationRecord(
   };
 }
 
+async function saveRegisteredWalletTransactions(
+  env: Env,
+  address: string,
+  network: StellarNetwork,
+  transactions: StellarTransactionHistoryItem[],
+) {
+  if (!transactions.length) {
+    return;
+  }
+
+  try {
+    const owners = await env.DB.prepare(
+      `SELECT account_email, wallet_id, wallet_address
+       FROM account_wallets
+       WHERE network = ? AND wallet_address = ? AND archived = 0`,
+    )
+      .bind(network, address.trim().toUpperCase())
+      .all<{
+        account_email: string;
+        wallet_address: string;
+        wallet_id: string;
+      }>();
+    const registeredWallets = (owners.results || []).filter(
+      owner => owner.account_email && owner.wallet_id && owner.wallet_address,
+    );
+
+    if (!registeredWallets.length) {
+      return;
+    }
+
+    const syncedAt = nowIso();
+    const statements: D1PreparedStatement[] = [];
+    const storedHashes = new Set<string>();
+
+    for (const transaction of transactions) {
+      const transactionHash = String(transaction.hash || '').trim();
+      const operationId = String(transaction.id || transactionHash).trim();
+
+      if (!transactionHash || !operationId) {
+        continue;
+      }
+
+      const data = JSON.stringify(transaction);
+      const ledger = Number(transaction.ledger);
+      const createdAt = String(transaction.createdAt || syncedAt);
+
+      if (!storedHashes.has(transactionHash)) {
+        storedHashes.add(transactionHash);
+        statements.push(
+          env.DB.prepare(
+            `INSERT INTO transactions (
+               hash,
+               network,
+               from_address,
+               to_address,
+               data,
+               created_at
+             ) VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(hash) DO NOTHING`,
+          ).bind(
+            transactionHash,
+            network,
+            transaction.from || null,
+            transaction.to || null,
+            data,
+            createdAt,
+          ),
+        );
+      }
+
+      for (const owner of registeredWallets) {
+        statements.push(
+          env.DB.prepare(
+            `INSERT INTO account_transactions (
+               account_email,
+               wallet_id,
+               wallet_address,
+               network,
+               operation_id,
+               transaction_hash,
+               direction,
+               operation,
+               asset_code,
+               asset_issuer,
+               amount,
+               from_address,
+               to_address,
+               ledger,
+               data,
+               created_at,
+               synced_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(account_email, wallet_id, network, operation_id)
+             DO UPDATE SET
+               transaction_hash = excluded.transaction_hash,
+               direction = excluded.direction,
+               operation = excluded.operation,
+               asset_code = excluded.asset_code,
+               asset_issuer = excluded.asset_issuer,
+               amount = excluded.amount,
+               from_address = excluded.from_address,
+               to_address = excluded.to_address,
+               ledger = excluded.ledger,
+               data = excluded.data,
+               created_at = excluded.created_at,
+               synced_at = excluded.synced_at
+             WHERE account_transactions.data <> excluded.data`,
+          ).bind(
+            owner.account_email,
+            owner.wallet_id,
+            owner.wallet_address,
+            network,
+            operationId,
+            transactionHash,
+            transaction.direction,
+            transaction.operation,
+            transaction.assetCode,
+            transaction.assetIssuer || null,
+            transaction.amount,
+            transaction.from || null,
+            transaction.to || null,
+            Number.isFinite(ledger) ? ledger : null,
+            data,
+            createdAt,
+            syncedAt,
+          ),
+        );
+      }
+    }
+
+    const maxBatchSize = 400;
+
+    for (let index = 0; index < statements.length; index += maxBatchSize) {
+      await env.DB.batch(statements.slice(index, index + maxBatchSize));
+    }
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        error: error instanceof Error ? error.message : String(error),
+        event: 'transaction_history.store_failed',
+        network,
+        service: 'transaction-history',
+        timestamp: nowIso(),
+        transactionCount: transactions.length,
+      }),
+    );
+  }
+}
+
 export async function getAccountHistory(
   env: Env,
   address: string,
@@ -3063,12 +4066,18 @@ export async function getAccountHistory(
 ) {
   const network = normalizeNetwork(networkValue);
   const records = await fetchAccountOperations(env, address, network, limit);
-
-  return records
+  const transactions = records
     .map((operation) =>
       normalizeOperationRecord(env, address, operation, network),
     )
-    .filter(Boolean);
+    .filter(
+      (transaction): transaction is StellarTransactionHistoryItem =>
+        Boolean(transaction),
+    );
+
+  await saveRegisteredWalletTransactions(env, address, network, transactions);
+
+  return transactions;
 }
 
 export function parseStellarXdr(env: Env, xdr: unknown, networkValue: unknown) {

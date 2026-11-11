@@ -1,0 +1,9 @@
+ALTER TABLE account_kyc ADD COLUMN cccd_number TEXT;
+ALTER TABLE account_kyc ADD COLUMN provider_email TEXT;
+ALTER TABLE account_kyc ADD COLUMN address TEXT;
+ALTER TABLE account_kyc ADD COLUMN home TEXT;
+ALTER TABLE account_kyc ADD COLUMN sex TEXT;
+ALTER TABLE account_kyc ADD COLUMN nationality TEXT;
+ALTER TABLE account_kyc ADD COLUMN kyc_image_front TEXT;
+ALTER TABLE account_kyc ADD COLUMN kyc_image_back TEXT;
+ALTER TABLE account_kyc ADD COLUMN provider_data TEXT;

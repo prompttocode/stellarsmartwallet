@@ -88,7 +88,7 @@ describe('kyc routes', () => {
     });
   });
 
-  it('submits CCCD images to the payment API and stores sanitized KYC data', async () => {
+  it('submits CCCD images to the payment API and stores full KYC data', async () => {
     let upstreamBody: Uint8Array | null = null;
     let upstreamContentType = '';
     let upstreamPartnerKey = '';
@@ -108,12 +108,16 @@ describe('kyc routes', () => {
           data: {
             dob: '1990-01-15',
             email: 'user@example.com',
+            address: '12 NGUYEN TRAI',
+            home: 'HA NOI',
             id: 7,
             id_number: '001234567890',
             kyc_image_back: 'https://s3.example/back.jpg',
             kyc_image_front: 'https://s3.example/front.jpg',
             name: 'NGUYEN VAN A',
+            nationality: 'Vietnam',
             phone: '0901234567',
+            sex: 'Male',
           },
           success: true,
         });
@@ -168,15 +172,26 @@ describe('kyc routes', () => {
       env,
       expect.objectContaining({
         accountEmail: 'user@example.com',
+        address: '12 NGUYEN TRAI',
         cccdLast4: '7890',
+        cccdNumber: '001234567890',
         dob: '1990-01-15',
         fullName: 'NGUYEN VAN A',
+        home: 'HA NOI',
+        kycImageBack: 'https://s3.example/back.jpg',
+        kycImageFront: 'https://s3.example/front.jpg',
+        nationality: 'Vietnam',
         phone: '0901234567',
+        providerEmail: 'user@example.com',
         providerUserId: '7',
+        sex: 'Male',
       }),
     );
-    expect(JSON.stringify(vi.mocked(saveAccountKyc).mock.calls[0][1])).not.toContain(
-      's3.example',
+    expect(vi.mocked(saveAccountKyc).mock.calls[0][1].providerData).toEqual(
+      expect.objectContaining({
+        id_number: '001234567890',
+        kyc_image_front: 'https://s3.example/front.jpg',
+      }),
     );
   });
 });

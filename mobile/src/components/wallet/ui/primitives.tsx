@@ -22,8 +22,15 @@ export function useSafeScreenInsetStyle() {
   const insets = useSafeAreaInsets();
 
   return useMemo(
-    () => [modern.screenInset, { paddingTop: insets.top + 18 }],
-    [insets.top],
+    () => [
+      modern.screenInset,
+      {
+        paddingTop: insets.top + 18,
+        paddingLeft: insets.left,
+        paddingRight: insets.right,
+      },
+    ],
+    [insets.top, insets.left, insets.right],
   );
 }
 

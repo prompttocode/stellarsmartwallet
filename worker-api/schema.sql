@@ -15,15 +15,38 @@ CREATE TABLE IF NOT EXISTS account_kyc (
   status TEXT NOT NULL,
   full_name TEXT,
   phone TEXT,
+  cccd_number TEXT,
   cccd_last4 TEXT,
   cccd_hash TEXT,
+  country_code TEXT,
   dob TEXT,
+  provider_email TEXT,
+  address TEXT,
+  home TEXT,
+  sex TEXT,
+  nationality TEXT,
+  kyc_image_front TEXT,
+  kyc_image_back TEXT,
+  provider_data TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_account_kyc_provider_user_id
   ON account_kyc(provider_user_id);
+
+CREATE TABLE IF NOT EXISTS account_exchange_profiles (
+  account_email TEXT PRIMARY KEY,
+  provider_id TEXT NOT NULL,
+  country_code TEXT NOT NULL,
+  kyc_status TEXT NOT NULL,
+  sanctions_status TEXT NOT NULL,
+  reason_code TEXT,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_exchange_profiles_provider_country
+  ON account_exchange_profiles(provider_id, country_code, updated_at);
 
 CREATE TABLE IF NOT EXISTS contacts (
   id TEXT PRIMARY KEY,
@@ -48,6 +71,65 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 CREATE INDEX IF NOT EXISTS idx_transactions_account
   ON transactions(network, from_address, to_address);
+
+CREATE TABLE IF NOT EXISTS account_wallets (
+  account_email TEXT NOT NULL,
+  wallet_id TEXT NOT NULL,
+  wallet_address TEXT NOT NULL,
+  network TEXT NOT NULL,
+  archived INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (account_email, wallet_id, network)
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_wallets_address
+  ON account_wallets(network, wallet_address, archived);
+
+CREATE TABLE IF NOT EXISTS account_transactions (
+  account_email TEXT NOT NULL,
+  wallet_id TEXT NOT NULL,
+  wallet_address TEXT NOT NULL,
+  network TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  transaction_hash TEXT NOT NULL,
+  direction TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  asset_code TEXT NOT NULL,
+  asset_issuer TEXT,
+  amount TEXT NOT NULL,
+  from_address TEXT,
+  to_address TEXT,
+  ledger INTEGER,
+  data TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (account_email, wallet_id, network, operation_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_transactions_history
+  ON account_transactions(account_email, wallet_id, network, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_account_transactions_hash
+  ON account_transactions(network, transaction_hash);
+
+CREATE TABLE IF NOT EXISTS stellar_swap_preparations (
+  signing_hash TEXT PRIMARY KEY,
+  transaction_xdr TEXT NOT NULL,
+  network TEXT NOT NULL,
+  source_address TEXT NOT NULL,
+  source_wallet_id TEXT NOT NULL,
+  amount TEXT NOT NULL,
+  from_asset_code TEXT NOT NULL,
+  from_asset_issuer TEXT NOT NULL DEFAULT '',
+  to_asset_code TEXT NOT NULL,
+  to_asset_issuer TEXT NOT NULL DEFAULT '',
+  quote_json TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_stellar_swap_preparations_expires
+  ON stellar_swap_preparations(expires_at);
 
 CREATE TABLE IF NOT EXISTS ramp_orders (
   payment_code TEXT PRIMARY KEY,

@@ -5,6 +5,7 @@ import { registerBaseRoutes } from './routes/base';
 import { registerCollectibleRoutes } from './routes/collectibles';
 import { registerKycRoutes } from './routes/kyc';
 import { registerRampRoutes } from './routes/ramp';
+import { registerPartnerTransactionRoutes } from './routes/partnerTransactions';
 import { registerStellarRoutes } from './routes/stellar';
 import { registerWalletExportPageRoute } from './routes/walletExportPage';
 import { registerWalletConnectRoutes } from './routes/walletconnect';
@@ -55,6 +56,7 @@ registerKycRoutes(app);
 registerStellarRoutes(app);
 registerCollectibleRoutes(app);
 registerRampRoutes(app);
+registerPartnerTransactionRoutes(app);
 registerWalletConnectRoutes(app);
 
 export default app;
